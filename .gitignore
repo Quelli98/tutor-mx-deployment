@@ -1,8 +1,5 @@
-node_modules
-# Keep environment variables out of version control
+node_modules/
 .env
-
-/generated/prisma
-# Compiled TypeScript output
 dist/
-/src/generated/prisma
+src/generated/
+coverage/
