@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   createAdapter: vi.fn(),
   createClient: vi.fn(),
+  createPool: vi.fn(),
 }));
 
 vi.mock("dotenv/config", () => ({}));
@@ -12,6 +13,18 @@ vi.mock("@prisma/adapter-pg", () => ({
     constructor(options: unknown) {
       mocks.createAdapter(options);
     }
+  },
+}));
+
+vi.mock("pg", () => ({
+  default: {
+    Pool: class {
+      query = vi.fn();
+
+      constructor(options: unknown) {
+        mocks.createPool(options);
+      }
+    },
   },
 }));
 
@@ -29,6 +42,7 @@ beforeEach(() => {
   vi.resetModules();
   mocks.createAdapter.mockClear();
   mocks.createClient.mockClear();
+  mocks.createPool.mockClear();
 });
 
 afterEach(() => {
@@ -49,6 +63,7 @@ describe("database configuration", () => {
 
     expect(mocks.createAdapter).not.toHaveBeenCalled();
     expect(mocks.createClient).not.toHaveBeenCalled();
+    expect(mocks.createPool).not.toHaveBeenCalled();
   });
 
   it("creates Prisma using the configured database URL", async () => {
@@ -56,12 +71,15 @@ describe("database configuration", () => {
 
     const database = await import("./database.js");
 
-    expect(mocks.createAdapter).toHaveBeenCalledWith({
+    expect(mocks.createPool).toHaveBeenCalledWith({
       connectionString: "postgresql://test.example/tutor_mx",
     });
+    expect(mocks.createAdapter).toHaveBeenCalledWith(expect.anything());
     expect(mocks.createClient).toHaveBeenCalledWith({
       adapter: expect.anything(),
     });
     expect(database.prisma).toBeDefined();
+    expect(database.databasePool).toBeDefined();
+    expect(database.queryClient).toBeDefined();
   });
 });

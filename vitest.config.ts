@@ -11,6 +11,12 @@ export default defineConfig({
         "src/generated/**",
       ],
       reporter: ["text", "html", "lcov"],
+      thresholds: {
+        statements: 90,
+        branches: 85,
+        functions: 85,
+        lines: 90,
+      },
     },
   },
 });
