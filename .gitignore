@@ -3,3 +3,6 @@ node_modules
 .env
 
 /generated/prisma
+# Compiled TypeScript output
+dist/
+/src/generated/prisma
