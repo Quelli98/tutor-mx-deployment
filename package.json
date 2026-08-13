@@ -1,13 +1,52 @@
 {
   "name": "tutoring-management-system",
   "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
+  "description": "Tutor Mx handwritten Express API and Neon PostgreSQL data layer",
+  "main": "dist/server.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "vitest run",
+    "test:schema": "vitest run src/database-schema.test.ts",
+    "generate": "prisma generate",
+    "dev": "tsx watch src/server.ts",
+    "build": "tsc -p tsconfig.build.json",
+    "start": "node dist/server.js",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint .",
+    "test:watch": "vitest",
+    "coverage": "vitest run --coverage",
+    "db:migrate": "prisma migrate deploy",
+    "db:seed": "prisma db seed",
+    "db:reset": "prisma migrate reset --force && prisma db seed",
+    "db:verify": "tsx scripts/verify-database.ts",
+    "smoke": "tsx scripts/smoke-health.ts",
+    "security:check": "node scripts/check-repository.mjs",
+    "check": "npm run generate && npm run lint && npm run typecheck && npm test && npm run build && npm run security:check"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
-  "type": "commonjs"
+  "type": "module",
+  "dependencies": {
+    "@prisma/adapter-pg": "^7.9.1",
+    "@prisma/client": "^7.9.1",
+    "dotenv": "^17.4.2",
+    "express": "^5.2.1",
+    "pg": "^8.23.0"
+  },
+  "devDependencies": {
+    "@electric-sql/pglite": "^0.4.3",
+    "@eslint/js": "^10.0.1",
+    "@types/express": "^5.0.6",
+    "@types/node": "^26.2.0",
+    "@types/pg": "^8.15.6",
+    "@types/supertest": "^7.2.1",
+    "@vitest/coverage-v8": "^4.1.10",
+    "eslint": "^10.8.1",
+    "prisma": "^7.9.1",
+    "supertest": "^7.2.2",
+    "tsx": "^4.23.11",
+    "typescript": "^6.0.3",
+    "typescript-eslint": "^8.66.0",
+    "vitest": "^4.1.10"
+  }
 }

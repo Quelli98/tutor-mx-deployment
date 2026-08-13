@@ -1,0 +1,19 @@
+coverage:
+  status:
+    project:
+      backend:
+        flags:
+          - backend
+      frontend:
+        flags:
+          - frontend
+
+flags:
+  backend:
+    paths:
+      - src/
+    carryforward: false
+  frontend:
+    paths:
+      - frontend/src/
+    carryforward: true

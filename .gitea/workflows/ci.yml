@@ -1,0 +1,116 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+    branches:
+      - develop
+      - main
+
+jobs:
+  backend-quality:
+    name: Backend quality and coverage
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate Prisma Client
+        run: npm run generate
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Type-check
+        run: npm run typecheck
+
+      - name: Test with backend coverage
+        run: npm run coverage
+
+      - name: Build
+        run: npm run build
+
+      - name: Check tracked files for secrets and AI attribution
+        run: npm run security:check
+
+      - name: Upload backend coverage to Codecov
+        uses: codecov/codecov-action@v5
+        with:
+          files: ./coverage/lcov.info
+          flags: backend
+          name: tutor-mx-backend
+          fail_ci_if_error: true
+          token: ${{ secrets.CODECOV_TOKEN }}
+
+  postgres-integration:
+    name: Clean PostgreSQL migration and API smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      DATABASE_URL: postgresql://tutor_mx@127.0.0.1:5432/tutor_mx
+      PGPASSWORD: tutor_mx
+      PORT: 3000
+
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: tutor_mx
+          POSTGRES_PASSWORD: tutor_mx
+          POSTGRES_DB: tutor_mx
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U tutor_mx -d tutor_mx"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate Prisma Client
+        run: npm run generate
+
+      - name: Deploy clean migrations
+        run: npm run db:migrate
+
+      - name: Load safe demo data
+        run: npm run db:seed
+
+      - name: Verify constraints and allocation queries
+        run: npm run db:verify
+
+      - name: Build API
+        run: npm run build
+
+      - name: Smoke local health and readiness
+        run: |
+          npm start > /tmp/tutor-mx-api.log 2>&1 &
+          api_pid=$!
+          trap 'kill "$api_pid" 2>/dev/null || true' EXIT
+          SMOKE_BASE_URL=http://127.0.0.1:3000 npm run smoke || {
+            sed -n '1,120p' /tmp/tutor-mx-api.log
+            exit 1
+          }

@@ -1,0 +1,225 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum UserRole {
+  ORGANISER
+  TUTOR
+  STUDENT
+}
+
+enum TimeSlotType {
+  AVAILABLE
+  BUSY
+}
+
+enum AllocationStatus {
+  PROPOSED
+  CONFIRMED
+  CANCELLED
+}
+
+enum TimesheetStatus {
+  DRAFT
+  SUBMITTED
+  APPROVED
+  RETURNED
+}
+
+enum ExcuseStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum OverflowWorkStatus {
+  OPEN
+  FILLED
+  CLOSED
+  CANCELLED
+}
+
+enum VolunteerClaimStatus {
+  PENDING
+  ACCEPTED
+  REJECTED
+  WITHDRAWN
+}
+
+model Profile {
+  id                  Int              @id @default(autoincrement())
+  auth0Id             String           @unique
+  email               String           @unique
+  fullName            String
+  role                UserRole
+  tutorMarks          TutorMark[]
+  timeSlots           TimeSlot[]
+  hourLimit           TutorHourLimit?
+  allocations         Allocation[]
+  workLogs            WorkLog[]
+  timesheets          Timesheet[]      @relation("TutorTimesheets")
+  reviewedTimesheets  Timesheet[]      @relation("TimesheetReviewer")
+  excuses             Excuse[]
+  volunteerClaims     VolunteerClaim[]
+  createdAt           DateTime         @default(now())
+  updatedAt           DateTime         @updatedAt
+}
+
+model Course {
+  id           Int            @id @default(autoincrement())
+  code         String         @unique
+  name         String
+  tutorMarks   TutorMark[]
+  allocations  Allocation[]
+  overflowWork OverflowWork[]
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
+}
+
+model TutorMark {
+  id       Int     @id @default(autoincrement())
+  tutorId  Int
+  courseId Int
+  mark     Decimal @db.Decimal(5, 2)
+  tutor    Profile @relation(fields: [tutorId], references: [id], onDelete: Cascade)
+  course   Course  @relation(fields: [courseId], references: [id], onDelete: Cascade)
+
+  @@unique([tutorId, courseId])
+  @@index([courseId, mark])
+}
+
+model TimeSlot {
+  id       Int          @id @default(autoincrement())
+  tutorId  Int
+  type     TimeSlotType
+  startsAt DateTime
+  endsAt   DateTime
+  tutor    Profile      @relation(fields: [tutorId], references: [id], onDelete: Cascade)
+
+  @@index([tutorId, type, startsAt, endsAt])
+}
+
+model TutorHourLimit {
+  id          Int     @id @default(autoincrement())
+  tutorId     Int     @unique
+  weeklyHours Decimal @db.Decimal(5, 2)
+  tutor       Profile @relation(fields: [tutorId], references: [id], onDelete: Cascade)
+}
+
+model Allocation {
+  id             Int              @id @default(autoincrement())
+  tutorId        Int
+  courseId       Int
+  startsAt       DateTime
+  endsAt         DateTime
+  allocatedHours Decimal          @db.Decimal(5, 2)
+  status         AllocationStatus @default(PROPOSED)
+  tutor          Profile          @relation(fields: [tutorId], references: [id], onDelete: Restrict)
+  course         Course           @relation(fields: [courseId], references: [id], onDelete: Restrict)
+  workLogs       WorkLog[]
+  excuses        Excuse[]
+  overflowWork   OverflowWork?
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+
+  @@unique([id, tutorId])
+  @@index([tutorId, status, startsAt, endsAt])
+  @@index([courseId, status, startsAt])
+}
+
+model Timesheet {
+  id           Int             @id @default(autoincrement())
+  tutorId      Int
+  weekStart    DateTime        @db.Date
+  status       TimesheetStatus @default(DRAFT)
+  submittedAt  DateTime?
+  reviewedAt   DateTime?
+  reviewedById Int?
+  reviewReason String?
+  tutor        Profile         @relation("TutorTimesheets", fields: [tutorId], references: [id], onDelete: Restrict)
+  reviewedBy   Profile?        @relation("TimesheetReviewer", fields: [reviewedById], references: [id], onDelete: Restrict)
+  workLogs     WorkLog[]
+  createdAt    DateTime        @default(now())
+  updatedAt    DateTime        @updatedAt
+
+  @@unique([tutorId, weekStart])
+  @@unique([id, tutorId])
+  @@index([status, submittedAt])
+  @@index([tutorId, status, weekStart])
+}
+
+model WorkLog {
+  id           Int        @id @default(autoincrement())
+  tutorId      Int
+  allocationId Int
+  timesheetId  Int?
+  workDate     DateTime   @db.Date
+  hours        Decimal    @db.Decimal(5, 2)
+  description  String
+  tutor        Profile    @relation(fields: [tutorId], references: [id], onDelete: Restrict)
+  allocation   Allocation @relation(fields: [allocationId, tutorId], references: [id, tutorId], onDelete: Restrict)
+  timesheet    Timesheet? @relation(fields: [timesheetId, tutorId], references: [id, tutorId], onDelete: Restrict)
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  @@unique([tutorId, allocationId, workDate])
+  @@index([tutorId, workDate])
+  @@index([timesheetId])
+}
+
+model Excuse {
+  id           Int           @id @default(autoincrement())
+  tutorId      Int
+  allocationId Int
+  reason       String
+  status       ExcuseStatus  @default(PENDING)
+  reviewReason String?
+  tutor        Profile       @relation(fields: [tutorId], references: [id], onDelete: Restrict)
+  allocation   Allocation    @relation(fields: [allocationId, tutorId], references: [id, tutorId], onDelete: Restrict)
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+
+  @@unique([tutorId, allocationId])
+  @@index([status, createdAt])
+  @@index([tutorId, status])
+}
+
+model OverflowWork {
+  id                 Int                @id @default(autoincrement())
+  courseId           Int
+  sourceAllocationId Int?               @unique
+  startsAt           DateTime
+  endsAt             DateTime
+  hours              Decimal            @db.Decimal(5, 2)
+  status             OverflowWorkStatus @default(OPEN)
+  closesAt           DateTime?
+  course             Course             @relation(fields: [courseId], references: [id], onDelete: Restrict)
+  sourceAllocation   Allocation?         @relation(fields: [sourceAllocationId], references: [id], onDelete: Restrict)
+  volunteerClaims    VolunteerClaim[]
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime            @updatedAt
+
+  @@index([status, startsAt, closesAt])
+  @@index([courseId, status, startsAt])
+}
+
+model VolunteerClaim {
+  id             Int                  @id @default(autoincrement())
+  overflowWorkId Int
+  studentId      Int
+  status         VolunteerClaimStatus @default(PENDING)
+  reviewReason   String?
+  overflowWork   OverflowWork         @relation(fields: [overflowWorkId], references: [id], onDelete: Restrict)
+  student        Profile              @relation(fields: [studentId], references: [id], onDelete: Restrict)
+  createdAt      DateTime             @default(now())
+  updatedAt      DateTime             @updatedAt
+
+  @@unique([overflowWorkId, studentId])
+  @@index([overflowWorkId, status])
+  @@index([studentId, status, createdAt])
+}
