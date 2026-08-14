@@ -1,86 +1,113 @@
 # Tutor Mx System
 
-Tutor Mx is a tutoring-management system built around a handwritten Node.js and Express API, Prisma migrations, and Neon PostgreSQL. Browser code must call the Express API; it must never connect directly to Neon or receive external-service credentials.
+Tutor Mx is one integrated React + Vite, Auth0, handwritten Express, Prisma and Neon PostgreSQL project. Browser code calls only the Express API; it never connects to Neon, Prisma or an Auth0 Management API.
 
-This branch contains the implementable Sprint 2 Member 6 work: the Basic workflow database, safe demo data, allocation queries, a production-ready external API adapter contract, PostgreSQL verification, deployment smoke tooling, and Gitea Actions quality gates.
+## Project structure
 
-## Requirements
+| Path | Purpose |
+| --- | --- |
+| `frontend/` | React interface, Auth0 Universal Login, role routing, account lifecycle and bearer-token request helper |
+| `src/` | Express API, Auth0 access-token verification, protected profile/deletion routes and backend services |
+| `prisma/` | Versioned PostgreSQL schema, migrations and non-personal demo data |
+| `.github/workflows/` | Required GitHub Actions CI, Codecov, PostgreSQL integration and deployment smoke checks |
+| `.gitea/workflows/` | Compatible workflow copies retained from the supplied main-branch archive |
+
+## Requirements and installation
 
 - Node.js 24
 - npm 11 or later
-- PostgreSQL 17 for real database verification (Neon is used by deployed environments)
+- PostgreSQL 17 for local database verification; deployed environments use Neon
 
-## Local setup
+From a clean checkout:
 
-1. Copy `.env.example` to `.env` and replace the local `DATABASE_URL` placeholder.
-2. Install dependencies with `npm ci`.
-3. Generate the Prisma client with `npm run generate`.
-4. Apply migrations with `npm run db:migrate`.
-5. Load non-personal demo records with `npm run db:seed`.
-6. Start the API with `npm run dev`.
+```bash
+npm ci
+npm ci --prefix frontend
+npm run generate
+```
 
-For a disposable development database, `npm run db:reset` rebuilds the schema and then runs the explicit Prisma 7 seed command. Do not run a reset against shared or production data.
+Copy the two example environment files without committing the copies:
+
+```bash
+cp .env.example .env
+cp frontend/.env.example frontend/.env.local
+```
+
+Set the real `DATABASE_URL` only in the backend `.env`. Set matching Auth0 domain, client ID and API audience values in the backend and frontend files. No Auth0 Management API token is used by this implementation.
+
+Apply and seed the database, then start both applications:
+
+```bash
+npm run db:migrate
+npm run db:seed
+npm run dev
+```
+
+The frontend defaults to `http://localhost:5173`; the API defaults to `http://localhost:3000`.
+
+## Auth0 setup and role contract
+
+Create an Auth0 Single Page Application and configure these development URLs:
+
+- Allowed callback URL: `http://localhost:5173`
+- Allowed logout URL: `http://localhost:5173`
+- Allowed web origin: `http://localhost:5173`
+
+Create an Auth0 API whose identifier exactly matches `AUTH0_AUDIENCE` and `VITE_AUTH0_AUDIENCE`, using RS256 access tokens. Configure the database connection named by `AUTH0_DB_CONNECTION` and enable it for the SPA.
+
+The access token must contain the custom claim named by `AUTH0_ROLES_CLAIM` (default `https://tutormx.example/roles`). Its value is an array containing one of `ORGANISER`, `TUTOR` or `STUDENT`. A Post Login Action can derive this from reviewed Auth0 app metadata; never accept a self-selected role during public sign-up. The matching PostgreSQL `Profile.auth0Id` and `Profile.role` remain the application record, and `/api/me` rejects a stale token/database role mismatch.
+
+### HTTP authentication contract
+
+Every protected browser request uses:
+
+```http
+Authorization: Bearer <access-token>
+```
+
+| Route | Access | Success | Relevant errors |
+| --- | --- | --- | --- |
+| `POST /api/auth/password-reset` | Public, validated email | `202 { data: { message } }` with a non-enumerating message | `400 VALIDATION_ERROR`, `503 PASSWORD_RESET_UNAVAILABLE` |
+| `GET /api/me` | Valid token and supported matching role | `200 { data: { profile } }` | `401`, `403`, `404` in `{ error: { code, message } }` |
+| `DELETE /api/auth/delete-account` | Valid token and supported role | `202` documented Sprint 1 stub | `401`, `403` |
+
+The API verifies the RS256 signature against Auth0 JWKS, issuer, audience, subject, expiry and not-before values. The frontend token cache is explicitly in memory. Password entry, sign-up, sign-in and the actual new-password form stay on Auth0 Universal Login.
 
 ## Automated checks
 
 | Command | Purpose |
 | --- | --- |
-| `npm test` | Unit tests plus in-memory PostgreSQL migration, constraint, seed and query tests |
-| `npm run coverage` | Backend tests with HTML and LCOV coverage |
-| `npm run db:verify` | Real PostgreSQL checks for migrations, seed cases, constraints and allocation queries |
-| `npm run lint` | TypeScript lint checks |
-| `npm run typecheck` | Strict TypeScript checks |
-| `npm run build` | Production TypeScript build |
-| `npm run security:check` | Reject tracked environment files/common secrets and verify AI attribution |
-| `npm run check` | Complete local quality rehearsal except the real database check |
-| `SMOKE_BASE_URL=https://... npm run smoke` | Verify deployed `/health` and `/ready` responses |
+| `npm test` | Backend and frontend unit/component/integration tests |
+| `npm run coverage` | Backend and frontend text, HTML and LCOV reports |
+| `npm run lint` | Backend TypeScript and frontend React lint checks |
+| `npm run typecheck` | Strict backend TypeScript check |
+| `npm run build` | Production backend and frontend builds |
+| `npm run db:verify` | Real PostgreSQL migration, seed, constraint and allocation-query checks |
+| `npm run spike:holidays -- 2026` | Server-side South African public-holiday API spike with validated fallback |
+| `npm run security:check` | Tracked secret/environment-file and AI-attribution check |
+| `npm run check` | Full local quality rehearsal except real-database verification |
+| `SMOKE_BASE_URL=https://... npm run smoke` | Deployed `/health` and `/ready` smoke test |
 
-## Basic database workflow
+The CI workflow uploads `coverage/lcov.info` with the `backend` Codecov flag and `frontend/coverage/lcov.info` with the `frontend` flag. Repository administrators must configure `CODECOV_TOKEN`, protect `develop`/`main`, and require all checks.
 
-The Prisma schema and ordered SQL migrations provide profiles/roles, courses, marks, time slots, weekly limits, allocations, work logs, timesheets, excuses, overflow work, and volunteer claims.
-
-PostgreSQL enforces:
-
-- primary, foreign, compound ownership and uniqueness relationships;
-- tutor/student/organiser role relationships;
-- mark, time-period and hour ranges;
-- one claim per student/work item and at most one accepted claim per work item;
-- allocation, timesheet, excuse, overflow and volunteer status transitions;
-- draft/returned timesheet editing and weekly work-log limits;
-- query indexes for dashboards, allocation candidates and open-work boards.
-
-`prisma/seed.sql` uses only reserved `*.example` addresses and `demo|...` identifiers. It includes eligible, low-mark, clash, hour-limit, open-work and closed-work cases and is safe to rerun.
-
-## Member 6 query handoff
-
-`src/services/allocation-queries.ts` exports parameterised queries for:
-
-- allocation candidates with marks, clashes, used/remaining hours and stable reason codes;
-- a tutor's weekly used/remaining hours;
-- the student-safe open-work projection.
-
-Member 5 can call these functions with the exported `queryClient` from `src/database.ts`. Member 5 remains responsible for authentication, role/ownership middleware, transactions and HTTP routes.
-
-## External API adapter handoff
-
-`src/integrations/external-api.ts` is server-only. It provides timeout cancellation, JSON decoding into an explicitly safe shape, source timestamps, and controlled fallback reasons for invalid payloads, rate limits, upstream unavailability, other HTTP failures and network errors. It deliberately has no cache, because no approved freshness rule was supplied.
-
-A domain-specific service and Express endpoint have not been invented: the required Sprint 1 service approval and Member 5 route are absent from this repository. After approval, create a decoder that selects only agreed public fields, instantiate `createJsonExternalApiAdapter` in backend code, and expose its result through the authenticated handwritten API.
-
-## CI, coverage and deployment
-
-`.gitea/workflows/ci.yml` runs backend quality/coverage plus a clean PostgreSQL 17 migration, seed, constraint/query verification and local API smoke. Backend LCOV uploads under the `backend` Codecov flag. `codecov.yml` reserves a separate `frontend` flag; the frontend owner must upload that report when the frontend project is added.
-
-`.gitea/workflows/deployment-smoke.yml` is a manual deployed-health job. A repository administrator must configure `CODECOV_TOKEN` and `DEPLOYMENT_URL`, enable the Gitea Actions runner, and mark the two CI jobs as required checks on `develop` and `main`. No secret belongs in the repository.
-
-See `docs/member-6-handoff.md` for completed evidence and dependency-owned follow-ups.
+See `docs/sprint1-m1-m6-compliance.md`, `docs/member-1-handoff.md`, `docs/member-6-handoff.md` and `docs/github-required-checks.md` for completed evidence and repository-admin follow-ups.
 
 ## AI declaration
 
-This repository makes use of AI code generation using the following tools: Codex[GPT-5].
+This repository makes use of AI code generation using the following tools: Codex[GPT-5], Qoder[exact model not recorded in the supplied Member 1 archive - Member 1 must confirm it before submission].
 
-This repository does not use AI in-line editing tools.
+This repository makes use of AI in-line editing using the following tools: Qoder[exact model not recorded in the supplied Member 1 archive - Member 1 must confirm it before submission].
 
-This repository makes use of AI code-review using the following tools: Codex[GPT-5].
+This repository makes use of AI code review using the following tools: Codex[GPT-5], Qoder[exact model not recorded in the supplied Member 1 archive - Member 1 must confirm it before submission].
+
+The supplied Qoder screenshot records Qoder application version 1.23.0 and VS Code version 1.106.3. Those software versions do not identify the Qoder AI model/tier. Qoder's official model selector can use a specific model or a routed tier, so the actual setting/transcript must be checked rather than inferred from the About dialog.
+
+Commits containing the integrated AI-generated code must include this trailer:
+
+```text
+Assisted-by: Codex[GPT-5]
+```
+
+If the original Member 1 commit also contains Qoder-generated code, its actual `Qoder[model]` must appear in that commit trailer. Do not invent the model name. Preserve the required unedited assessment transcript or permitted substitute.
 
 The preceding document was generated and reviewed with the assistance of the following: Codex[GPT-5].

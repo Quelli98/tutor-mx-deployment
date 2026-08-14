@@ -44,3 +44,27 @@ describe("GET /ready", () => {
     });
   });
 });
+
+describe("unconfigured authentication", () => {
+  it("fails closed when a bearer token is supplied without Auth0 configuration", async () => {
+    const app = createApp(async () => undefined);
+
+    const response = await request(app)
+      .get("/api/me")
+      .set("Authorization", "Bearer token");
+
+    expect(response.status).toBe(401);
+    expect(response.body.error.code).toBe("INVALID_ACCESS_TOKEN");
+  });
+
+  it("fails closed when password reset is not configured", async () => {
+    const app = createApp(async () => undefined);
+
+    const response = await request(app)
+      .post("/api/auth/password-reset")
+      .send({ email: "user@tutormx.example" });
+
+    expect(response.status).toBe(503);
+    expect(response.body.error.code).toBe("PASSWORD_RESET_UNAVAILABLE");
+  });
+});

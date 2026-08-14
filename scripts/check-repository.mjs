@@ -8,8 +8,10 @@ const trackedFiles = execFileSync("git", ["ls-files", "-z"], {
   .filter(Boolean);
 
 const forbiddenEnvironmentFiles = trackedFiles.filter(
-  (file) =>
-    (file === ".env" || file.startsWith(".env.")) && file !== ".env.example",
+  (file) => {
+    const name = file.split("/").at(-1);
+    return (name === ".env" || name?.startsWith(".env.")) && name !== ".env.example";
+  },
 );
 
 if (forbiddenEnvironmentFiles.length > 0) {
@@ -26,7 +28,7 @@ const secretPatterns = [
 ];
 
 for (const file of trackedFiles) {
-  if (file === ".env.example" || statSync(file).size > 1_000_000) {
+  if (file.endsWith(".env.example") || statSync(file).size > 1_000_000) {
     continue;
   }
   const content = readFileSync(file, "utf8");
@@ -36,8 +38,16 @@ for (const file of trackedFiles) {
 }
 
 const readme = readFileSync("README.md", "utf8");
-if (!readme.includes("Codex[GPT-5]")) {
-  throw new Error("README.md is missing the required AI attribution");
+const requiredAiDeclarations = [
+  "AI code generation",
+  "AI in-line editing",
+  "AI code review",
+  "Codex[GPT-5]",
+];
+for (const declaration of requiredAiDeclarations) {
+  if (!readme.includes(declaration)) {
+    throw new Error(`README.md is missing AI declaration: ${declaration}`);
+  }
 }
 
 console.log("Tracked-file secret and AI-attribution checks passed.");
