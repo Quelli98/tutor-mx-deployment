@@ -51,7 +51,7 @@ Final local verification for this integrated archive:
 - Configure the Auth0 SPA, API audience, database connection, callback/logout/origin URLs and reviewed role-claim Action.
 - Link Auth0 subjects to the correct `Profile.auth0Id` and role records in Neon.
 - Configure `CODECOV_TOKEN`, protect `develop`/`main`, open the required PRs and obtain Member 2 review.
-- The supplied screenshot confirms Qoder application version 1.23.0 (VS Code 1.106.3), not the underlying AI model/tier. Confirm the actual model/tier in Qoder's model selector/transcript, or ask the lecturer how to declare automatic routing, then update README/commit attribution before submission.
+- The supplied evidence confirms Qoder application version 1.23.0, VS Code version 1.106.3, Quest Agent mode and the Auto tier. The underlying model was automatically routed and not disclosed; use `Qoder[Auto tier; underlying model automatically routed]` and do not guess a provider model.
 - Commit this generated integration with `Assisted-by: Codex[GPT-5]` and retain the required assessment transcript or allowed substitute.
 
 The preceding document was generated and reviewed with the assistance of the following: Codex[GPT-5].

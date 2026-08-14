@@ -25,7 +25,7 @@ The deletion endpoint returning `202` is not a missing Member 1 Sprint 1 task be
 - GitHub branch protection, Codecov App installation, repository secrets, PR approvals and deployment hosting require access to the actual GitHub/provider accounts and cannot be applied by importing a ZIP.
 
 ## AI declaration status
+The supplied evidence confirms Qoder application version 1.23.0, VS Code version 1.106.3, Quest Agent mode and the Auto tier. Qoder automatically routed each request to an underlying model that was not disclosed, so no specific provider model has been guessed. The truthful declaration is `Qoder[Auto tier; underlying model automatically routed]`.
 
-The supplied About dialog proves Qoder application version 1.23.0 and VS Code version 1.106.3. It does not prove which Qoder AI model or routed tier produced the Member 1 work. The repository therefore records the application version but deliberately leaves `Qoder[exact model not recorded]` unresolved until the contributor checks the Qoder model selector/transcript or obtains lecturer guidance for automatic routing.
 
 The preceding document was generated and reviewed with the assistance of the following: Codex[GPT-5].

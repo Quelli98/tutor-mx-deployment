@@ -94,11 +94,11 @@ See `docs/sprint1-m1-m6-compliance.md`, `docs/member-1-handoff.md`, `docs/member
 
 ## AI declaration
 
-This repository makes use of AI code generation using the following tools: Codex[GPT-5], Qoder[exact model not recorded in the supplied Member 1 archive - Member 1 must confirm it before submission].
+This repository makes use of AI code generation using the following tools: Codex[GPT-5], Qoder[Auto tier; underlying model automatically routed].
 
-This repository makes use of AI in-line editing using the following tools: Qoder[exact model not recorded in the supplied Member 1 archive - Member 1 must confirm it before submission].
+This repository makes use of AI in-line editing using the following tools: Qoder[Auto tier; underlying model automatically routed].
 
-This repository makes use of AI code review using the following tools: Codex[GPT-5], Qoder[exact model not recorded in the supplied Member 1 archive - Member 1 must confirm it before submission].
+This repository makes use of AI code review using the following tools: Codex[GPT-5], Qoder[Auto tier; underlying model automatically routed].
 
 The supplied Qoder screenshot records Qoder application version 1.23.0 and VS Code version 1.106.3. Those software versions do not identify the Qoder AI model/tier. Qoder's official model selector can use a specific model or a routed tier, so the actual setting/transcript must be checked rather than inferred from the About dialog.
 
