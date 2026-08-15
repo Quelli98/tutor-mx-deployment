@@ -7,7 +7,7 @@ Tutor Mx is one integrated React + Vite, Auth0, handwritten Express, Prisma and 
 | Path | Purpose |
 | --- | --- |
 | `frontend/` | React interface, Auth0 Universal Login, role routing, account lifecycle and bearer-token request helper |
-| `src/` | Express API, Auth0 access-token verification, protected profile/deletion routes and backend services |
+| `src/` | Express API, Auth0 access-token verification, protected profile/course/tutor routes, allocation rules and backend services |
 | `prisma/` | Versioned PostgreSQL schema, migrations and non-personal demo data |
 | `.github/workflows/` | Required GitHub Actions CI, Codecov, PostgreSQL integration and deployment smoke checks |
 | `.gitea/workflows/` | Compatible workflow copies retained from the supplied main-branch archive |
@@ -69,6 +69,14 @@ Authorization: Bearer <access-token>
 | --- | --- | --- | --- |
 | `POST /api/auth/password-reset` | Public, validated email | `202 { data: { message } }` with a non-enumerating message | `400 VALIDATION_ERROR`, `503 PASSWORD_RESET_UNAVAILABLE` |
 | `GET /api/me` | Valid token and supported matching role | `200 { data: { profile } }` | `401`, `403`, `404` in `{ error: { code, message } }` |
+| `GET /api/profile/current` | Valid token and supported matching role | Alias of the current-profile contract | `401`, `403`, `404` |
+| `GET /api/courses` | Any supported authenticated role | `200 { data: { courses } }` | `401`, `403`, safe `500` |
+| `POST /api/courses` | Organiser | `201 { data: { course } }` | `400`, `401`, `403`, `409` |
+| `PATCH /api/courses/:courseId` | Organiser | `200 { data: { course } }` | `400`, `401`, `403`, `404`, `409` |
+| `DELETE /api/courses/:courseId` | Organiser | `204` | `400`, `401`, `403`, `404`, `409` |
+| `GET /api/tutors` | Organiser | `200 { data: { tutors } }` | `401`, `403`, safe `500` |
+| `POST /api/tutors` | Organiser | `201 { data: { tutor } }` | `400`, `401`, `403`, `409` |
+| `PATCH /api/tutors/:tutorId` | Organiser | `200 { data: { tutor } }` | `400`, `401`, `403`, `404`, `409` |
 | `DELETE /api/auth/delete-account` | Valid token and supported role | `202` documented Sprint 1 stub | `401`, `403` |
 
 The API verifies the RS256 signature against Auth0 JWKS, issuer, audience, subject, expiry and not-before values. The frontend token cache is explicitly in memory. Password entry, sign-up, sign-in and the actual new-password form stay on Auth0 Universal Login.
@@ -88,9 +96,9 @@ The API verifies the RS256 signature against Auth0 JWKS, issuer, audience, subje
 | `npm run check` | Full local quality rehearsal except real-database verification |
 | `SMOKE_BASE_URL=https://... npm run smoke` | Deployed `/health` and `/ready` smoke test |
 
-The CI workflow uploads `coverage/lcov.info` with the `backend` Codecov flag and `frontend/coverage/lcov.info` with the `frontend` flag. Repository administrators must configure `CODECOV_TOKEN`, protect `develop`/`main`, and require all checks.
+The CI workflow uploads `coverage/lcov.info` with the `backend` Codecov flag and `frontend/coverage/lcov.info` with the `frontend` flag. Repository administrators must configure `CODECOV_TOKEN`, protect `main`, and require all checks. Member branches and integration PRs target `main`; this repository does not require a `develop` branch.
 
-See `docs/sprint1-m1-m6-compliance.md`, `docs/member-1-handoff.md`, `docs/member-6-handoff.md` and `docs/github-required-checks.md` for completed evidence and repository-admin follow-ups.
+See `docs/sprint1-members-1-5-6-integration.md`, `docs/member-1-handoff.md`, `docs/member-5-handoff.md`, `docs/member-6-handoff.md` and `docs/github-required-checks.md` for completed evidence and repository-admin follow-ups.
 
 ## AI declaration
 

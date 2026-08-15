@@ -1,10 +1,10 @@
-# GitHub integration settings for Sprint 1
+# Gitea/GitHub main integration settings for Sprint 1
 
-The repository code supplies the workflows, but a GitHub repository administrator must apply the settings below because branch protection, repository secrets and GitHub App installation are not stored in a ZIP.
+The repository code supplies both Gitea and GitHub workflow copies, but a repository administrator must apply the settings below because branch protection, repository secrets and Codecov installation are not stored in a ZIP.
 
 ## Required pull-request checks
 
-Protect both `develop` and `main`, require a pull request, one approval, resolved conversations, and these exact workflow job names:
+Protect `main`, require a pull request, one approval, resolved conversations, and these exact workflow job names:
 
 - `Backend quality and coverage`
 - `Frontend quality and coverage`
@@ -15,11 +15,12 @@ Block force pushes and branch deletion. Do not allow administrators or the Integ
 
 ## Repository configuration
 
-1. Install the Codecov GitHub App for this repository.
-2. Add `CODECOV_TOKEN` under **Settings > Secrets and variables > Actions**.
-3. Add the protected-branch rules above for `develop` and `main`.
+1. Install the Codecov integration supported by the repository host.
+2. Add `CODECOV_TOKEN` to the repository's Actions secrets.
+3. Add the protected-branch rules above for `main`.
 4. Add `DEPLOYMENT_URL` only after the HTTPS API has been deployed, then run **Deployment smoke** manually.
-5. Open each Member issue branch as a pull request into `develop`; only the Integration Lead opens `develop` into `main`.
+5. Before starting or resuming, run `git checkout main` and `git pull origin main`.
+6. Open each exact Member issue branch as a pull request into `main`. The repository owner/Integration Lead merges approved work into `main` after the required checks pass; no `develop` branch is used.
 
 The workflows read secrets through GitHub's secret context and contain no secret values. The tracked-file security check also rejects committed environment files, common key formats, hard-coded Codecov/Auth0 tokens and PostgreSQL URLs containing passwords.
 

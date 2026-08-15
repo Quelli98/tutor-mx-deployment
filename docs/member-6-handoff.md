@@ -21,7 +21,7 @@ Implemented in `.github/workflows/ci.yml`:
 - clean PostgreSQL migration, safe seed, constraint/query verification and local API health/readiness smoke; and
 - least-privilege workflow permissions, cancellation of superseded runs and secret-only Codecov configuration.
 
-The exact branch-protection settings and required check names are in `docs/github-required-checks.md`. Installing the Codecov GitHub App, adding `CODECOV_TOKEN`, creating protected branches and enabling required checks are GitHub administrator actions and cannot be embedded in the source archive.
+The exact branch-protection settings and required check names are in `docs/github-required-checks.md`. Installing the Codecov app/integration, adding `CODECOV_TOKEN`, protecting `main` and enabling required checks are repository-administrator actions and cannot be embedded in the source archive.
 
 ## S1-M6-3 - Relevant external API spike and fallback contract
 

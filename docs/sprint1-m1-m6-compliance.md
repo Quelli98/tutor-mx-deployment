@@ -8,7 +8,7 @@ This matrix is limited to the Sprint 1 issue assignments on handbook pages 11-13
 | S1-M1-2 lifecycle and roles | Complete in code | Non-enumerating reset request, Auth0-hosted new-password path, two-step deletion confirmation, three-role map and route-guard/cancel/confirm tests; backend deletion remains the documented Sprint 1 stub explicitly permitted by the issue |
 | S1-M1-3 auth contract | Complete in code | Shared bearer-token helper plus backend/frontend tests for missing, invalid/expired, wrong-role and permitted tokens; Express remains the final permission boundary |
 | S1-M6-1 Neon/Prisma | Complete in code | Ordered migrations, constraints, safe three-role seed, reset/setup, migration/constraint tests and secret checks |
-| S1-M6-2 GitHub CI/Codecov | Code complete; repository-admin setup required | `.github/workflows/ci.yml`, separate coverage flags, PostgreSQL smoke, `codecov.yml` and exact protected-branch checks in `docs/github-required-checks.md` |
+| S1-M6-2 GitHub/Gitea CI and Codecov | Code complete; repository-admin setup required | `.github/workflows/ci.yml`, `.gitea/workflows/ci.yml`, separate coverage flags, PostgreSQL smoke, `codecov.yml` and exact protected-main checks in `docs/github-required-checks.md` |
 | S1-M6-3 external API spike | Complete in code; coordinator records decision | South African public-holiday service, backend-only spike command, strict decoder, timeout/fallback contract and mocked success/timeout/invalid tests |
 
 ## Authentication and security conclusion
@@ -22,7 +22,7 @@ The deletion endpoint returning `202` is not a missing Member 1 Sprint 1 task be
 - Shared responsiveness/accessibility is Member 4 work.
 - Handwritten course/tutor endpoints, backend middleware hardening and allocation rules are Member 5 work.
 - The public documentation website and project-management records are Project Coordinator work.
-- GitHub branch protection, Codecov App installation, repository secrets, PR approvals and deployment hosting require access to the actual GitHub/provider accounts and cannot be applied by importing a ZIP.
+- Gitea/GitHub main-branch protection, Codecov installation, repository secrets, PR approvals and deployment hosting require access to the actual repository/provider accounts and cannot be applied by importing a ZIP.
 
 ## AI declaration status
 The supplied evidence confirms Qoder application version 1.23.0, VS Code version 1.106.3, Quest Agent mode and the Auto tier. Qoder automatically routed each request to an underlying model that was not disclosed, so no specific provider model has been guessed. The truthful declaration is `Qoder[Auto tier; underlying model automatically routed]`.

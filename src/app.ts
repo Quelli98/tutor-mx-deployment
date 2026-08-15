@@ -13,6 +13,48 @@ import type { PasswordResetRequester } from "./auth/password-reset.js";
 
 type ReadinessCheck = () => Promise<void>;
 
+export interface ApiRequestLog {
+  method: string;
+  path: string;
+  status: number;
+  durationMs: number;
+}
+
+export type RequestLogger = (entry: ApiRequestLog) => void;
+
+export interface CourseSummary {
+  id: number;
+  code: string;
+  name: string;
+}
+
+export interface TutorSummary {
+  id: number;
+  auth0Id: string;
+  email: string;
+  fullName: string;
+  role: TutorRole;
+  weeklyHours: number | null;
+}
+
+export interface CourseWriteInput {
+  code: string;
+  name: string;
+}
+
+export interface TutorWriteInput {
+  auth0Id: string;
+  email: string;
+  fullName: string;
+  weeklyHours?: number;
+}
+
+export interface TutorUpdateInput {
+  email?: string;
+  fullName?: string;
+  weeklyHours?: number;
+}
+
 export interface ProfileSummary {
   id: number;
   email: string;
@@ -20,9 +62,27 @@ export interface ProfileSummary {
   role: TutorRole;
 }
 
-interface AppDependencies {
+export interface RouteError extends Error {
+  status: number;
+  code: string;
+}
+
+export interface AppDependencies {
   corsOrigin?: string;
   findProfileByAuth0Id: (auth0Id: string) => Promise<ProfileSummary | null>;
+  listCourses: () => Promise<CourseSummary[]>;
+  createCourse: (input: CourseWriteInput) => Promise<CourseSummary>;
+  updateCourse: (
+    courseId: number,
+    input: CourseWriteInput,
+  ) => Promise<CourseSummary>;
+  deleteCourse: (courseId: number) => Promise<void>;
+  listTutors: () => Promise<TutorSummary[]>;
+  createTutor: (input: TutorWriteInput) => Promise<TutorSummary>;
+  updateTutor: (
+    tutorId: number,
+    input: TutorUpdateInput,
+  ) => Promise<TutorSummary>;
   requestPasswordReset: PasswordResetRequester;
   verifyAccessToken: AccessTokenVerifier;
 }
@@ -30,6 +90,27 @@ interface AppDependencies {
 const unavailableDependencies: AppDependencies = {
   async findProfileByAuth0Id() {
     throw new Error("Authentication is not configured");
+  },
+  async listCourses() {
+    throw new Error("Backend course and tutor endpoints are not configured");
+  },
+  async createCourse() {
+    throw new Error("Backend course and tutor endpoints are not configured");
+  },
+  async updateCourse() {
+    throw new Error("Backend course and tutor endpoints are not configured");
+  },
+  async deleteCourse() {
+    throw new Error("Backend course and tutor endpoints are not configured");
+  },
+  async listTutors() {
+    throw new Error("Backend course and tutor endpoints are not configured");
+  },
+  async createTutor() {
+    throw new Error("Backend course and tutor endpoints are not configured");
+  },
+  async updateTutor() {
+    throw new Error("Backend course and tutor endpoints are not configured");
   },
   async requestPasswordReset() {
     throw new Error("Authentication is not configured");
@@ -51,15 +132,248 @@ function error(status: number, code: string, message: string) {
   return { status, body: { error: { code, message } } };
 }
 
+export function createRouteError(
+  status: number,
+  code: string,
+  message: string,
+): RouteError {
+  const routeError = new Error(message) as RouteError;
+  routeError.status = status;
+  routeError.code = code;
+  return routeError;
+}
+
+function isRouteError(value: unknown): value is RouteError {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    value instanceof Error &&
+    "status" in value &&
+    typeof (value as RouteError).status === "number" &&
+    "code" in value &&
+    typeof (value as RouteError).code === "string"
+  );
+}
+
+function sendRouteError(response: express.Response, value: unknown) {
+  if (isRouteError(value)) {
+    response.status(value.status).json({
+      error: {
+        code: value.code,
+        message: value.message,
+      },
+    });
+    return;
+  }
+
+  const result = error(
+    500,
+    "INTERNAL_ERROR",
+    "The request could not be completed.",
+  );
+  response.status(result.status).json(result.body);
+}
+
+function parseRequiredText(
+  value: unknown,
+  _fieldName: string,
+  maxLength = 255,
+) {
+  if (typeof value !== "string") {
+    return null;
+  }
+
+  const trimmed = value.trim();
+  if (!trimmed || trimmed.length > maxLength) {
+    return null;
+  }
+
+  return trimmed;
+}
+
+function parseOptionalWeeklyHours(value: unknown) {
+  if (value === undefined || value === null || value === "") {
+    return undefined;
+  }
+
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric) || numeric <= 0 || numeric > 168) {
+    return null;
+  }
+
+  return numeric;
+}
+
+function parseCourseInput(body: unknown) {
+  const payload = body as { code?: unknown; name?: unknown } | null;
+  const code = parseRequiredText(payload?.code, "code", 50);
+  const name = parseRequiredText(payload?.name, "name", 120);
+
+  if (!code || !name) {
+    return { error: "Enter a valid course code and name." } as const;
+  }
+
+  return { value: { code, name } } as const;
+}
+
+function parseTutorCreateInput(body: unknown) {
+  const payload = body as {
+    auth0Id?: unknown;
+    email?: unknown;
+    fullName?: unknown;
+    weeklyHours?: unknown;
+  } | null;
+  const auth0Id = parseRequiredText(payload?.auth0Id, "auth0Id", 100);
+  const email = parseRequiredText(payload?.email, "email", 254);
+  const fullName = parseRequiredText(payload?.fullName, "fullName", 120);
+  const weeklyHours = parseOptionalWeeklyHours(payload?.weeklyHours);
+
+  if (
+    !auth0Id ||
+    !email ||
+    !isValidEmail(email) ||
+    !fullName ||
+    weeklyHours === null
+  ) {
+    return {
+      error:
+        "Enter an Auth0 subject, email, full name and a valid weekly-hours value.",
+    } as const;
+  }
+
+  const value: TutorWriteInput = {
+    auth0Id,
+    email,
+    fullName,
+  };
+
+  if (weeklyHours !== undefined) {
+    value.weeklyHours = weeklyHours;
+  }
+
+  return { value } as const;
+}
+
+function parseTutorUpdateInput(body: unknown) {
+  const payload = body as {
+    email?: unknown;
+    fullName?: unknown;
+    weeklyHours?: unknown;
+  } | null;
+  const email =
+    payload?.email === undefined
+      ? undefined
+      : parseRequiredText(payload.email, "email", 254);
+  const fullName =
+    payload?.fullName === undefined
+      ? undefined
+      : parseRequiredText(payload.fullName, "fullName", 120);
+  const weeklyHours = parseOptionalWeeklyHours(payload?.weeklyHours);
+
+  if (
+    (payload?.email !== undefined &&
+      (email === null || !isValidEmail(email))) ||
+    (payload?.fullName !== undefined && fullName === null) ||
+    weeklyHours === null ||
+    (payload?.email === undefined &&
+      payload?.fullName === undefined &&
+      payload?.weeklyHours === undefined)
+  ) {
+    return {
+      error: "Provide at least one valid tutor field to update.",
+    } as const;
+  }
+
+  const value: TutorUpdateInput = {};
+
+  if (email !== undefined && email !== null) {
+    value.email = email;
+  }
+  if (fullName !== undefined && fullName !== null) {
+    value.fullName = fullName;
+  }
+  if (weeklyHours !== undefined) {
+    value.weeklyHours = weeklyHours;
+  }
+
+  return { value } as const;
+}
+
+function parseNumericId(
+  value: string | string[] | undefined,
+  resourceName: string,
+) {
+  const resolved = Array.isArray(value) ? value[0] : value;
+  const numeric = Number(resolved);
+  if (!Number.isInteger(numeric) || numeric <= 0) {
+    return {
+      error: `${resourceName} identifier must be a positive whole number.`,
+    } as const;
+  }
+
+  return { value: numeric } as const;
+}
+
+function currentProfileRoute(
+  dependencies: AppDependencies,
+  request: express.Request,
+  response: express.Response,
+) {
+  return (async () => {
+    const auth = (request as AuthenticatedRequest).auth!;
+    const profile = await dependencies.findProfileByAuth0Id(auth.subject);
+
+    if (!profile) {
+      const result = error(
+        404,
+        "PROFILE_NOT_FOUND",
+        "No Tutor Mx profile is linked to this account.",
+      );
+      response.status(result.status).json(result.body);
+      return;
+    }
+
+    if (profile.role !== auth.role) {
+      const result = error(
+        403,
+        "ROLE_MISMATCH",
+        "Your account permissions are out of date. Sign in again or contact support.",
+      );
+      response.status(result.status).json(result.body);
+      return;
+    }
+
+    response.status(200).json({ data: { profile } });
+  })().catch((value) => sendRouteError(response, value));
+}
+
 export function createApp(
   checkReadiness: ReadinessCheck,
   dependencies: AppDependencies = unavailableDependencies,
+  requestLogger?: RequestLogger,
 ): Express {
   const app = express();
   const authenticate = createAuthenticationMiddleware(
     dependencies.verifyAccessToken,
   );
   const requireTutorMxRole = requireRole(...TUTOR_ROLES);
+
+  if (requestLogger) {
+    app.use((request, response, next) => {
+      const startedAt = process.hrtime.bigint();
+
+      response.on("finish", () => {
+        requestLogger({
+          method: request.method,
+          path: request.path,
+          status: response.statusCode,
+          durationMs: Number(process.hrtime.bigint() - startedAt) / 1_000_000,
+        });
+      });
+
+      next();
+    });
+  }
 
   app.use(express.json({ limit: "32kb" }));
 
@@ -75,7 +389,7 @@ export function createApp(
         );
         response.setHeader(
           "Access-Control-Allow-Methods",
-          "GET, POST, DELETE, OPTIONS",
+          "GET, POST, PATCH, DELETE, OPTIONS",
         );
       }
       if (request.method === "OPTIONS") {
@@ -134,35 +448,198 @@ export function createApp(
     }
   });
 
+  app.get("/api/me", authenticate, requireTutorMxRole, (request, response) =>
+    currentProfileRoute(dependencies, request, response),
+  );
+
   app.get(
-    "/api/me",
+    "/api/profile/current",
     authenticate,
     requireTutorMxRole,
+    (request, response) => currentProfileRoute(dependencies, request, response),
+  );
+
+  app.get(
+    "/api/courses",
+    authenticate,
+    requireTutorMxRole,
+    async (_request, response) => {
+      try {
+        const courses = await dependencies.listCourses();
+        response.status(200).json({ data: { courses } });
+      } catch (value) {
+        sendRouteError(response, value);
+      }
+    },
+  );
+
+  app.post(
+    "/api/courses",
+    authenticate,
+    requireRole("ORGANISER"),
     async (request, response) => {
-      const auth = (request as AuthenticatedRequest).auth!;
-      const profile = await dependencies.findProfileByAuth0Id(auth.subject);
-
-      if (!profile) {
+      const parsed = parseCourseInput(request.body);
+      if ("error" in parsed) {
         const result = error(
-          404,
-          "PROFILE_NOT_FOUND",
-          "No Tutor Mx profile is linked to this account.",
+          400,
+          "VALIDATION_ERROR",
+          parsed.error ?? "Enter a valid course code and name.",
         );
         response.status(result.status).json(result.body);
         return;
       }
 
-      if (profile.role !== auth.role) {
+      try {
+        const course = await dependencies.createCourse(parsed.value);
+        response.status(201).json({ data: { course } });
+      } catch (value) {
+        sendRouteError(response, value);
+      }
+    },
+  );
+
+  app.patch(
+    "/api/courses/:courseId",
+    authenticate,
+    requireRole("ORGANISER"),
+    async (request, response) => {
+      const courseId = parseNumericId(request.params.courseId, "Course");
+      if ("error" in courseId) {
         const result = error(
-          403,
-          "ROLE_MISMATCH",
-          "Your account permissions are out of date. Sign in again or contact support.",
+          400,
+          "VALIDATION_ERROR",
+          courseId.error ??
+            "Course identifier must be a positive whole number.",
         );
         response.status(result.status).json(result.body);
         return;
       }
 
-      response.status(200).json({ data: { profile } });
+      const parsed = parseCourseInput(request.body);
+      if ("error" in parsed) {
+        const result = error(
+          400,
+          "VALIDATION_ERROR",
+          parsed.error ?? "Enter a valid course code and name.",
+        );
+        response.status(result.status).json(result.body);
+        return;
+      }
+
+      try {
+        const course = await dependencies.updateCourse(
+          courseId.value,
+          parsed.value,
+        );
+        response.status(200).json({ data: { course } });
+      } catch (value) {
+        sendRouteError(response, value);
+      }
+    },
+  );
+
+  app.delete(
+    "/api/courses/:courseId",
+    authenticate,
+    requireRole("ORGANISER"),
+    async (request, response) => {
+      const courseId = parseNumericId(request.params.courseId, "Course");
+      if ("error" in courseId) {
+        const result = error(
+          400,
+          "VALIDATION_ERROR",
+          courseId.error ??
+            "Course identifier must be a positive whole number.",
+        );
+        response.status(result.status).json(result.body);
+        return;
+      }
+
+      try {
+        await dependencies.deleteCourse(courseId.value);
+        response.status(204).end();
+      } catch (value) {
+        sendRouteError(response, value);
+      }
+    },
+  );
+
+  app.get(
+    "/api/tutors",
+    authenticate,
+    requireRole("ORGANISER"),
+    async (_request, response) => {
+      try {
+        const tutors = await dependencies.listTutors();
+        response.status(200).json({ data: { tutors } });
+      } catch (value) {
+        sendRouteError(response, value);
+      }
+    },
+  );
+
+  app.post(
+    "/api/tutors",
+    authenticate,
+    requireRole("ORGANISER"),
+    async (request, response) => {
+      const parsed = parseTutorCreateInput(request.body);
+      if ("error" in parsed) {
+        const result = error(
+          400,
+          "VALIDATION_ERROR",
+          parsed.error ??
+            "Enter an Auth0 subject, email, full name and a valid weekly-hours value.",
+        );
+        response.status(result.status).json(result.body);
+        return;
+      }
+
+      try {
+        const tutor = await dependencies.createTutor(parsed.value);
+        response.status(201).json({ data: { tutor } });
+      } catch (value) {
+        sendRouteError(response, value);
+      }
+    },
+  );
+
+  app.patch(
+    "/api/tutors/:tutorId",
+    authenticate,
+    requireRole("ORGANISER"),
+    async (request, response) => {
+      const tutorId = parseNumericId(request.params.tutorId, "Tutor");
+      if ("error" in tutorId) {
+        const result = error(
+          400,
+          "VALIDATION_ERROR",
+          tutorId.error ?? "Tutor identifier must be a positive whole number.",
+        );
+        response.status(result.status).json(result.body);
+        return;
+      }
+
+      const parsed = parseTutorUpdateInput(request.body);
+      if ("error" in parsed) {
+        const result = error(
+          400,
+          "VALIDATION_ERROR",
+          parsed.error ?? "Provide at least one valid tutor field to update.",
+        );
+        response.status(result.status).json(result.body);
+        return;
+      }
+
+      try {
+        const tutor = await dependencies.updateTutor(
+          tutorId.value,
+          parsed.value,
+        );
+        response.status(200).json({ data: { tutor } });
+      } catch (value) {
+        sendRouteError(response, value);
+      }
     },
   );
 
@@ -182,18 +659,37 @@ export function createApp(
   );
 
   app.use((_request, response) => {
-    const result = error(404, "NOT_FOUND", "The requested route was not found.");
+    const result = error(
+      404,
+      "NOT_FOUND",
+      "The requested route was not found.",
+    );
     response.status(result.status).json(result.body);
   });
 
   app.use(
     (
-      _thrown: unknown,
+      thrown: unknown,
       _request: express.Request,
       response: express.Response,
       _next: express.NextFunction,
     ) => {
       void _next;
+
+      if (
+        thrown instanceof SyntaxError &&
+        "status" in thrown &&
+        thrown.status === 400
+      ) {
+        const result = error(
+          400,
+          "INVALID_JSON",
+          "The request body must contain valid JSON.",
+        );
+        response.status(result.status).json(result.body);
+        return;
+      }
+
       const result = error(
         500,
         "INTERNAL_ERROR",

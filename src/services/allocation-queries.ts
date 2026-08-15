@@ -52,6 +52,60 @@ export interface OpenWorkItem {
   closesAt: Date | null;
 }
 
+export function meetsMinimumMark(
+  mark: number | null | undefined,
+  minimumMark: number | null | undefined,
+): boolean | null {
+  if (
+    !Number.isFinite(mark) ||
+    !Number.isFinite(minimumMark) ||
+    mark! < 0 ||
+    mark! > 100 ||
+    minimumMark! < 0 ||
+    minimumMark! > 100
+  ) {
+    return null;
+  }
+
+  return mark! >= minimumMark!;
+}
+
+export function timeRangesOverlap(
+  startsAt: Date | null | undefined,
+  endsAt: Date | null | undefined,
+  otherStartsAt: Date | null | undefined,
+  otherEndsAt: Date | null | undefined,
+): boolean | null {
+  const timestamps = [startsAt, endsAt, otherStartsAt, otherEndsAt].map(
+    (value) => (value instanceof Date ? value.valueOf() : Number.NaN),
+  );
+  if (
+    timestamps.some((value) => !Number.isFinite(value)) ||
+    timestamps[1]! <= timestamps[0]! ||
+    timestamps[3]! <= timestamps[2]!
+  ) {
+    return null;
+  }
+
+  return timestamps[2]! < timestamps[1]! && timestamps[3]! > timestamps[0]!;
+}
+
+export function hasEnoughRemainingHours(
+  remainingHours: number | null | undefined,
+  requestedHours: number | null | undefined,
+): boolean | null {
+  if (
+    !Number.isFinite(remainingHours) ||
+    !Number.isFinite(requestedHours) ||
+    remainingHours! < 0 ||
+    requestedHours! <= 0
+  ) {
+    return null;
+  }
+
+  return remainingHours! >= requestedHours!;
+}
+
 export const candidateQuerySql = `
 WITH tutor_hours AS (
   SELECT
@@ -166,13 +220,13 @@ function reasonCodesFor(
 ): CandidateReasonCode[] {
   const reasons: CandidateReasonCode[] = [];
 
-  if (row.mark < input.minimumMark) {
+  if (!meetsMinimumMark(row.mark, input.minimumMark)) {
     reasons.push("insufficient-mark");
   }
   if (row.hasClash) {
     reasons.push("schedule-clash");
   }
-  if (row.remainingHours < input.requestedHours) {
+  if (!hasEnoughRemainingHours(row.remainingHours, input.requestedHours)) {
     reasons.push("hour-limit-exceeded");
   }
 

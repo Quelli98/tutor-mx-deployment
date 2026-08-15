@@ -11,6 +11,30 @@ describe("GET /health", () => {
     expect(response.status).toBe(200);
     expect(response.body).toEqual({ status: "ok" });
   });
+
+  it("logs safe request metadata without headers or bearer tokens", async () => {
+    const requestLogger = vi.fn();
+    const app = createApp(async () => undefined, undefined, requestLogger);
+
+    const response = await request(app)
+      .get("/health?access_token=must-not-be-logged")
+      .set("Authorization", "Bearer private-test-token");
+
+    expect(response.status).toBe(200);
+    expect(requestLogger).toHaveBeenCalledOnce();
+    expect(requestLogger).toHaveBeenCalledWith({
+      method: "GET",
+      path: "/health",
+      status: 200,
+      durationMs: expect.any(Number),
+    });
+    expect(JSON.stringify(requestLogger.mock.calls)).not.toContain(
+      "private-test-token",
+    );
+    expect(JSON.stringify(requestLogger.mock.calls)).not.toContain(
+      "must-not-be-logged",
+    );
+  });
 });
 
 describe("GET /ready", () => {
@@ -66,5 +90,43 @@ describe("unconfigured authentication", () => {
 
     expect(response.status).toBe(503);
     expect(response.body.error.code).toBe("PASSWORD_RESET_UNAVAILABLE");
+  });
+});
+
+describe("shared error handling", () => {
+  it("returns a safe 400 JSON response for malformed JSON", async () => {
+    const app = createApp(async () => undefined);
+
+    const response = await request(app)
+      .post("/api/auth/password-reset")
+      .set("Content-Type", "application/json")
+      .send('{"email":');
+
+    expect(response.status).toBe(400);
+    expect(response.body).toEqual({
+      error: {
+        code: "INVALID_JSON",
+        message: "The request body must contain valid JSON.",
+      },
+    });
+  });
+
+  it("uses the generic safe error envelope for other middleware failures", async () => {
+    const app = createApp(async () => undefined);
+    const oversizedBody = JSON.stringify({ value: "x".repeat(40_000) });
+
+    const response = await request(app)
+      .post("/api/auth/password-reset")
+      .set("Content-Type", "application/json")
+      .send(oversizedBody);
+
+    expect(response.status).toBe(500);
+    expect(response.body).toEqual({
+      error: {
+        code: "INTERNAL_ERROR",
+        message: "The request could not be completed.",
+      },
+    });
+    expect(response.text).not.toContain("request entity too large");
   });
 });

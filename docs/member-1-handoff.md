@@ -41,7 +41,7 @@ Expected LCOV files are `coverage/lcov.info` and `frontend/coverage/lcov.info`. 
 
 Final local verification for this integrated archive:
 
-- Backend: 11 test files, 80 tests passed; 94.38% statements, 89.58% branches, 90.00% functions and 94.33% lines.
+- Backend: 11 test files, 106 tests passed; 95.78% statements, 94.10% branches, 88.46% functions and 95.76% lines.
 - Frontend: 8 test files, 31 tests passed; 85.62% statements, 77.51% branches, 87.17% functions and 89.26% lines.
 - Backend/frontend lint, strict backend type-check, both production builds and the tracked-file secret/AI-attribution check passed.
 - A built API smoke returned `200 {"status":"ok"}` for `/health` and the agreed safe `401` JSON for unauthenticated `/api/me`.
@@ -50,7 +50,7 @@ Final local verification for this integrated archive:
 
 - Configure the Auth0 SPA, API audience, database connection, callback/logout/origin URLs and reviewed role-claim Action.
 - Link Auth0 subjects to the correct `Profile.auth0Id` and role records in Neon.
-- Configure `CODECOV_TOKEN`, protect `develop`/`main`, open the required PRs and obtain Member 2 review.
+- Configure `CODECOV_TOKEN`, protect `main`, open the required issue PRs into `main` and obtain Member 2 review.
 - The supplied evidence confirms Qoder application version 1.23.0, VS Code version 1.106.3, Quest Agent mode and the Auto tier. The underlying model was automatically routed and not disclosed; use `Qoder[Auto tier; underlying model automatically routed]` and do not guess a provider model.
 - Commit this generated integration with `Assisted-by: Codex[GPT-5]` and retain the required assessment transcript or allowed substitute.
 
