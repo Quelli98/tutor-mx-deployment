@@ -98,7 +98,7 @@ export function AccountSettings() {
           <h2>Delete account</h2>
           {deleteState.step === 0 && (
             <>
-              <p>This records a deletion request. The backend action remains a Sprint 1 stub.</p>
+              <p>This permanently deletes your Tutor Mx profile data and Auth0 login.</p>
               <button type="button" className="danger-button" onClick={handleDeleteStart}>
                 Delete my account
               </button>
@@ -144,7 +144,7 @@ export function AccountSettings() {
 
           {deleteState.step === 2 && (
             <p className="status-note" role="status">
-              Account deletion request recorded.
+              Account deleted. Sign out to clear the in-memory browser session.
             </p>
           )}
           {deleteState.error && (

@@ -62,6 +62,6 @@ describe('AccountSettings', () => {
     await waitFor(() => {
       expect(mockRequest).toHaveBeenCalledWith('/api/auth/delete-account', { method: 'DELETE' })
     })
-    expect(screen.getByText(/deletion request recorded/i)).toBeInTheDocument()
+    expect(screen.getByText(/account deleted/i)).toBeInTheDocument()
   })
 })

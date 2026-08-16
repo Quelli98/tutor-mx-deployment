@@ -10,6 +10,7 @@ on:
 
 permissions:
   contents: read
+  id-token: write
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
@@ -59,7 +60,7 @@ jobs:
           flags: backend
           name: tutor-mx-backend
           fail_ci_if_error: true
-          token: ${{ secrets.CODECOV_TOKEN }}
+          use_oidc: true
 
   frontend-quality:
     name: Frontend quality and coverage
@@ -100,7 +101,7 @@ jobs:
           flags: frontend
           name: tutor-mx-frontend
           fail_ci_if_error: true
-          token: ${{ secrets.CODECOV_TOKEN }}
+          use_oidc: true
 
   postgres-integration:
     name: Clean PostgreSQL migration and API smoke

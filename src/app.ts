@@ -1,4 +1,6 @@
 import express, { type Express } from "express";
+import helmet from "helmet";
+import { rateLimit } from "express-rate-limit";
 import {
   TUTOR_ROLES,
   type AccessTokenVerifier,
@@ -151,6 +153,7 @@ export interface AppDependencies {
     input: TutorExcuseWriteInput,
   ) => Promise<TutorExcuseSummary>;
   requestPasswordReset: PasswordResetRequester;
+  deleteAccount?: (auth0Id: string) => Promise<void>;
   verifyAccessToken: AccessTokenVerifier;
 }
 
@@ -190,6 +193,9 @@ const unavailableDependencies: AppDependencies = {
   },
   async createTutorExcuse() {
     throw new Error("Tutor workflow endpoints are not configured");
+  },
+  async deleteAccount() {
+    throw new Error("Account deletion is not configured");
   },
   async requestPasswordReset() {
     throw new Error("Authentication is not configured");
@@ -557,6 +563,24 @@ export function createApp(
   );
   const requireTutorMxRole = requireRole(...TUTOR_ROLES);
 
+  app.disable("x-powered-by");
+  app.use(helmet());
+  app.use(
+    "/api",
+    rateLimit({
+      windowMs: 60_000,
+      limit: 120,
+      standardHeaders: "draft-8",
+      legacyHeaders: false,
+    }),
+  );
+  const sensitiveAuthLimiter = rateLimit({
+    windowMs: 15 * 60_000,
+    limit: 10,
+    standardHeaders: "draft-8",
+    legacyHeaders: false,
+  });
+
   if (requestLogger) {
     app.use((request, response, next) => {
       const startedAt = process.hrtime.bigint();
@@ -618,7 +642,7 @@ export function createApp(
     }
   });
 
-  app.post("/api/auth/password-reset", async (request, response) => {
+  app.post("/api/auth/password-reset", sensitiveAuthLimiter, async (request, response) => {
     if (!isValidEmail(request.body?.email)) {
       const result = error(
         400,
@@ -946,16 +970,20 @@ export function createApp(
 
   app.delete(
     "/api/auth/delete-account",
+    sensitiveAuthLimiter,
     authenticate,
     requireTutorMxRole,
-    (_request, response) => {
-      response.status(202).json({
-        data: {
-          status: "pending",
-          message:
-            "Account deletion was recorded for backend implementation after Sprint 1.",
-        },
-      });
+    async (request, response) => {
+      const auth = (request as AuthenticatedRequest).auth!;
+      try {
+        if (!dependencies.deleteAccount) {
+          throw new Error("Account deletion is not configured");
+        }
+        await dependencies.deleteAccount(auth.subject);
+        response.status(204).end();
+      } catch (value) {
+        sendRouteError(response, value);
+      }
     },
   );
 
