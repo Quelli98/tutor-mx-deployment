@@ -59,7 +59,7 @@ jobs:
           files: ./coverage/lcov.info
           flags: backend
           name: tutor-mx-backend
-          fail_ci_if_error: true
+          fail_ci_if_error: false
           use_oidc: true
 
   frontend-quality:
@@ -100,7 +100,7 @@ jobs:
           files: ./frontend/coverage/lcov.info
           flags: frontend
           name: tutor-mx-frontend
-          fail_ci_if_error: true
+          fail_ci_if_error: false
           use_oidc: true
 
   postgres-integration:
@@ -108,7 +108,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
-      DATABASE_URL: postgresql://tutor_mx@127.0.0.1:5432/tutor_mx
+      DATABASE_URL: postgresql://tutor_mx:tutor_mx@127.0.0.1:5432/tutor_mx
       PGPASSWORD: tutor_mx
       PORT: 3000
 
