@@ -1,6 +1,8 @@
 import { NavLink, Navigate, Route, Routes } from 'react-router-dom'
 import { ProtectedRoute } from '../auth/ProtectedRoute'
 import { AccountSettings } from '../features/AccountSettings'
+import TutorDashboard from '../features/TutorDashboard'
+import TutorForms from '../features/TutorForms'
 import { ROLE_ROUTE_MAP } from './roleMap'
 
 function RoleNavigation({ currentRole }) {
@@ -10,6 +12,7 @@ function RoleNavigation({ currentRole }) {
   return (
     <nav className="role-navigation" aria-label="Tutor Mx navigation">
       <NavLink to={roleRoute.path}>{roleRoute.label}</NavLink>
+      {currentRole === 'TUTOR' && <NavLink to="/tutor/forms">Tutor forms</NavLink>}
       <NavLink to="/settings">Account settings</NavLink>
     </nav>
   )
@@ -38,7 +41,11 @@ export function RoleRouter({ currentRole }) {
         />
         <Route
           path="/tutor"
-          element={protect(currentRole, ['TUTOR'], <RolePage role="Tutor" />)}
+          element={protect(currentRole, ['TUTOR'], <TutorDashboard />)}
+        />
+        <Route
+          path="/tutor/forms"
+          element={protect(currentRole, ['TUTOR'], <TutorForms />)}
         />
         <Route
           path="/student"
@@ -48,6 +55,7 @@ export function RoleRouter({ currentRole }) {
           path="/settings"
           element={protect(currentRole, ['ORGANISER', 'TUTOR', 'STUDENT'], <AccountSettings />)}
         />
+
         <Route path="/access-denied" element={<AccessDeniedPage />} />
         <Route path="*" element={<Navigate to={entryPath || '/access-denied'} replace />} />
       </Routes>

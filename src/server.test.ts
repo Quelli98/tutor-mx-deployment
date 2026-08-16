@@ -2,17 +2,24 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AppDependencies, RequestLogger } from "./app.js";
 
 const mocks = vi.hoisted(() => ({
+  allocationFindFirst: vi.fn(),
   courseCreate: vi.fn(),
   courseDelete: vi.fn(),
   courseFindMany: vi.fn(),
   courseUpdate: vi.fn(),
   createApp: vi.fn(),
+  excuseCreate: vi.fn(),
+  getTutorHourSummary: vi.fn(),
   listen: vi.fn(),
   profileCreate: vi.fn(),
   profileFindMany: vi.fn(),
   profileFindUnique: vi.fn(),
   profileUpdate: vi.fn(),
   queryRaw: vi.fn(),
+  timeSlotCreate: vi.fn(),
+  timesheetUpsert: vi.fn(),
+  transaction: vi.fn(),
+  workLogCreate: vi.fn(),
 }));
 
 vi.mock("dotenv/config", () => ({}));
@@ -26,7 +33,11 @@ vi.mock("./app.js", () => ({
 
 vi.mock("./database.js", () => ({
   prisma: {
+    $transaction: mocks.transaction,
     $queryRaw: mocks.queryRaw,
+    allocation: {
+      findFirst: mocks.allocationFindFirst,
+    },
     course: {
       create: mocks.courseCreate,
       delete: mocks.courseDelete,
@@ -39,7 +50,18 @@ vi.mock("./database.js", () => ({
       findUnique: mocks.profileFindUnique,
       update: mocks.profileUpdate,
     },
+    excuse: {
+      create: mocks.excuseCreate,
+    },
+    timeSlot: {
+      create: mocks.timeSlotCreate,
+    },
   },
+  queryClient: {},
+}));
+
+vi.mock("./services/allocation-queries.js", () => ({
+  getTutorHourSummary: mocks.getTutorHourSummary,
 }));
 
 const originalEnvironment = {
@@ -78,6 +100,13 @@ beforeEach(() => {
   mocks.createApp.mockReturnValue({
     listen: mocks.listen,
   });
+  mocks.transaction.mockImplementation(
+    async (callback: (transaction: unknown) => unknown) =>
+      callback({
+        timesheet: { upsert: mocks.timesheetUpsert },
+        workLog: { create: mocks.workLogCreate },
+      }),
+  );
 });
 
 afterEach(() => {
@@ -349,6 +378,267 @@ describe("server-side API persistence", () => {
         update: { weeklyHours: 10 },
       },
     });
+  });
+
+  it("builds the own-tutor dashboard from Prisma and the Member 6 hour query", async () => {
+    await import("./server.js");
+    const dependencies = capturedDependencies();
+    mocks.profileFindUnique.mockResolvedValueOnce({
+      id: 7,
+      role: "TUTOR",
+      allocations: [
+        {
+          id: 4,
+          startsAt: new Date("2030-09-04T14:00:00.000Z"),
+          endsAt: new Date("2030-09-04T16:00:00.000Z"),
+          allocatedHours: "2.00",
+          status: "CONFIRMED",
+          course: { code: "DEMO101", name: "Demo Course" },
+        },
+      ],
+    });
+    mocks.getTutorHourSummary.mockResolvedValueOnce({
+      tutorId: 7,
+      weeklyLimit: 10,
+      usedHours: 6,
+      remainingHours: 4,
+    });
+
+    await expect(
+      dependencies.getTutorDashboard("auth0|current-tutor"),
+    ).resolves.toEqual({
+      allocations: [
+        {
+          id: 4,
+          courseCode: "DEMO101",
+          courseName: "Demo Course",
+          startsAt: "2030-09-04T14:00:00.000Z",
+          endsAt: "2030-09-04T16:00:00.000Z",
+          allocatedHours: 2,
+          status: "CONFIRMED",
+        },
+      ],
+      weeklyLimit: 10,
+      usedHours: 6,
+      remainingHours: 4,
+    });
+    expect(mocks.profileFindUnique).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { auth0Id: "auth0|current-tutor" } }),
+    );
+    expect(mocks.getTutorHourSummary).toHaveBeenCalledWith(
+      {},
+      7,
+      expect.any(Date),
+    );
+
+    mocks.profileFindUnique.mockResolvedValueOnce({
+      id: 7,
+      role: "TUTOR",
+      allocations: [],
+    });
+    mocks.getTutorHourSummary.mockResolvedValueOnce(null);
+    await expect(
+      dependencies.getTutorDashboard("auth0|current-tutor"),
+    ).rejects.toMatchObject({
+      status: 409,
+      code: "TUTOR_HOUR_LIMIT_MISSING",
+    });
+  });
+
+  it("persists own-tutor availability, work logs and excuses", async () => {
+    await import("./server.js");
+    const dependencies = capturedDependencies();
+
+    mocks.profileFindUnique.mockResolvedValueOnce({ id: 7, role: "TUTOR" });
+    mocks.timeSlotCreate.mockResolvedValueOnce({
+      id: 8,
+      type: "BUSY",
+      startsAt: new Date("2030-09-04T14:00:00.000Z"),
+      endsAt: new Date("2030-09-04T16:00:00.000Z"),
+      recurrence: "WEEKLY",
+    });
+    await expect(
+      dependencies.createTutorTimeSlot("auth0|current-tutor", {
+        type: "BUSY",
+        startsAt: new Date("2030-09-04T14:00:00.000Z"),
+        endsAt: new Date("2030-09-04T16:00:00.000Z"),
+        recurrence: "WEEKLY",
+      }),
+    ).resolves.toMatchObject({ id: 8, recurrence: "WEEKLY" });
+    expect(mocks.timeSlotCreate.mock.calls[0]![0].data.tutorId).toBe(7);
+
+    mocks.profileFindUnique.mockResolvedValueOnce({ id: 7, role: "TUTOR" });
+    mocks.allocationFindFirst.mockResolvedValueOnce({
+      id: 4,
+      startsAt: new Date("2030-09-04T14:00:00.000Z"),
+      status: "CONFIRMED",
+    });
+    mocks.timesheetUpsert.mockResolvedValueOnce({ id: 3, status: "DRAFT" });
+    mocks.workLogCreate.mockResolvedValueOnce({
+      id: 9,
+      allocationId: 4,
+      timesheetId: 3,
+      workDate: new Date("2030-09-04T00:00:00.000Z"),
+      hours: "2.00",
+      description: "Tutorial session",
+    });
+    await expect(
+      dependencies.createTutorWorkLog("auth0|current-tutor", {
+        allocationId: 4,
+        workDate: "2030-09-04",
+        hours: 2,
+        description: "Tutorial session",
+      }),
+    ).resolves.toEqual({
+      id: 9,
+      allocationId: 4,
+      timesheetId: 3,
+      workDate: "2030-09-04",
+      hours: 2,
+      description: "Tutorial session",
+    });
+    expect(mocks.timesheetUpsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          tutorId_weekStart: { tutorId: 7, weekStart: expect.any(Date) },
+        },
+      }),
+    );
+
+    mocks.profileFindUnique.mockResolvedValueOnce({ id: 7, role: "TUTOR" });
+    mocks.allocationFindFirst.mockResolvedValueOnce({ id: 4 });
+    mocks.excuseCreate.mockResolvedValueOnce({
+      id: 10,
+      allocationId: 4,
+      reason: "Sick",
+      status: "PENDING",
+    });
+    await expect(
+      dependencies.createTutorExcuse("auth0|current-tutor", {
+        allocationId: 4,
+        reason: "Sick",
+      }),
+    ).resolves.toEqual({
+      id: 10,
+      allocationId: 4,
+      reason: "Sick",
+      status: "PENDING",
+    });
+    expect(mocks.excuseCreate.mock.calls[0]![0].data).toMatchObject({
+      tutorId: 7,
+      allocationId: 4,
+    });
+  });
+
+  it("hides cross-tutor sessions and maps tutor workflow conflicts", async () => {
+    await import("./server.js");
+    const dependencies = capturedDependencies();
+
+    mocks.profileFindUnique.mockResolvedValueOnce({ id: 7, role: "TUTOR" });
+    mocks.allocationFindFirst.mockResolvedValueOnce(null);
+    await expect(
+      dependencies.createTutorWorkLog("auth0|current-tutor", {
+        allocationId: 999,
+        workDate: "2030-09-04",
+        hours: 2,
+        description: "Other tutor session",
+      }),
+    ).rejects.toMatchObject({ status: 404, code: "ALLOCATION_NOT_FOUND" });
+
+    mocks.profileFindUnique.mockResolvedValueOnce({
+      id: 1,
+      role: "ORGANISER",
+    });
+    await expect(
+      dependencies.createTutorTimeSlot("auth0|not-a-tutor", {
+        type: "BUSY",
+        startsAt: new Date("2030-09-04T14:00:00.000Z"),
+        endsAt: new Date("2030-09-04T16:00:00.000Z"),
+      }),
+    ).rejects.toMatchObject({
+      status: 404,
+      code: "TUTOR_PROFILE_NOT_FOUND",
+    });
+
+    mocks.profileFindUnique.mockResolvedValueOnce({ id: 7, role: "TUTOR" });
+    mocks.allocationFindFirst.mockResolvedValueOnce({
+      id: 4,
+      startsAt: new Date("2030-09-05T14:00:00.000Z"),
+      status: "CONFIRMED",
+    });
+    await expect(
+      dependencies.createTutorWorkLog("auth0|current-tutor", {
+        allocationId: 4,
+        workDate: "2030-09-04",
+        hours: 2,
+        description: "Wrong date",
+      }),
+    ).rejects.toMatchObject({ status: 409, code: "WORK_LOG_CONFLICT" });
+
+    mocks.profileFindUnique.mockResolvedValueOnce({ id: 7, role: "TUTOR" });
+    mocks.allocationFindFirst.mockResolvedValueOnce({
+      id: 4,
+      startsAt: new Date("2030-09-04T14:00:00.000Z"),
+      status: "CONFIRMED",
+    });
+    mocks.timesheetUpsert.mockResolvedValueOnce({
+      id: 3,
+      status: "SUBMITTED",
+    });
+    await expect(
+      dependencies.createTutorWorkLog("auth0|current-tutor", {
+        allocationId: 4,
+        workDate: "2030-09-04",
+        hours: 2,
+        description: "Locked sheet",
+      }),
+    ).rejects.toMatchObject({ status: 409, code: "TIMESHEET_LOCKED" });
+
+    mocks.profileFindUnique.mockResolvedValueOnce({ id: 7, role: "TUTOR" });
+    mocks.allocationFindFirst.mockResolvedValueOnce({
+      id: 4,
+      startsAt: new Date("2030-09-04T14:00:00.000Z"),
+      status: "CONFIRMED",
+    });
+    mocks.timesheetUpsert.mockResolvedValueOnce({ id: 3, status: "DRAFT" });
+    mocks.workLogCreate.mockRejectedValueOnce({ code: "P2002" });
+    await expect(
+      dependencies.createTutorWorkLog("auth0|current-tutor", {
+        allocationId: 4,
+        workDate: "2030-09-04",
+        hours: 2,
+        description: "Duplicate",
+      }),
+    ).rejects.toMatchObject({ status: 409, code: "WORK_LOG_DUPLICATE" });
+
+    mocks.profileFindUnique.mockResolvedValueOnce({ id: 7, role: "TUTOR" });
+    mocks.timeSlotCreate.mockRejectedValueOnce({ code: "P2004" });
+    await expect(
+      dependencies.createTutorTimeSlot("auth0|current-tutor", {
+        type: "BUSY",
+        startsAt: new Date("2030-09-04T14:00:00.000Z"),
+        endsAt: new Date("2030-09-04T16:00:00.000Z"),
+      }),
+    ).rejects.toMatchObject({ status: 409, code: "TIME_SLOT_CONFLICT" });
+
+    mocks.profileFindUnique.mockResolvedValueOnce({ id: 7, role: "TUTOR" });
+    mocks.allocationFindFirst.mockResolvedValueOnce({ id: 4 });
+    mocks.excuseCreate.mockRejectedValueOnce({ code: "P2002" });
+    await expect(
+      dependencies.createTutorExcuse("auth0|current-tutor", {
+        allocationId: 4,
+        reason: "Duplicate",
+      }),
+    ).rejects.toMatchObject({ status: 409, code: "EXCUSE_DUPLICATE" });
+
+    mocks.profileFindUnique.mockResolvedValueOnce({ id: 7, role: "TUTOR" });
+    mocks.allocationFindFirst.mockResolvedValueOnce(null);
+    await expect(
+      dependencies.createTutorExcuse("auth0|current-tutor", {
+        allocationId: 999,
+        reason: "Other tutor session",
+      }),
+    ).rejects.toMatchObject({ status: 404, code: "ALLOCATION_NOT_FOUND" });
   });
 
   it("maps expected Prisma conflicts to safe route errors", async () => {

@@ -55,6 +55,60 @@ export interface TutorUpdateInput {
   weeklyHours?: number;
 }
 
+export interface TutorAllocationSummary {
+  id: number;
+  courseCode: string;
+  courseName: string;
+  startsAt: string;
+  endsAt: string;
+  allocatedHours: number;
+  status: "PROPOSED" | "CONFIRMED";
+}
+
+export interface TutorDashboardSummary {
+  allocations: TutorAllocationSummary[];
+  weeklyLimit: number;
+  usedHours: number;
+  remainingHours: number;
+}
+
+export interface TutorTimeSlotWriteInput {
+  type: "AVAILABLE" | "BUSY";
+  startsAt: Date;
+  endsAt: Date;
+  recurrence?: "WEEKLY";
+}
+
+export interface TutorTimeSlotSummary {
+  id: number;
+  type: "AVAILABLE" | "BUSY";
+  startsAt: string;
+  endsAt: string;
+  recurrence: "WEEKLY" | null;
+}
+
+export interface TutorWorkLogWriteInput {
+  allocationId: number;
+  workDate: string;
+  hours: number;
+  description: string;
+}
+
+export interface TutorWorkLogSummary extends TutorWorkLogWriteInput {
+  id: number;
+  timesheetId: number;
+}
+
+export interface TutorExcuseWriteInput {
+  allocationId: number;
+  reason: string;
+}
+
+export interface TutorExcuseSummary extends TutorExcuseWriteInput {
+  id: number;
+  status: "PENDING";
+}
+
 export interface ProfileSummary {
   id: number;
   email: string;
@@ -83,6 +137,19 @@ export interface AppDependencies {
     tutorId: number,
     input: TutorUpdateInput,
   ) => Promise<TutorSummary>;
+  getTutorDashboard: (auth0Id: string) => Promise<TutorDashboardSummary>;
+  createTutorTimeSlot: (
+    auth0Id: string,
+    input: TutorTimeSlotWriteInput,
+  ) => Promise<TutorTimeSlotSummary>;
+  createTutorWorkLog: (
+    auth0Id: string,
+    input: TutorWorkLogWriteInput,
+  ) => Promise<TutorWorkLogSummary>;
+  createTutorExcuse: (
+    auth0Id: string,
+    input: TutorExcuseWriteInput,
+  ) => Promise<TutorExcuseSummary>;
   requestPasswordReset: PasswordResetRequester;
   verifyAccessToken: AccessTokenVerifier;
 }
@@ -111,6 +178,18 @@ const unavailableDependencies: AppDependencies = {
   },
   async updateTutor() {
     throw new Error("Backend course and tutor endpoints are not configured");
+  },
+  async getTutorDashboard() {
+    throw new Error("Tutor workflow endpoints are not configured");
+  },
+  async createTutorTimeSlot() {
+    throw new Error("Tutor workflow endpoints are not configured");
+  },
+  async createTutorWorkLog() {
+    throw new Error("Tutor workflow endpoints are not configured");
+  },
+  async createTutorExcuse() {
+    throw new Error("Tutor workflow endpoints are not configured");
   },
   async requestPasswordReset() {
     throw new Error("Authentication is not configured");
@@ -297,6 +376,126 @@ function parseTutorUpdateInput(body: unknown) {
   }
 
   return { value } as const;
+}
+
+function parseIsoDateTime(value: unknown) {
+  if (
+    typeof value !== "string" ||
+    !/(?:Z|[+-]\d{2}:\d{2})$/.test(value)
+  ) {
+    return null;
+  }
+
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.valueOf()) ? null : parsed;
+}
+
+function parseDateOnly(value: unknown) {
+  if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    return null;
+  }
+
+  const parsed = new Date(`${value}T00:00:00.000Z`);
+  return !Number.isNaN(parsed.valueOf()) &&
+    parsed.toISOString().slice(0, 10) === value
+    ? value
+    : null;
+}
+
+function parsePositiveInteger(value: unknown) {
+  const numeric = Number(value);
+  return Number.isInteger(numeric) && numeric > 0 ? numeric : null;
+}
+
+function parseTutorTimeSlotInput(body: unknown) {
+  const payload = body as {
+    type?: unknown;
+    startsAt?: unknown;
+    endsAt?: unknown;
+    recurrence?: unknown;
+  } | null;
+  const type = payload?.type;
+  const startsAt = parseIsoDateTime(payload?.startsAt);
+  const endsAt = parseIsoDateTime(payload?.endsAt);
+  const recurrence =
+    payload?.recurrence === undefined ||
+    payload?.recurrence === null ||
+    payload?.recurrence === ""
+      ? undefined
+      : typeof payload.recurrence === "string"
+        ? payload.recurrence.trim().toUpperCase()
+        : null;
+
+  if (
+    (type !== "AVAILABLE" && type !== "BUSY") ||
+    !startsAt ||
+    !endsAt ||
+    endsAt <= startsAt ||
+    (recurrence !== undefined && recurrence !== "WEEKLY")
+  ) {
+    return {
+      error:
+        "Enter a valid slot type, start, end and supported recurrence.",
+    } as const;
+  }
+
+  const value: TutorTimeSlotWriteInput = { type, startsAt, endsAt };
+  if (recurrence === "WEEKLY") {
+    value.recurrence = recurrence;
+  }
+  return { value } as const;
+}
+
+function parseTutorWorkLogInput(body: unknown) {
+  const payload = body as {
+    allocationId?: unknown;
+    workDate?: unknown;
+    hours?: unknown;
+    description?: unknown;
+  } | null;
+  const allocationId = parsePositiveInteger(payload?.allocationId);
+  const workDate = parseDateOnly(payload?.workDate);
+  const hours = Number(payload?.hours);
+  const description = parseRequiredText(
+    payload?.description,
+    "description",
+    500,
+  );
+
+  if (
+    !allocationId ||
+    !workDate ||
+    !Number.isFinite(hours) ||
+    hours <= 0 ||
+    hours > 24 ||
+    !description
+  ) {
+    return {
+      error:
+        "Select a valid session and enter its date, 0-24 worked hours and a description.",
+    } as const;
+  }
+
+  return {
+    value: { allocationId, workDate, hours, description },
+  } as const;
+}
+
+function parseTutorExcuseInput(body: unknown) {
+  const payload = body as {
+    allocationId?: unknown;
+    reason?: unknown;
+  } | null;
+  const allocationId = parsePositiveInteger(payload?.allocationId);
+  const reason = parseRequiredText(payload?.reason, "reason", 1000);
+
+  if (!allocationId || !reason) {
+    return {
+      error: "Select an assigned session and enter a valid reason.",
+    } as const;
+  }
+
+  return { value: { allocationId, reason } } as const;
 }
 
 function parseNumericId(
@@ -637,6 +836,108 @@ export function createApp(
           parsed.value,
         );
         response.status(200).json({ data: { tutor } });
+      } catch (value) {
+        sendRouteError(response, value);
+      }
+    },
+  );
+
+  app.get(
+    "/api/tutor/dashboard",
+    authenticate,
+    requireRole("TUTOR"),
+    async (request, response) => {
+      const auth = (request as AuthenticatedRequest).auth!;
+      try {
+        const dashboard = await dependencies.getTutorDashboard(auth.subject);
+        response.status(200).json({ data: { dashboard } });
+      } catch (value) {
+        sendRouteError(response, value);
+      }
+    },
+  );
+
+  app.post(
+    "/api/tutor/time-slots",
+    authenticate,
+    requireRole("TUTOR"),
+    async (request, response) => {
+      const parsed = parseTutorTimeSlotInput(request.body);
+      if ("error" in parsed) {
+        const result = error(
+          400,
+          "VALIDATION_ERROR",
+          parsed.error ?? "Enter a valid tutor availability slot.",
+        );
+        response.status(result.status).json(result.body);
+        return;
+      }
+
+      const auth = (request as AuthenticatedRequest).auth!;
+      try {
+        const timeSlot = await dependencies.createTutorTimeSlot(
+          auth.subject,
+          parsed.value,
+        );
+        response.status(201).json({ data: { timeSlot } });
+      } catch (value) {
+        sendRouteError(response, value);
+      }
+    },
+  );
+
+  app.post(
+    "/api/tutor/work-logs",
+    authenticate,
+    requireRole("TUTOR"),
+    async (request, response) => {
+      const parsed = parseTutorWorkLogInput(request.body);
+      if ("error" in parsed) {
+        const result = error(
+          400,
+          "VALIDATION_ERROR",
+          parsed.error ?? "Enter a valid tutor work-log entry.",
+        );
+        response.status(result.status).json(result.body);
+        return;
+      }
+
+      const auth = (request as AuthenticatedRequest).auth!;
+      try {
+        const workLog = await dependencies.createTutorWorkLog(
+          auth.subject,
+          parsed.value,
+        );
+        response.status(201).json({ data: { workLog } });
+      } catch (value) {
+        sendRouteError(response, value);
+      }
+    },
+  );
+
+  app.post(
+    "/api/tutor/excuses",
+    authenticate,
+    requireRole("TUTOR"),
+    async (request, response) => {
+      const parsed = parseTutorExcuseInput(request.body);
+      if ("error" in parsed) {
+        const result = error(
+          400,
+          "VALIDATION_ERROR",
+          parsed.error ?? "Enter a valid tutor excuse.",
+        );
+        response.status(result.status).json(result.body);
+        return;
+      }
+
+      const auth = (request as AuthenticatedRequest).auth!;
+      try {
+        const excuse = await dependencies.createTutorExcuse(
+          auth.subject,
+          parsed.value,
+        );
+        response.status(201).json({ data: { excuse } });
       } catch (value) {
         sendRouteError(response, value);
       }

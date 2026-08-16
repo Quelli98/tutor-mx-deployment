@@ -89,7 +89,9 @@ label {
   color: #2f3557;
 }
 
-input {
+input,
+select,
+textarea {
   width: 100%;
   box-sizing: border-box;
   border: 1px solid #d9dcee;
@@ -100,12 +102,21 @@ input {
   color: #18213d;
 }
 
-input:focus {
+textarea {
+  min-height: 110px;
+  resize: vertical;
+}
+
+input:focus,
+select:focus,
+textarea:focus {
   outline: 3px solid rgba(110, 90, 232, 0.15);
   border-color: #7b6ae8;
 }
 
-input[aria-invalid='true'] {
+input[aria-invalid='true'],
+select[aria-invalid='true'],
+textarea[aria-invalid='true'] {
   border-color: #d43b4d;
   background: #fff7f8;
 }
@@ -286,6 +297,84 @@ button:focus-visible {
   gap: 10px;
 }
 
+.tutor-workspace {
+  text-align: left;
+}
+
+.hours-summary strong {
+  color: #1b2240;
+  font-size: 1.15rem;
+}
+
+.table-scroll {
+  max-width: 100%;
+  margin-top: 16px;
+  overflow-x: auto;
+  border-radius: 12px;
+}
+
+.table-scroll:focus-visible {
+  outline: 3px solid #33219d;
+  outline-offset: 3px;
+}
+
+.tutor-table {
+  width: 100%;
+  min-width: 680px;
+  border-collapse: collapse;
+  color: #27304c;
+}
+
+.tutor-table caption {
+  padding: 0 0 10px;
+  color: #5e6784;
+  text-align: left;
+}
+
+.tutor-table th,
+.tutor-table td {
+  padding: 12px;
+  border-bottom: 1px solid #dfe3f2;
+  text-align: left;
+  vertical-align: top;
+}
+
+.tutor-table th {
+  color: #1b2240;
+  background: #eef2ff;
+}
+
+.tutor-form-grid {
+  display: grid;
+  gap: 22px;
+}
+
+.tutor-form-card {
+  display: grid;
+  gap: 22px;
+}
+
+.tutor-form {
+  display: grid;
+  gap: 10px;
+}
+
+.tutor-form .primary-button {
+  margin-top: 8px;
+  justify-self: start;
+}
+
+.draft-list {
+  padding-top: 18px;
+  border-top: 1px solid #dfe3f2;
+}
+
+.draft-list ul {
+  display: grid;
+  gap: 8px;
+  padding-left: 22px;
+}
+
 @media (max-width: 600px) {
   .auth-card {
     padding: 26px 20px;
@@ -298,6 +387,21 @@ button:focus-visible {
 
   .button-row > * {
     flex: 1 1 100%;
+  }
+
+  .dashboard-header {
+    align-items: flex-start;
+  }
+
+  .role-card,
+  .settings-card {
+    padding: 18px;
+    border-radius: 16px;
+  }
+
+  .tutor-form .primary-button {
+    width: 100%;
+    justify-self: stretch;
   }
 }
 

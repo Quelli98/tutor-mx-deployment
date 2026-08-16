@@ -6,8 +6,8 @@ Tutor Mx is one integrated React + Vite, Auth0, handwritten Express, Prisma and 
 
 | Path | Purpose |
 | --- | --- |
-| `frontend/` | React interface, Auth0 Universal Login, role routing, account lifecycle and bearer-token request helper |
-| `src/` | Express API, Auth0 access-token verification, protected profile/course/tutor routes, allocation rules and backend services |
+| `frontend/` | React interface, Auth0 Universal Login, role routing, account lifecycle, tutor dashboard/forms and shared bearer-token request helper |
+| `src/` | Express API, Auth0 access-token verification, protected profile/course/tutor-workflow routes, allocation rules and backend services |
 | `prisma/` | Versioned PostgreSQL schema, migrations and non-personal demo data |
 | `.github/workflows/` | Required GitHub Actions CI, Codecov, PostgreSQL integration and deployment smoke checks |
 | `.gitea/workflows/` | Compatible workflow copies retained from the supplied main-branch archive |
@@ -77,9 +77,15 @@ Authorization: Bearer <access-token>
 | `GET /api/tutors` | Organiser | `200 { data: { tutors } }` | `401`, `403`, safe `500` |
 | `POST /api/tutors` | Organiser | `201 { data: { tutor } }` | `400`, `401`, `403`, `409` |
 | `PATCH /api/tutors/:tutorId` | Organiser | `200 { data: { tutor } }` | `400`, `401`, `403`, `404`, `409` |
+| `GET /api/tutor/dashboard` | Tutor; identity comes from token | `200 { data: { dashboard } }` | `401`, `403`, `404`, `409`, safe `500` |
+| `POST /api/tutor/time-slots` | Tutor; identity comes from token | `201 { data: { timeSlot } }` | `400`, `401`, `403`, `404`, `409` |
+| `POST /api/tutor/work-logs` | Tutor; identity comes from token | `201 { data: { workLog } }` | `400`, `401`, `403`, `404`, `409` |
+| `POST /api/tutor/excuses` | Tutor; identity comes from token | `201 { data: { excuse } }` | `400`, `401`, `403`, `404`, `409` |
 | `DELETE /api/auth/delete-account` | Valid token and supported role | `202` documented Sprint 1 stub | `401`, `403` |
 
 The API verifies the RS256 signature against Auth0 JWKS, issuer, audience, subject, expiry and not-before values. The frontend token cache is explicitly in memory. Password entry, sign-up, sign-in and the actual new-password form stay on Auth0 Universal Login.
+
+Tutor workflow URLs never accept a browser-supplied tutor identifier. The backend resolves `Profile.auth0Id` from the verified token subject, checks the database role and applies allocation ownership before returning or changing records. The dashboard and forms therefore cannot be redirected to another tutor by changing a URL or request body.
 
 ## Automated checks
 
@@ -98,7 +104,7 @@ The API verifies the RS256 signature against Auth0 JWKS, issuer, audience, subje
 
 The CI workflow uploads `coverage/lcov.info` with the `backend` Codecov flag and `frontend/coverage/lcov.info` with the `frontend` flag. Repository administrators must configure `CODECOV_TOKEN`, protect `main`, and require all checks. Member branches and integration PRs target `main`; this repository does not require a `develop` branch.
 
-See `docs/sprint1-members-1-5-6-integration.md`, `docs/member-1-handoff.md`, `docs/member-5-handoff.md`, `docs/member-6-handoff.md` and `docs/github-required-checks.md` for completed evidence and repository-admin follow-ups.
+See `docs/sprint1-members-1-3-5-6-integration.md`, `docs/member-1-handoff.md`, `docs/member-3-handoff.md`, `docs/member-5-handoff.md`, `docs/member-6-handoff.md` and `docs/github-required-checks.md` for completed evidence and repository-admin follow-ups.
 
 ## AI declaration
 

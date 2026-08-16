@@ -5,7 +5,14 @@ import {
   createRouteError,
   type CourseSummary,
   type ProfileSummary,
+  type TutorDashboardSummary,
+  type TutorExcuseSummary,
+  type TutorExcuseWriteInput,
   type TutorSummary,
+  type TutorTimeSlotSummary,
+  type TutorTimeSlotWriteInput,
+  type TutorWorkLogSummary,
+  type TutorWorkLogWriteInput,
 } from "../app.js";
 import type { AuthContext, TutorRole } from "./contract.js";
 
@@ -54,6 +61,19 @@ function makeApp(
         weeklyHours?: number | null;
       },
     ) => Promise<TutorSummary>;
+    getTutorDashboard: (auth0Id: string) => Promise<TutorDashboardSummary>;
+    createTutorTimeSlot: (
+      auth0Id: string,
+      input: TutorTimeSlotWriteInput,
+    ) => Promise<TutorTimeSlotSummary>;
+    createTutorWorkLog: (
+      auth0Id: string,
+      input: TutorWorkLogWriteInput,
+    ) => Promise<TutorWorkLogSummary>;
+    createTutorExcuse: (
+      auth0Id: string,
+      input: TutorExcuseWriteInput,
+    ) => Promise<TutorExcuseSummary>;
     verifyAccessToken: (token: string) => Promise<AuthContext>;
   }> = {},
 ) {
@@ -101,6 +121,37 @@ function makeApp(
         fullName: input.fullName ?? "Demo Tutor",
         role: "TUTOR",
         weeklyHours: input.weeklyHours ?? 10,
+      })),
+    getTutorDashboard:
+      overrides.getTutorDashboard ??
+      (async () => ({
+        allocations: [],
+        weeklyLimit: 10,
+        usedHours: 0,
+        remainingHours: 10,
+      })),
+    createTutorTimeSlot:
+      overrides.createTutorTimeSlot ??
+      (async (_auth0Id, input) => ({
+        id: 1,
+        type: input.type,
+        startsAt: input.startsAt.toISOString(),
+        endsAt: input.endsAt.toISOString(),
+        recurrence: input.recurrence ?? null,
+      })),
+    createTutorWorkLog:
+      overrides.createTutorWorkLog ??
+      (async (_auth0Id, input) => ({
+        id: 1,
+        timesheetId: 2,
+        ...input,
+      })),
+    createTutorExcuse:
+      overrides.createTutorExcuse ??
+      (async (_auth0Id, input) => ({
+        id: 1,
+        status: "PENDING",
+        ...input,
       })),
     verifyAccessToken: overrides.verifyAccessToken ?? (async () => auth()),
   });

@@ -5,6 +5,7 @@
 Implemented:
 
 - versioned Prisma/PostgreSQL migrations for profiles and roles, courses, tutor marks, availability, weekly hour limits and allocations;
+- a follow-on versioned migration for Member 3's optional weekly availability recurrence, constrained to `WEEKLY` or `NULL`;
 - primary/foreign keys, uniqueness, value checks, relationship constraints and role/state triggers;
 - rerunnable, invented non-personal seed data for Organiser, Tutor and Student roles and allocation-rule boundaries;
 - reset/setup commands, migration tests, in-memory PostgreSQL constraint tests and a real PostgreSQL verification script; and
@@ -58,5 +59,7 @@ npm run spike:holidays -- 2026
 ```
 
 The external spike command performs a real network request; automated tests use mocks so CI is deterministic.
+
+The final Members 1, 3, 5 and 6 test counts, coverage and acceptance mapping are recorded in `docs/sprint1-members-1-3-5-6-integration.md`.
 
 The preceding document was generated and reviewed with the assistance of the following: Codex[GPT-5].

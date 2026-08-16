@@ -100,6 +100,28 @@ describe("Basic workflow migrations", () => {
     ]);
   });
 
+  it("stores only the supported tutor availability recurrence placeholder", async () => {
+    const tutor = await database.query<{ id: number }>(`
+      SELECT "id" FROM "Profile" WHERE "auth0Id" = 'demo|tutor-pass';
+    `);
+    const created = await database.query<{ recurrence: string }>(
+      `INSERT INTO "TimeSlot" (
+        "tutorId", "type", "startsAt", "endsAt", "recurrence"
+      ) VALUES ($1, 'BUSY', '2031-01-06 09:00', '2031-01-06 10:00', 'WEEKLY')
+      RETURNING "recurrence"`,
+      [tutor.rows[0]!.id],
+    );
+
+    expect(created.rows[0]?.recurrence).toBe("WEEKLY");
+    await expectDatabaseRejection(
+      database,
+      `INSERT INTO "TimeSlot" (
+        "tutorId", "type", "startsAt", "endsAt", "recurrence"
+      ) VALUES ($1, 'BUSY', '2031-01-07 09:00', '2031-01-07 10:00', 'DAILY')`,
+      [tutor.rows[0]!.id],
+    );
+  });
+
   it("returns correct pass, mark, clash and hour candidate cases", async () => {
     const course = await database.query<{ id: number }>(
       `SELECT "id" FROM "Course" WHERE "code" = 'DEMO101'`,

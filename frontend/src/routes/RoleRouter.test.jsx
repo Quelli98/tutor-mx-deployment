@@ -11,6 +11,10 @@ vi.mock('@auth0/auth0-react', () => ({
   }),
 }))
 
+vi.mock('../api/tutorDashboard', () => ({
+  fetchTutorDashboard: () => Promise.resolve({ allocations: [], weeklyLimit: 10, usedHours: 0, remainingHours: 10 }),
+}))
+
 function renderRole(currentRole, path = '/') {
   render(
     <MemoryRouter initialEntries={[path]}>
@@ -22,22 +26,34 @@ function renderRole(currentRole, path = '/') {
 }
 
 describe('RoleRouter', () => {
-  it.each([
+ it.each([
     ['ORGANISER', 'Organiser'],
-    ['TUTOR', 'Tutor'],
     ['STUDENT', 'Student'],
   ])('opens the %s entry route after sign in', (role, label) => {
     renderRole(role)
     expect(screen.getByRole('heading', { name: `${label} workspace` })).toBeInTheDocument()
   })
 
+  it('opens the TUTOR entry route after sign in', async () => {
+    renderRole('TUTOR')
+    expect(await screen.findByRole('heading', { name: /your tutor dashboard/i })).toBeInTheDocument()
+  })
+
   it('shows only navigation for the signed-in role', () => {
     renderRole('TUTOR', '/tutor')
 
     expect(screen.getByRole('link', { name: /tutor workspace/i })).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: /tutor forms/i })).toBeInTheDocument()
     expect(screen.queryByRole('link', { name: /organiser workspace/i })).not.toBeInTheDocument()
     expect(screen.queryByRole('link', { name: /student workspace/i })).not.toBeInTheDocument()
     expect(screen.getByRole('link', { name: /account settings/i })).toBeInTheDocument()
+  })
+
+  it('keeps tutor forms behind the Tutor role guard', async () => {
+    renderRole('TUTOR', '/tutor/forms')
+    expect(
+      await screen.findByRole('heading', { name: /availability, work log and excuses/i }),
+    ).toBeInTheDocument()
   })
 
   it('routes a user away from another role area', () => {

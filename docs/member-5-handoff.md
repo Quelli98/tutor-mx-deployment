@@ -24,6 +24,10 @@ Implemented API contract:
 - `GET /api/tutors` returns protected tutor data for an organiser.
 - `POST /api/tutors` creates a tutor profile for an organiser.
 - `PATCH /api/tutors/:tutorId` updates a tutor profile for an organiser.
+- `GET /api/tutor/dashboard` returns only the logged-in tutor's assignments and weekly-hour summary.
+- `POST /api/tutor/time-slots` creates the logged-in tutor's validated availability/busy slot.
+- `POST /api/tutor/work-logs` creates/reuses a draft timesheet and adds an owned confirmed-session log in one transaction.
+- `POST /api/tutor/excuses` submits a `PENDING` excuse for the logged-in tutor's future confirmed session.
 
 Access rules:
 
@@ -38,6 +42,8 @@ Access rules:
 - Database conflicts from the server-side Prisma layer are mapped to safe `409` responses.
 - Browser CORS preflight explicitly permits the implemented `PATCH` routes.
 - Tutor create/update validates email and weekly hours, and tutor updates cannot mutate Organiser or Student profiles.
+- Tutor workflow routes require `TUTOR`, derive ownership from the verified token subject and ignore any browser-supplied `tutorId` field.
+- Cross-tutor allocation lookups use a non-revealing `404`; duplicate/state/constraint failures use stable safe `409` codes.
 
 ### S1-M5-3 - Three allocation-rule functions and boundary tests
 
@@ -57,7 +63,7 @@ npm run test:backend -- src/app.test.ts src/auth/auth-routes.test.ts src/server.
 npm run build:backend
 ```
 
-Final integrated verification: 11 backend test files and 106 tests pass. Backend coverage is 95.78% statements, 94.10% branches, 88.46% functions and 95.76% lines. Backend lint, strict TypeScript checking and the production build pass.
+Final integrated verification is recorded in `docs/sprint1-members-1-3-5-6-integration.md`. Backend lint, strict TypeScript checking, route/persistence tests, database migration tests and the production build pass.
 
 ## Status-code table
 
@@ -76,7 +82,7 @@ Final integrated verification: 11 backend test files and 106 tests pass. Backend
 ## Handoff notes for the next member
 
 - Member 2 can consume the new course/tutor response shapes from the backend without touching Prisma directly.
-- Member 3 can continue to use the current-profile contract for signed-in tutor data.
+- Member 3's dashboard/forms now consume the own-tutor routes above through the shared bearer helper; the former simulated API modules have been removed.
 - Member 6 still owns the schema, seed data and database invariants; the backend routes only wrap those contracts.
 - Route names are now documented here, but if the team wants a different public route surface later, update the frontend mocks and this handoff together.
 

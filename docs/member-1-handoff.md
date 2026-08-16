@@ -39,12 +39,13 @@ npm run security:check
 
 Expected LCOV files are `coverage/lcov.info` and `frontend/coverage/lcov.info`. CI uploads them under separate Codecov flags.
 
-Final local verification for this integrated archive:
+Final local verification for the Members 1, 3, 5 and 6 integration:
 
-- Backend: 11 test files, 106 tests passed; 95.78% statements, 94.10% branches, 88.46% functions and 95.76% lines.
-- Frontend: 8 test files, 31 tests passed; 85.62% statements, 77.51% branches, 87.17% functions and 89.26% lines.
+- Backend: 12 test files, 117 tests passed; 94.04% statements, 91.00% branches, 87.30% functions and 94.02% lines.
+- Frontend: 15 test files, 52 tests passed; 89.34% statements, 83.85% branches, 93.61% functions and 92.26% lines in the conservative clean-archive run.
 - Backend/frontend lint, strict backend type-check, both production builds and the tracked-file secret/AI-attribution check passed.
 - A built API smoke returned `200 {"status":"ok"}` for `/health` and the agreed safe `401` JSON for unauthenticated `/api/me`.
+- The full cross-member acceptance mapping is in `docs/sprint1-members-1-3-5-6-integration.md`.
 
 ## External actions still owned by the team
 

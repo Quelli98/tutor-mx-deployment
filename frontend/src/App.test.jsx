@@ -21,6 +21,10 @@ vi.mock('./auth/useCurrentUser', () => ({
   useCurrentUser: () => currentUserState,
 }))
 
+vi.mock('./api/tutorDashboard', () => ({
+  fetchTutorDashboard: () => Promise.resolve({ allocations: [], weeklyLimit: 10, usedHours: 0, remainingHours: 10 }),
+}))
+
 describe('Auth entry flow', () => {
   beforeEach(() => {
     loginMock.mockReset()
@@ -77,19 +81,19 @@ describe('Auth entry flow', () => {
     expect(screen.queryByText(/tenant details/i)).not.toBeInTheDocument()
   })
 
-  it('opens the matching role entry page after authentication', () => {
-    authState = { isAuthenticated: true, isLoading: false, user: { sub: 'auth0|123' } }
-    currentUserState = { role: 'TUTOR', loading: false, error: '' }
+  it('opens the matching role entry page after authentication', async () => {
+  authState = { isAuthenticated: true, isLoading: false, user: { sub: 'auth0|123' } }
+  currentUserState = { role: 'TUTOR', loading: false, error: '' }
 
-    render(
-      <MemoryRouter initialEntries={['/']}>
-        <App />
-      </MemoryRouter>,
-    )
+  render(
+    <MemoryRouter initialEntries={['/']}>
+      <App />
+    </MemoryRouter>,
+  )
 
-    expect(screen.getByRole('heading', { name: /tutor workspace/i })).toBeInTheDocument()
-    expect(screen.queryByText(/student workspace/i)).not.toBeInTheDocument()
-  })
+  expect(await screen.findByRole('heading', { name: /your tutor dashboard/i })).toBeInTheDocument()
+  expect(screen.queryByText(/student workspace/i)).not.toBeInTheDocument()
+})
 
   it('does not default an authenticated user with no role to Student', () => {
     authState = { isAuthenticated: true, isLoading: false, user: { sub: 'auth0|123' } }
