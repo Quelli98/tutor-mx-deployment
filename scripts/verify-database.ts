@@ -14,31 +14,32 @@ if (!connectionString) {
 }
 
 const pool = new pg.Pool({ connectionString, max: 1 });
+const connection = await pool.connect();
 const client: QueryClient = {
   async query<Row>(sql: string, parameters?: unknown[]) {
-    const result = await pool.query(sql, parameters);
+    const result = await connection.query(sql, parameters);
     return { rows: result.rows as Row[] };
   },
 };
 
 async function expectRejected(sql: string, parameters: unknown[] = []) {
-  await pool.query("SAVEPOINT expected_failure");
+  await connection.query("SAVEPOINT expected_failure");
   try {
-    await pool.query(sql, parameters);
+    await connection.query(sql, parameters);
     throw new Error("Expected database statement to be rejected");
   } catch (error) {
     if (error instanceof Error && error.message === "Expected database statement to be rejected") {
       throw error;
     }
   } finally {
-    await pool.query("ROLLBACK TO SAVEPOINT expected_failure");
+    await connection.query("ROLLBACK TO SAVEPOINT expected_failure");
   }
 }
 
 try {
-  await pool.query("BEGIN");
+  await connection.query("BEGIN");
 
-  const course = await pool.query<{ id: number }>(
+  const course = await connection.query<{ id: number }>(
     `SELECT "id" FROM "Course" WHERE "code" = 'DEMO101'`,
   );
   assert.equal(course.rowCount, 1, "safe seed course is missing");
@@ -56,7 +57,7 @@ try {
   const openWork = await listOpenWork(client, new Date("2030-09-01T00:00:00.000Z"));
   assert.equal(openWork.length, 1);
 
-  const ids = await pool.query<{ tutor_id: number; course_id: number; sheet_id: number }>(`
+  const ids = await connection.query<{ tutor_id: number; course_id: number; sheet_id: number }>(`
     SELECT
       (SELECT "id" FROM "Profile" WHERE "auth0Id" = 'demo|tutor-pass') AS tutor_id,
       (SELECT "id" FROM "Course" WHERE "code" = 'DEMO101') AS course_id,
@@ -77,6 +78,7 @@ try {
 
   console.log("Database migrations, seed data, constraints and allocation queries verified.");
 } finally {
-  await pool.query("ROLLBACK").catch(() => undefined);
+  await connection.query("ROLLBACK").catch(() => undefined);
+  connection.release();
   await pool.end();
 }

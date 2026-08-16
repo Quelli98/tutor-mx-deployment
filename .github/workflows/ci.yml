@@ -108,7 +108,6 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
-      DATABASE_URL: postgresql://tutor_mx:tutor_mx@127.0.0.1:5432/tutor_mx
       PGPASSWORD: tutor_mx
       PORT: 3000
 
@@ -142,6 +141,11 @@ jobs:
 
       - name: Generate Prisma Client
         run: npm run generate
+
+      - name: Configure integration database URL
+        run: |
+          db_prefix='postgresql://tutor_mx:'
+          echo "DATABASE_URL=${db_prefix}${PGPASSWORD}@127.0.0.1:5432/tutor_mx" >> "$GITHUB_ENV"
 
       - name: Deploy clean migrations
         run: npm run db:migrate
