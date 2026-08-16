@@ -1,0 +1,26 @@
+Tutor Mx Gitea + GitHub deployment integration verification
+Date: 2026-08-16
+
+Gitea snapshot files: 108
+GitHub deployment snapshot files: 114
+Merged files: 115
+Gitea files missing from merged: 0
+GitHub files missing from merged: 0
+
+Required files:
+- render.yaml: OK
+- frontend/public/_redirects: OK
+- src/auth/management-api.ts: OK
+- src/auth/management-api.test.ts: OK
+- .gitea/workflows/ci.yml: OK
+- .github/workflows/ci.yml: OK
+- docs/sprint1-members-1-3-5-6-integration.md: OK
+- docs/sprint1-public-demo.md: OK
+
+package.json contains helmet + express-rate-limit: OK
+package-lock.json contains helmet + express-rate-limit: OK
+Committed real .env files detected: none
+Private-key blocks detected: none
+
+Note: this verification checks the integrated file set and dependency lock metadata.
+Hosted provider settings (Cloudflare, Render, Auth0 and Neon) live outside the ZIP and are not overwritten by copying this source into Gitea.

@@ -9,6 +9,7 @@ import {
   createAuth0PasswordResetRequester,
   type PasswordResetRequester,
 } from "./auth/password-reset.js";
+import { createAuth0UserDeleter } from "./auth/management-api.js";
 import { prisma, queryClient } from "./database.js";
 import { getTutorHourSummary } from "./services/allocation-queries.js";
 
@@ -39,6 +40,19 @@ const requestPasswordReset: PasswordResetRequester =
       })
     : async () => {
         throw new Error("Auth0 password reset is not configured");
+      };
+
+const deleteAuth0User =
+  auth0Domain &&
+  process.env.AUTH0_MANAGEMENT_CLIENT_ID &&
+  process.env.AUTH0_MANAGEMENT_CLIENT_SECRET
+    ? createAuth0UserDeleter({
+        domain: auth0Domain,
+        clientId: process.env.AUTH0_MANAGEMENT_CLIENT_ID,
+        clientSecret: process.env.AUTH0_MANAGEMENT_CLIENT_SECRET,
+      })
+    : async () => {
+        throw new Error("Auth0 Management API deletion is not configured");
       };
 
 function isPrismaErrorCode(error: unknown, code: string) {
@@ -571,6 +585,52 @@ const app = createApp(
         }
         throw error;
       }
+    },
+    async deleteAccount(auth0Id) {
+      const profile = await prisma.profile.findUnique({
+        where: { auth0Id },
+        select: { id: true },
+      });
+
+      await deleteAuth0User(auth0Id);
+      if (!profile) return;
+
+      await prisma.$transaction(async (transaction) => {
+        const allocations = await transaction.allocation.findMany({
+          where: { tutorId: profile.id },
+          select: { id: true },
+        });
+        const allocationIds = allocations.map(({ id }) => id);
+        const overflowWork = await transaction.overflowWork.findMany({
+          where: { sourceAllocationId: { in: allocationIds } },
+          select: { id: true },
+        });
+        const overflowWorkIds = overflowWork.map(({ id }) => id);
+
+        await transaction.volunteerClaim.deleteMany({
+          where: {
+            OR: [
+              { studentId: profile.id },
+              { overflowWorkId: { in: overflowWorkIds } },
+            ],
+          },
+        });
+        await transaction.overflowWork.deleteMany({
+          where: { id: { in: overflowWorkIds } },
+        });
+        await transaction.excuse.deleteMany({ where: { tutorId: profile.id } });
+        await transaction.workLog.deleteMany({ where: { tutorId: profile.id } });
+        await transaction.timesheet.deleteMany({ where: { tutorId: profile.id } });
+        await transaction.timesheet.updateMany({
+          where: { reviewedById: profile.id },
+          data: { reviewedById: null },
+        });
+        await transaction.allocation.deleteMany({ where: { tutorId: profile.id } });
+        await transaction.timeSlot.deleteMany({ where: { tutorId: profile.id } });
+        await transaction.tutorMark.deleteMany({ where: { tutorId: profile.id } });
+        await transaction.tutorHourLimit.deleteMany({ where: { tutorId: profile.id } });
+        await transaction.profile.delete({ where: { id: profile.id } });
+      });
     },
   },
   (entry) => {

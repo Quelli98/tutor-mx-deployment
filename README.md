@@ -2,6 +2,18 @@
 
 Tutor Mx is one integrated React + Vite, Auth0, handwritten Express, Prisma and Neon PostgreSQL project. Browser code calls only the Express API; it never connects to Neon, Prisma or an Auth0 Management API.
 
+## Sprint 1 live demo and team repository
+
+- **Public Sprint 1 demo:** https://tutor-mx.pages.dev
+- **Official team source repository:** Gitea `innovent/tutor-mx-system`
+- **Deployment mirror:** the GitHub copy can be used to trigger the hosted Cloudflare Pages / Render deployment, but team development starts from the latest Gitea `main`.
+- **Current integrated Sprint 1 code:** Members 1, 3, 5 and 6 are integrated. Member 2 and Member 4 are still pending integration.
+
+The hosted demo follows the repository architecture: the browser loads the React/Vite frontend, Auth0 handles sign-in, React sends an Auth0 bearer token to the handwritten Express API, Express enforces role/ownership checks, and Prisma accesses Neon PostgreSQL. Team members can use the public URL for Sprint 1 demonstrations without receiving production database or Auth0 secrets.
+
+For team work, always pull the latest Gitea `main`, work on your own branch, run the relevant checks, push that branch to Gitea, and tell the Integration Lead when it is ready. The Integration Lead merges approved work into `main`. The GitHub deployment mirror should then be refreshed from the approved Gitea `main` so the public demo stays aligned with the official team repository.
+
+
 ## Project structure
 
 | Path | Purpose |
@@ -33,7 +45,7 @@ cp .env.example .env
 cp frontend/.env.example frontend/.env.local
 ```
 
-Set the real `DATABASE_URL` only in the backend `.env`. Set matching Auth0 domain, client ID and API audience values in the backend and frontend files. No Auth0 Management API token is used by this implementation.
+Set the real `DATABASE_URL` only in the backend `.env`. Set matching Auth0 domain, client ID and API audience values in the backend and frontend files. Account deletion uses server-only Auth0 Management API client credentials when configured; these credentials must never be placed in frontend files or committed.
 
 Apply and seed the database, then start both applications:
 
@@ -81,7 +93,7 @@ Authorization: Bearer <access-token>
 | `POST /api/tutor/time-slots` | Tutor; identity comes from token | `201 { data: { timeSlot } }` | `400`, `401`, `403`, `404`, `409` |
 | `POST /api/tutor/work-logs` | Tutor; identity comes from token | `201 { data: { workLog } }` | `400`, `401`, `403`, `404`, `409` |
 | `POST /api/tutor/excuses` | Tutor; identity comes from token | `201 { data: { excuse } }` | `400`, `401`, `403`, `404`, `409` |
-| `DELETE /api/auth/delete-account` | Valid token and supported role | `202` documented Sprint 1 stub | `401`, `403` |
+| `DELETE /api/auth/delete-account` | Valid token and supported role | `204` after the server deletes the Auth0 identity and matching Tutor Mx profile data | `401`, `403`, safe `500` |
 
 The API verifies the RS256 signature against Auth0 JWKS, issuer, audience, subject, expiry and not-before values. The frontend token cache is explicitly in memory. Password entry, sign-up, sign-in and the actual new-password form stay on Auth0 Universal Login.
 
@@ -108,19 +120,21 @@ See `docs/sprint1-members-1-3-5-6-integration.md`, `docs/member-1-handoff.md`, `
 
 ## AI declaration
 
-This repository makes use of AI code generation using the following tools: Codex[GPT-5], Qoder[Auto tier; underlying model automatically routed].
+This repository makes use of AI code generation using the following tools: Codex[GPT-5], ChatGPT[GPT-5.6 Sol], Qoder[Auto tier; underlying model automatically routed].
 
 This repository makes use of AI in-line editing using the following tools: Qoder[Auto tier; underlying model automatically routed].
 
-This repository makes use of AI code review using the following tools: Codex[GPT-5], Qoder[Auto tier; underlying model automatically routed].
+This repository makes use of AI code review using the following tools: Codex[GPT-5], ChatGPT[GPT-5.6 Sol], Qoder[Auto tier; underlying model automatically routed].
 
 The supplied Qoder screenshot records Qoder application version 1.23.0 and VS Code version 1.106.3. Those software versions do not identify the Qoder AI model/tier. Qoder's official model selector can use a specific model or a routed tier, so the actual setting/transcript must be checked rather than inferred from the About dialog.
 
-Commits containing the integrated AI-generated code must include this trailer:
+Commits containing AI-generated code must include the actual assisting tool/model trailer(s), for example:
 
 ```text
-Assisted-by: Codex[GPT-5]
+Assisted-by: ChatGPT[GPT-5.6 Sol]
 ```
+
+Preserve any existing truthful `Assisted-by` trailers for work generated with Codex or Qoder.
 
 If the original Member 1 commit also contains Qoder-generated code, its actual `Qoder[model]` must appear in that commit trailer. Do not invent the model name. Preserve the required unedited assessment transcript or permitted substitute.
 

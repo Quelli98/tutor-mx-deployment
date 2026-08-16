@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="Tutor Mx architecture, API, testing and deployment documentation." />
+    <title>Tutor Mx Documentation</title>
+    <style>
+      :root{font-family:Inter,system-ui,sans-serif;color:#172033;background:#f6f8fc;line-height:1.6}*{box-sizing:border-box}body{margin:0}header,main,nav,footer{max-width:980px;margin:auto;padding:1.25rem}header{padding-top:4rem}.eyebrow{color:#3157c8;font-weight:700;text-transform:uppercase;letter-spacing:.08em}h1{font-size:clamp(2.2rem,7vw,4.5rem);line-height:1.05;margin:.2rem 0}h2{margin-top:0;color:#173b8f}nav{display:flex;gap:.75rem;flex-wrap:wrap;position:sticky;top:0;background:#f6f8fcee;backdrop-filter:blur(8px)}nav a{color:#173b8f;font-weight:650}section{background:white;border:1px solid #dbe2f1;border-radius:16px;padding:1.5rem;margin:1rem 0;box-shadow:0 8px 30px #23365d0c}pre{overflow:auto;background:#111827;color:#f8fafc;padding:1rem;border-radius:10px}code{font-family:"Cascadia Code",monospace}.skip-link{position:absolute;left:-999px}.skip-link:focus{left:1rem;top:1rem;background:white;padding:.75rem;z-index:10}a:focus-visible,button:focus-visible{outline:3px solid #f59e0b;outline-offset:3px}footer{color:#526078}@media(max-width:400px){header{padding-top:2rem}section{padding:1rem}nav{position:static}}
+    </style>
+  </head>
+  <body>
+    <a class="skip-link" href="#content">Skip to content</a>
+    <header>
+      <p class="eyebrow">Tutor management platform</p>
+      <h1>Tutor Mx documentation</h1>
+      <p>Architecture, secure authentication, API usage, testing and deployment for the Sprint 1 public demo.</p>
+    </header>
+    <nav aria-label="Documentation sections">
+      <a href="#architecture">Architecture</a><a href="#setup">Setup</a><a href="#api">API</a>
+      <a href="#testing">Testing</a><a href="#deployment">Deployment</a><a href="#limitations">Limitations</a>
+    </nav>
+    <main id="content">
+      <section id="architecture"><h2>Architecture</h2><p>The React/Vite single-page app is hosted separately from the handwritten Express API. The browser obtains an RS256 access token from Auth0 and sends it only in the Authorization header. Express validates the JWKS signature, issuer, audience, expiry, not-before and subject before accessing Neon PostgreSQL through Prisma. The browser never connects directly to Neon.</p><pre aria-label="Architecture flow">Browser → Cloudflare Pages → Auth0 Universal Login
+Browser → Bearer access token → Render Express API → Prisma → Neon PostgreSQL</pre></section>
+      <section id="setup"><h2>Local setup</h2><ol><li>Install Node.js 22 and run <code>npm ci</code> in the root and frontend directories.</li><li>Copy the example environment files and provide local-only values.</li><li>Run <code>npm run db:migrate</code>, then <code>npm run dev</code>.</li></ol><p>Never commit environment files, tokens, database URLs, client secrets or Management API credentials.</p></section>
+      <section id="api"><h2>API examples</h2><p>Health and readiness are public; application data requires an Auth0 access token with audience <code>https://api.tutormx.com</code>.</p><pre><code>GET /health
+GET /ready
+GET /api/me
+Authorization: Bearer &lt;access-token&gt;
+
+DELETE /api/auth/delete-account
+Authorization: Bearer &lt;access-token&gt;</code></pre><p>Ownership always comes from the verified token subject mapped to <code>Profile.auth0Id</code>. Browser-supplied user identifiers are never trusted.</p></section>
+      <section id="testing"><h2>Testing and coverage</h2><p>CI runs Prisma generation, ESLint, TypeScript checking, backend and frontend tests, production builds and repository secret checks. Coverage is uploaded to Codecov from GitHub Actions without embedding credentials in source.</p></section>
+      <section id="deployment"><h2>Deployment</h2><ul><li>Frontend: Cloudflare Pages, static Vite output with SPA fallback.</li><li>API: Render free web service with exact-origin CORS.</li><li>Database: existing Neon <code>tutor-mx-system</code> production branch.</li><li>Identity: Auth0 Universal Login with Google and database login.</li></ul><p id="deployment-links">Public Sprint 1 frontend: <a href="https://tutor-mx.pages.dev">https://tutor-mx.pages.dev</a>. The official team source remains Gitea; GitHub is the deployment mirror.</p></section>
+      <section id="limitations"><h2>Limitations</h2><ul><li>Free hosting can sleep when idle, so the first API request may be slow.</li><li>Auth0 development Google keys are suitable for demos, not a production launch.</li><li>Members 2 and 4 are still being integrated into the same stable URLs.</li><li>The public-holiday integration preserves a tested fallback when its external provider is unavailable.</li></ul></section>
+      <section id="ai"><h2>AI attribution</h2><p>AI tools assisted with integration, tests, documentation and deployment preparation. Human team members remain responsible for review, academic disclosure, security decisions and submitted work. See <code>AI_DECLARATION.md</code> in the repository.</p></section>
+    </main>
+    <footer><p>Tutor Mx · Student-owned deployment documentation</p></footer>
+  </body>
+</html>

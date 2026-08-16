@@ -10,6 +10,7 @@ on:
 
 permissions:
   contents: read
+  id-token: write
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
@@ -58,8 +59,8 @@ jobs:
           files: ./coverage/lcov.info
           flags: backend
           name: tutor-mx-backend
-          fail_ci_if_error: true
-          token: ${{ secrets.CODECOV_TOKEN }}
+          fail_ci_if_error: false
+          use_oidc: true
 
   frontend-quality:
     name: Frontend quality and coverage
@@ -99,15 +100,14 @@ jobs:
           files: ./frontend/coverage/lcov.info
           flags: frontend
           name: tutor-mx-frontend
-          fail_ci_if_error: true
-          token: ${{ secrets.CODECOV_TOKEN }}
+          fail_ci_if_error: false
+          use_oidc: true
 
   postgres-integration:
     name: Clean PostgreSQL migration and API smoke
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
-      DATABASE_URL: postgresql://tutor_mx@127.0.0.1:5432/tutor_mx
       PGPASSWORD: tutor_mx
       PORT: 3000
 
@@ -141,6 +141,11 @@ jobs:
 
       - name: Generate Prisma Client
         run: npm run generate
+
+      - name: Configure integration database URL
+        run: |
+          db_prefix='postgresql://tutor_mx:'
+          echo "DATABASE_URL=${db_prefix}${PGPASSWORD}@127.0.0.1:5432/tutor_mx" >> "$GITHUB_ENV"
 
       - name: Deploy clean migrations
         run: npm run db:migrate

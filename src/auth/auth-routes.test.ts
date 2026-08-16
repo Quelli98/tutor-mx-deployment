@@ -74,6 +74,7 @@ function makeApp(
       auth0Id: string,
       input: TutorExcuseWriteInput,
     ) => Promise<TutorExcuseSummary>;
+    deleteAccount: (auth0Id: string) => Promise<void>;
     verifyAccessToken: (token: string) => Promise<AuthContext>;
   }> = {},
 ) {
@@ -153,6 +154,7 @@ function makeApp(
         status: "PENDING",
         ...input,
       })),
+    deleteAccount: overrides.deleteAccount ?? (async () => undefined),
     verifyAccessToken: overrides.verifyAccessToken ?? (async () => auth()),
   });
 }
@@ -272,13 +274,14 @@ describe("authentication contract", () => {
     expect(response.text).not.toContain("database connection details");
   });
 
-  it("keeps account deletion as an authenticated Sprint 1 stub", async () => {
-    const response = await request(makeApp())
+  it("deletes only the account identified by the verified token subject", async () => {
+    const deleteAccount = vi.fn().mockResolvedValue(undefined);
+    const response = await request(makeApp({ deleteAccount }))
       .delete("/api/auth/delete-account")
       .set("Authorization", "Bearer valid-token");
 
-    expect(response.status).toBe(202);
-    expect(response.body.data.status).toBe("pending");
+    expect(response.status).toBe(204);
+    expect(deleteAccount).toHaveBeenCalledWith("auth0|tutor");
   });
 });
 

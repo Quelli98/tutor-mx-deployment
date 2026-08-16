@@ -1,0 +1,31 @@
+services:
+  - type: web
+    name: tutor-mx-api
+    runtime: node
+    plan: free
+    buildCommand: npm ci && npm run generate && npm run build:backend
+    preDeployCommand: npm run db:migrate
+    startCommand: npm start
+    healthCheckPath: /health
+    autoDeployTrigger: commit
+    envVars:
+      - key: NODE_VERSION
+        value: 22
+      - key: DATABASE_URL
+        sync: false
+      - key: FRONTEND_ORIGIN
+        sync: false
+      - key: AUTH0_DOMAIN
+        sync: false
+      - key: AUTH0_AUDIENCE
+        sync: false
+      - key: AUTH0_CLIENT_ID
+        sync: false
+      - key: AUTH0_MANAGEMENT_CLIENT_ID
+        sync: false
+      - key: AUTH0_MANAGEMENT_CLIENT_SECRET
+        sync: false
+      - key: AUTH0_DB_CONNECTION
+        value: Username-Password-Authentication
+      - key: AUTH0_ROLES_CLAIM
+        value: https://tutormx.example/roles
