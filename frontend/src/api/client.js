@@ -32,7 +32,10 @@ export async function fetchWithBearerToken(path, options = {}, tokenOrGetter) {
   const body = await readJson(response)
 
   if (!response.ok) {
-    throw new Error(messageFrom(body, 'Request failed'))
+    const error = new Error(messageFrom(body, 'Request failed'))
+    error.code = body?.error?.code || 'REQUEST_FAILED'
+    error.status = response.status
+    throw error
   }
 
   return body

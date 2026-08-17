@@ -20,3 +20,5 @@ The supplied Member 4 handoff records that the handoff document itself was gener
 The team remains responsible for reviewing the code, reproducing the acceptance tests, configuring Auth0/Neon/Codecov without committing secrets, using the required `Assisted-by: <tool>[<model>]` commit trailers and preserving any required assessment transcript.
 
 The preceding document was generated and reviewed with the assistance of the following: Codex[GPT-5], ChatGPT[GPT-5.6 Sol].
+
+- 17 Aug 2026: Self-service role onboarding (front-page role choice, server-only Auth0 Management API role provisioning, automatic Prisma/Neon Profile creation, first-token role resolution and tests) was assisted by ChatGPT [GPT-5.6 Sol].

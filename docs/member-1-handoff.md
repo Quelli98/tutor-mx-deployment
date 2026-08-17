@@ -50,7 +50,7 @@ Final local verification for the Members 1, 3, 5 and 6 integration:
 ## External actions still owned by the team
 
 - Configure the Auth0 SPA, API audience, database connection, callback/logout/origin URLs and reviewed role-claim Action.
-- Link Auth0 subjects to the correct `Profile.auth0Id` and role records in Neon.
+- Configure the server-only Auth0 Management API permissions for self-service onboarding. New users are now linked to matching Auth0 roles and Neon `Profile` records automatically by `POST /api/auth/onboarding`; manual per-user linking is no longer the normal path.
 - Configure `CODECOV_TOKEN`, protect `main`, open the required issue PRs into `main` and obtain Member 2 review.
 - The supplied evidence confirms Qoder application version 1.23.0, VS Code version 1.106.3, Quest Agent mode and the Auto tier. The underlying model was automatically routed and not disclosed; use `Qoder[Auto tier; underlying model automatically routed]` and do not guess a provider model.
 - Commit this generated integration with `Assisted-by: Codex[GPT-5]` and retain the required assessment transcript or allowed substitute.

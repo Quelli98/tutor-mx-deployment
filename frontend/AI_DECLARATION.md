@@ -10,3 +10,5 @@ The preceding document was generated and reviewed with the assistance of the fol
 ChatGPT[GPT-5.6 Sol] was used on 16 August 2026 to verify integration of the deployed frontend snapshot back into the Gitea-ready project and to update deployment documentation.
 
 ChatGPT[GPT-5.6 Sol] was used on 17 August 2026 to integrate Member 4's Student overflow, volunteer confirmation, shared status/navigation and accessibility changes into the current frontend, including the case-sensitive `studentOverflow.js` import fix and shared `main-content` targets.
+
+- 17 Aug 2026: Self-service role onboarding (front-page role choice, server-only Auth0 Management API role provisioning, automatic Prisma/Neon Profile creation, first-token role resolution and tests) was assisted by ChatGPT [GPT-5.6 Sol].

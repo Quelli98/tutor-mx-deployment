@@ -4,7 +4,7 @@
 
 Public frontend URL: **https://tutor-mx.pages.dev**
 
-This URL gives the team one shared Sprint 1 demonstration environment. Access to protected role areas still depends on an authorised Auth0 account and a matching Tutor Mx database role.
+This URL gives the team one shared Sprint 1 demonstration environment. Access to protected role areas still depends on an authenticated Auth0 account and a matching Tutor Mx database role. With the self-service onboarding update, the selected role and Neon Profile are provisioned automatically after the first verified sign-in when backend Auth0 Management API permissions are configured.
 
 ## What was integrated on 16 August 2026
 

@@ -3,9 +3,7 @@ import { useAuth0 } from '@auth0/auth0-react'
 import { fetchWithBearerToken } from '../api/client'
 
 export function normalizeRole(rawRole) {
-  if (rawRole === null || rawRole === undefined || rawRole === '') {
-    return null
-  }
+  if (rawRole === null || rawRole === undefined || rawRole === '') return null
 
   const normalized = String(rawRole).trim().toUpperCase()
 
@@ -24,16 +22,18 @@ export function normalizeRole(rawRole) {
   return normalized
 }
 
-export function useCurrentUser() {
+export function useCurrentUser({ enabled = true } = {}) {
   const { isAuthenticated, getAccessTokenSilently } = useAuth0()
+
   const [user, setUser] = useState(null)
   const [role, setRole] = useState(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  const [errorCode, setErrorCode] = useState('')
 
   useEffect(() => {
-    if (!isAuthenticated) {
-      return
+    if (!isAuthenticated || !enabled) {
+      return undefined
     }
 
     let ignore = false
@@ -41,9 +41,15 @@ export function useCurrentUser() {
     async function loadUser() {
       setLoading(true)
       setError('')
+      setErrorCode('')
 
       try {
-        const profile = await fetchWithBearerToken('/api/me', {}, getAccessTokenSilently)
+        const profile = await fetchWithBearerToken(
+          '/api/me',
+          {},
+          getAccessTokenSilently,
+        )
+
         if (ignore) return
 
         const roleSource =
@@ -62,6 +68,7 @@ export function useCurrentUser() {
           setUser(null)
           setRole(null)
           setError(err?.message || 'Unable to load user profile')
+          setErrorCode(err?.code || 'REQUEST_FAILED')
         }
       } finally {
         if (!ignore) {
@@ -75,11 +82,23 @@ export function useCurrentUser() {
     return () => {
       ignore = true
     }
-  }, [isAuthenticated, getAccessTokenSilently])
+  }, [isAuthenticated, enabled, getAccessTokenSilently])
 
-  if (!isAuthenticated) {
-    return { user: null, role: null, loading: false, error: '' }
+  if (!isAuthenticated || !enabled) {
+    return {
+      user: null,
+      role: null,
+      loading: false,
+      error: '',
+      errorCode: '',
+    }
   }
 
-  return { user, role, loading, error }
+  return {
+    user,
+    role,
+    loading,
+    error,
+    errorCode,
+  }
 }

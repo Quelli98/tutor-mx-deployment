@@ -9,7 +9,7 @@ import {
   createAuth0PasswordResetRequester,
   type PasswordResetRequester,
 } from "./auth/password-reset.js";
-import { createAuth0UserDeleter } from "./auth/management-api.js";
+import { createAuth0RoleProvisioner, createAuth0UserDeleter } from "./auth/management-api.js";
 import { prisma, queryClient } from "./database.js";
 import { getTutorHourSummary } from "./services/allocation-queries.js";
 
@@ -42,18 +42,18 @@ const requestPasswordReset: PasswordResetRequester =
         throw new Error("Auth0 password reset is not configured");
       };
 
-const deleteAuth0User =
-  auth0Domain &&
-  process.env.AUTH0_MANAGEMENT_CLIENT_ID &&
-  process.env.AUTH0_MANAGEMENT_CLIENT_SECRET
-    ? createAuth0UserDeleter({
-        domain: auth0Domain,
-        clientId: process.env.AUTH0_MANAGEMENT_CLIENT_ID,
-        clientSecret: process.env.AUTH0_MANAGEMENT_CLIENT_SECRET,
-      })
-    : async () => {
-        throw new Error("Auth0 Management API deletion is not configured");
-      };
+const auth0ManagementConfig =
+  auth0Domain && process.env.AUTH0_MANAGEMENT_CLIENT_ID && process.env.AUTH0_MANAGEMENT_CLIENT_SECRET
+    ? { domain: auth0Domain, clientId: process.env.AUTH0_MANAGEMENT_CLIENT_ID, clientSecret: process.env.AUTH0_MANAGEMENT_CLIENT_SECRET }
+    : null;
+
+const deleteAuth0User = auth0ManagementConfig
+  ? createAuth0UserDeleter(auth0ManagementConfig)
+  : async () => { throw new Error("Auth0 Management API deletion is not configured"); };
+
+const provisionAuth0Role = auth0ManagementConfig
+  ? createAuth0RoleProvisioner(auth0ManagementConfig)
+  : async () => { throw new Error("Auth0 Management API onboarding is not configured"); };
 
 function isPrismaErrorCode(error: unknown, code: string) {
   return (
@@ -125,6 +125,7 @@ const app = createApp(
     corsOrigin: process.env.FRONTEND_ORIGIN ?? "http://localhost:5173",
     verifyAccessToken,
     requestPasswordReset,
+    allowSelfServiceOrganiser: process.env.ALLOW_SELF_SERVICE_ORGANISER?.toLowerCase() === "true",
     async findProfileByAuth0Id(auth0Id) {
       const profile = await prisma.profile.findUnique({
         where: { auth0Id },
@@ -137,6 +138,36 @@ const app = createApp(
       });
       const role = normalizeTutorRole(profile?.role);
       return profile && role ? { ...profile, role } : null;
+    },
+    async onboardUser(auth0Id, role) {
+      const existing = await prisma.profile.findUnique({
+        where: { auth0Id },
+        select: { id: true, email: true, fullName: true, role: true },
+      });
+      if (existing) {
+        const existingRole = normalizeTutorRole(existing.role);
+        if (!existingRole || existingRole !== role) {
+          throw createRouteError(409, "ROLE_ALREADY_SET", "This Tutor Mx account already has a different role.");
+        }
+        const identity = await provisionAuth0Role(auth0Id, role);
+        if (!identity.emailVerified) throw createRouteError(403, "EMAIL_NOT_VERIFIED", "Verify your email address, then try again.");
+        return { ...existing, role: existingRole };
+      }
+
+      const identity = await provisionAuth0Role(auth0Id, role);
+      if (!identity.emailVerified) throw createRouteError(403, "EMAIL_NOT_VERIFIED", "Verify your email address, then try again.");
+      try {
+        const profile = await prisma.profile.create({
+          data: { auth0Id, email: identity.email, fullName: identity.fullName, role },
+          select: { id: true, email: true, fullName: true, role: true },
+        });
+        return { ...profile, role };
+      } catch (error) {
+        if (isPrismaErrorCode(error, "P2002")) {
+          throw createRouteError(409, "PROFILE_CONFLICT", "This email or Auth0 account is already linked to another Tutor Mx profile.");
+        }
+        throw error;
+      }
     },
     async listCourses() {
       const courses = await prisma.course.findMany({

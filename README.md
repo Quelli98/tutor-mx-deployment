@@ -45,7 +45,7 @@ cp .env.example .env
 cp frontend/.env.example frontend/.env.local
 ```
 
-Set the real `DATABASE_URL` only in the backend `.env`. Set matching Auth0 domain, client ID and API audience values in the backend and frontend files. Account deletion uses server-only Auth0 Management API client credentials when configured; these credentials must never be placed in frontend files or committed.
+Set the real `DATABASE_URL` only in the backend `.env`. Set matching Auth0 domain, client ID and API audience values in the backend and frontend files. Self-service onboarding and account deletion use server-only Auth0 Management API client credentials when configured; these credentials must never be placed in frontend files or committed.
 
 Apply and seed the database, then start both applications:
 
@@ -67,7 +67,7 @@ Create an Auth0 Single Page Application and configure these development URLs:
 
 Create an Auth0 API whose identifier exactly matches `AUTH0_AUDIENCE` and `VITE_AUTH0_AUDIENCE`, using RS256 access tokens. Configure the database connection named by `AUTH0_DB_CONNECTION` and enable it for the SPA.
 
-The access token must contain the custom claim named by `AUTH0_ROLES_CLAIM` (default `https://tutormx.example/roles`). Its value is an array containing one of `ORGANISER`, `TUTOR` or `STUDENT`. A Post Login Action can derive this from reviewed Auth0 app metadata; never accept a self-selected role during public sign-up. The matching PostgreSQL `Profile.auth0Id` and `Profile.role` remain the application record, and `/api/me` rejects a stale token/database role mismatch.
+The access token must contain the custom claim named by `AUTH0_ROLES_CLAIM` (default `https://tutormx.example/roles`). Its value is an array containing one of `ORGANISER`, `TUTOR` or `STUDENT`. The frontend now supports first-login role selection. After Auth0 proves the identity, the handwritten Express onboarding endpoint uses a server-only Auth0 Management API client to assign exactly one pre-created Tutor Mx role and then creates the matching Neon `Profile`. `ORGANISER` self-sign-up is protected by `ALLOW_SELF_SERVICE_ORGANISER`; keep it `false` outside environments where public organiser creation is intended. A token that already carries a role must still match the Neon profile.
 
 ### HTTP authentication contract
 
@@ -80,7 +80,8 @@ Authorization: Bearer <access-token>
 | Route | Access | Success | Relevant errors |
 | --- | --- | --- | --- |
 | `POST /api/auth/password-reset` | Public, validated email | `202 { data: { message } }` with a non-enumerating message | `400 VALIDATION_ERROR`, `503 PASSWORD_RESET_UNAVAILABLE` |
-| `GET /api/me` | Valid token and supported matching role | `200 { data: { profile } }` | `401`, `403`, `404` in `{ error: { code, message } }` |
+| `POST /api/auth/onboarding` | Valid Auth0 identity + selected role | Assigns Auth0 role and creates matching Neon Profile | `400`, `401`, `403`, `409`, safe `500` |
+| `GET /api/me` | Valid token linked to a Tutor Mx profile | `200 { data: { profile } }` | `401`, `403`, `404` in `{ error: { code, message } }` |
 | `GET /api/profile/current` | Valid token and supported matching role | Alias of the current-profile contract | `401`, `403`, `404` |
 | `GET /api/courses` | Any supported authenticated role | `200 { data: { courses } }` | `401`, `403`, safe `500` |
 | `POST /api/courses` | Organiser | `201 { data: { course } }` | `400`, `401`, `403`, `409` |
