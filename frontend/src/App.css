@@ -422,9 +422,24 @@ button:focus-visible {
   border-color: rgba(167, 48, 76, 0.18);
 }
 
-.sign-out-button {
-  display: block;
-  margin: 24px auto 0;
+.dashboard-sign-out-button {
+  min-height: 42px;
+  margin-left: auto;
+  padding: 8px 16px;
+  border: 1px solid #1268e8;
+  border-radius: 10px;
+  background: #ffffff;
+  color: #0a4fb8;
+  font: inherit;
+  font-weight: 800;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease, transform 0.15s ease;
+}
+
+.dashboard-sign-out-button:hover {
+  transform: translateY(-1px);
+  background: #1268e8;
+  color: #ffffff;
 }
 
 .student-overflow-page {
@@ -640,6 +655,11 @@ a:focus-visible {
 
   .role-navigation-link {
     flex: 0 0 auto;
+  }
+
+  .dashboard-sign-out-button {
+    flex: 0 0 auto;
+    margin-left: auto;
   }
 
   .shared-status {
