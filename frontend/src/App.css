@@ -426,3 +426,325 @@ button:focus-visible {
   display: block;
   margin: 24px auto 0;
 }
+
+.student-overflow-page {
+  text-align: left;
+}
+
+.student-overflow-page .dashboard-header {
+  margin-bottom: 4px;
+}
+
+.work-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 20px;
+}
+
+.work-card {
+  display: grid;
+  gap: 20px;
+  padding: 22px;
+  background: rgba(255, 255, 255, 0.9);
+  border: 1px solid rgba(92, 108, 170, 0.14);
+  border-radius: 20px;
+  box-shadow: 0 12px 24px rgba(73, 82, 134, 0.08);
+}
+
+.work-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+}
+
+.work-card-header h2 {
+  margin-bottom: 4px;
+}
+
+.work-course-code {
+  margin: 0 0 4px;
+  color: #5f52d9;
+  font-size: 0.82rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+}
+
+.work-status {
+  flex-shrink: 0;
+  border-radius: 999px;
+  padding: 6px 10px;
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.work-status.open {
+  background: #ebfff4;
+  color: #126b46;
+}
+
+.work-status.closed {
+  background: #fff1f3;
+  color: #b3253a;
+}
+
+.work-details {
+  display: grid;
+  gap: 12px;
+  margin: 0;
+}
+
+.work-details div {
+  display: grid;
+  gap: 3px;
+}
+
+.work-details dt {
+  color: #6a718b;
+  font-size: 0.78rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.work-details dd {
+  margin: 0;
+  color: #252b46;
+  font-weight: 600;
+}
+
+.work-card .primary-button,
+.work-card .secondary-button {
+  width: 100%;
+}
+
+@media (max-width: 600px) {
+  .work-card {
+    padding: 18px;
+  }
+
+  .work-card-header {
+    align-items: flex-start;
+  }
+
+  .work-status {
+    font-size: 0.72rem;
+  }
+}
+
+.skip-to-content {
+  position: fixed;
+  top: -100px;
+  left: 16px;
+  z-index: 1000;
+  padding: 10px 14px;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #252b46;
+  font-weight: 800;
+  text-decoration: none;
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.15);
+}
+
+.skip-to-content:focus {
+  top: 16px;
+}
+
+.role-navigation {
+  width: 100%;
+  border-bottom: 1px solid rgba(92, 108, 170, 0.14);
+  background: rgba(255, 255, 255, 0.94);
+}
+
+.role-navigation-inner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: min(1100px, calc(100% - 32px));
+  margin: 0 auto;
+  padding: 12px 0;
+}
+
+.role-navigation-link {
+  display: inline-flex;
+  align-items: center;
+  min-height: 42px;
+  padding: 8px 14px;
+  border-radius: 10px;
+  color: #4c536e;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.role-navigation-link:hover {
+  background: rgba(95, 82, 217, 0.08);
+}
+
+.role-navigation-link.active {
+  background: rgba(95, 82, 217, 0.12);
+  color: #5f52d9;
+}
+
+.shared-status {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 22px;
+  border: 1px solid rgba(92, 108, 170, 0.14);
+  border-radius: 20px;
+  background: rgba(255, 255, 255, 0.9);
+  box-shadow: 0 12px 24px rgba(73, 82, 134, 0.08);
+}
+
+.shared-status h2 {
+  margin-bottom: 6px;
+}
+
+.shared-status p {
+  margin: 0;
+}
+
+.shared-status-loading {
+  border-left: 5px solid #5f52d9;
+}
+
+.shared-status-empty {
+  border-left: 5px solid #8a91aa;
+}
+
+.shared-status-success {
+  border-left: 5px solid #198754;
+}
+
+.shared-status-error {
+  border-left: 5px solid #c9364f;
+}
+
+.shared-status-error h2 {
+  color: #a9273c;
+}
+
+button:focus-visible,
+a:focus-visible {
+  outline: 3px solid #5f52d9;
+  outline-offset: 3px;
+}
+
+@media (max-width: 600px) {
+  .role-navigation-inner {
+    width: calc(100% - 20px);
+    overflow-x: auto;
+    padding: 10px 0;
+  }
+
+  .role-navigation-link {
+    flex: 0 0 auto;
+  }
+
+  .shared-status {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .shared-status .primary-button {
+    width: 100%;
+  }
+}
+
+.dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: rgba(37, 43, 70, 0.5);
+}
+
+.confirmation-dialog {
+  width: min(520px, 100%);
+  max-height: calc(100vh - 40px);
+  overflow-y: auto;
+  border-radius: 20px;
+  background: #ffffff;
+  box-shadow: 0 24px 60px rgba(37, 43, 70, 0.24);
+}
+
+.confirmation-dialog-content {
+  display: grid;
+  gap: 20px;
+  padding: 28px;
+}
+
+.confirmation-dialog-content h2 {
+  margin: 0;
+}
+
+.confirmation-dialog-body {
+  color: #4c536e;
+}
+
+.confirmation-dialog-body p:last-child {
+  margin-bottom: 0;
+}
+
+.confirmation-dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+}
+
+.confirmation-dialog-actions button {
+  min-width: 110px;
+}
+
+@media (max-width: 600px) {
+  .dialog-backdrop {
+    align-items: end;
+    padding: 12px;
+  }
+
+  .confirmation-dialog {
+    width: 100%;
+    max-height: calc(100vh - 24px);
+    border-radius: 18px;
+  }
+
+  .confirmation-dialog-content {
+    padding: 22px;
+  }
+
+  .confirmation-dialog-actions {
+    flex-direction: column-reverse;
+  }
+
+  .confirmation-dialog-actions button {
+    width: 100%;
+  }
+}
+
+.confirmation-details {
+  display: grid;
+  gap: 14px;
+  margin: 20px 0 0;
+}
+
+.confirmation-details div {
+  display: grid;
+  gap: 4px;
+}
+
+.confirmation-details dt {
+  color: #1d1e22;
+  font-size: 0.78rem;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.confirmation-details dd {
+  margin: 0;
+  color: #252b46;
+  font-weight: 600;
+}

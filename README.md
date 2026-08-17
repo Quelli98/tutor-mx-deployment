@@ -7,7 +7,7 @@ Tutor Mx is one integrated React + Vite, Auth0, handwritten Express, Prisma and 
 - **Public Sprint 1 demo:** https://tutor-mx.pages.dev
 - **Official team source repository:** Gitea `innovent/tutor-mx-system`
 - **Deployment mirror:** the GitHub copy can be used to trigger the hosted Cloudflare Pages / Render deployment, but team development starts from the latest Gitea `main`.
-- **Current integrated Sprint 1 code:** Members 1, 3, 5 and 6 are integrated. Member 2 and Member 4 are still pending integration.
+- **Current integrated Sprint 1 code:** Members 1, 3, 4, 5 and 6 are integrated. Member 2 is still pending integration.
 
 The hosted demo follows the repository architecture: the browser loads the React/Vite frontend, Auth0 handles sign-in, React sends an Auth0 bearer token to the handwritten Express API, Express enforces role/ownership checks, and Prisma accesses Neon PostgreSQL. Team members can use the public URL for Sprint 1 demonstrations without receiving production database or Auth0 secrets.
 
@@ -18,7 +18,7 @@ For team work, always pull the latest Gitea `main`, work on your own branch, run
 
 | Path | Purpose |
 | --- | --- |
-| `frontend/` | React interface, Auth0 Universal Login, role routing, account lifecycle, tutor dashboard/forms and shared bearer-token request helper |
+| `frontend/` | React interface, Auth0 Universal Login, role routing, account lifecycle, Tutor dashboard/forms, Student overflow/volunteer flow, shared accessible navigation/status components and bearer-token request helper |
 | `src/` | Express API, Auth0 access-token verification, protected profile/course/tutor-workflow routes, allocation rules and backend services |
 | `prisma/` | Versioned PostgreSQL schema, migrations and non-personal demo data |
 | `.github/workflows/` | Required GitHub Actions CI, Codecov, PostgreSQL integration and deployment smoke checks |
@@ -99,6 +99,8 @@ The API verifies the RS256 signature against Auth0 JWKS, issuer, audience, subje
 
 Tutor workflow URLs never accept a browser-supplied tutor identifier. The backend resolves `Profile.auth0Id` from the verified token subject, checks the database role and applies allocation ownership before returning or changing records. The dashboard and forms therefore cannot be redirected to another tutor by changing a URL or request body.
 
+Sprint 1 Student overflow remains behind the protected `STUDENT` route and uses the agreed mocked work/claim boundary from Member 4. It does not access Prisma/Neon from the browser. The production Student endpoint is a later backend-connection step; the current integration deliberately preserves the Sprint 1 mock contract rather than inventing an unfinished server API.
+
 ## Automated checks
 
 | Command | Purpose |
@@ -116,7 +118,7 @@ Tutor workflow URLs never accept a browser-supplied tutor identifier. The backen
 
 The CI workflow uploads `coverage/lcov.info` with the `backend` Codecov flag and `frontend/coverage/lcov.info` with the `frontend` flag. Repository administrators must configure `CODECOV_TOKEN`, protect `main`, and require all checks. Member branches and integration PRs target `main`; this repository does not require a `develop` branch.
 
-See `docs/sprint1-members-1-3-5-6-integration.md`, `docs/member-1-handoff.md`, `docs/member-3-handoff.md`, `docs/member-5-handoff.md`, `docs/member-6-handoff.md` and `docs/github-required-checks.md` for completed evidence and repository-admin follow-ups.
+See `docs/sprint1-members-1-3-4-5-6-integration.md`, `docs/member-1-handoff.md`, `docs/member-3-handoff.md`, `docs/member-4-handoff.md`, `docs/member-5-handoff.md`, `docs/member-6-handoff.md` and `docs/github-required-checks.md` for completed evidence and repository-admin follow-ups.
 
 ## AI declaration
 
@@ -138,4 +140,4 @@ Preserve any existing truthful `Assisted-by` trailers for work generated with Co
 
 If the original Member 1 commit also contains Qoder-generated code, its actual `Qoder[model]` must appear in that commit trailer. Do not invent the model name. Preserve the required unedited assessment transcript or permitted substitute.
 
-The preceding document was generated and reviewed with the assistance of the following: Codex[GPT-5].
+The preceding document was generated and reviewed with the assistance of the following: Codex[GPT-5], ChatGPT[GPT-5.6 Sol].

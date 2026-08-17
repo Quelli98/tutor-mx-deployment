@@ -52,7 +52,7 @@ export default function TutorDashboard() {
 
   if (status === 'error') {
     return (
-      <main className="dashboard-shell">
+      <main id="main-content" className="dashboard-shell">
         <section className="role-card" role="alert">
           <h1>Dashboard unavailable</h1>
           <p>We could not load your dashboard right now.</p>
@@ -67,7 +67,7 @@ export default function TutorDashboard() {
   const { allocations, weeklyLimit, usedHours, remainingHours } = data
 
   return (
-    <main className="dashboard-shell tutor-workspace">
+    <main id="main-content" className="dashboard-shell tutor-workspace">
       <header className="dashboard-header">
         <div>
           <p className="eyebrow">Tutor Mx</p>

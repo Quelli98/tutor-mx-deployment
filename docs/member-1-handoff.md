@@ -45,7 +45,7 @@ Final local verification for the Members 1, 3, 5 and 6 integration:
 - Frontend: 15 test files, 52 tests passed; 89.34% statements, 83.85% branches, 93.61% functions and 92.26% lines in the conservative clean-archive run.
 - Backend/frontend lint, strict backend type-check, both production builds and the tracked-file secret/AI-attribution check passed.
 - A built API smoke returned `200 {"status":"ok"}` for `/health` and the agreed safe `401` JSON for unauthenticated `/api/me`.
-- The full cross-member acceptance mapping is in `docs/sprint1-members-1-3-5-6-integration.md`.
+- The current cross-member acceptance mapping, including Member 4, is in `docs/sprint1-members-1-3-4-5-6-integration.md`. The counts above remain the earlier Members 1, 3, 5 and 6 verification snapshot.
 
 ## External actions still owned by the team
 

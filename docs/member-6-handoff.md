@@ -60,6 +60,6 @@ npm run spike:holidays -- 2026
 
 The external spike command performs a real network request; automated tests use mocks so CI is deterministic.
 
-The final Members 1, 3, 5 and 6 test counts, coverage and acceptance mapping are recorded in `docs/sprint1-members-1-3-5-6-integration.md`.
+The earlier Members 1, 3, 5 and 6 test counts and coverage are recorded in `docs/sprint1-members-1-3-5-6-integration.md`; the current acceptance mapping including Member 4 is in `docs/sprint1-members-1-3-4-5-6-integration.md`.
 
 The preceding document was generated and reviewed with the assistance of the following: Codex[GPT-5].

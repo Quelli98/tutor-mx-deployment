@@ -1,0 +1,39 @@
+Tutor Mx Sprint 1 integration verification - 17 August 2026
+
+Integrated source:
+- Existing current main: Members 1, 3, 5 and 6
+- Added: Member 4 Student overflow/shared UI
+- Pending: Member 2
+
+Completed in this environment:
+- Static TypeScript parser syntax check: PASS (backend/frontend source)
+- Exact-case relative import check: PASS
+- Frontend direct Prisma/PostgreSQL/DATABASE_URL boundary scan: PASS
+- Tracked secret/environment and AI-attribution check: PASS
+- git diff --cached --check: PASS after whitespace cleanup
+
+Integration correction:
+- Supplied file frontend/src/api/StudentOverflow.js conflicted with lowercase imports on case-sensitive systems.
+- Integrated path is frontend/src/api/studentOverflow.js.
+
+Dynamic verification blocker:
+- npm registry DNS resolution timed out in the integration sandbox.
+- Therefore no fresh npm test/build/coverage result is claimed for this final archive.
+- Run the full local release gate before pushing main:
+  npm ci
+  npm ci --prefix frontend
+  npm run generate
+  npm run check
+  npm run coverage
+  npm run security:check
+  git diff --check
+
+AI attribution for this integration:
+- ChatGPT[GPT-5.6 Sol]
+
+Fresh-extraction package verification:
+- Source-only ZIP extracted successfully: PASS
+- Static syntax/import/boundary checks on fresh extraction: PASS
+- Tracked secret/AI check on fresh extraction: PASS
+- git diff --cached --check on fresh extraction: PASS
+- Required Member 4 files/integration docs present: PASS

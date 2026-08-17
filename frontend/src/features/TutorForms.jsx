@@ -55,7 +55,7 @@ export default function TutorForms() {
 
   if (status === 'error') {
     return (
-      <main className="dashboard-shell">
+      <main id="main-content" className="dashboard-shell">
         <section className="role-card" role="alert">
           <h1>Tutor forms unavailable</h1>
           <p>Your assigned sessions could not be loaded safely.</p>
@@ -66,7 +66,7 @@ export default function TutorForms() {
   }
 
   return (
-    <main className="dashboard-shell tutor-workspace">
+    <main id="main-content" className="dashboard-shell tutor-workspace">
       <header>
         <p className="eyebrow">Tutor Mx</p>
         <h1>Availability, Work Log and Excuses</h1>

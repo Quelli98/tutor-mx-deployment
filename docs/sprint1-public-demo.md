@@ -25,7 +25,7 @@ The existing Gitea workflow remains under `.gitea/workflows/ci.yml`.
 
 **Gitea `main` is the team source of truth.** GitHub is a deployment mirror for the hosted demo.
 
-After this integrated snapshot is committed to Gitea `main`, Members 2 and 4 must pull the latest Gitea `main` before continuing their branches.
+After this integrated snapshot is committed to Gitea `main`, Member 2 must pull the latest Gitea `main` before continuing their branch. Member 4 is now included in the shared Sprint 1 source.
 
 1. Pull latest Gitea `main`.
 2. Work on your own branch.
@@ -42,9 +42,9 @@ After this integrated snapshot is committed to Gitea `main`, Members 2 and 4 mus
 - Member 5: integrated handwritten Express API, validation, security and API tests.
 - Member 6: integrated Prisma/Neon database foundation, verification, CI and integration work.
 - Member 2: pending integration.
-- Member 4: pending integration.
+- Member 4: integrated Student overflow, shared navigation/status components and volunteer confirmation/duplicate-submit handling.
 
-The public demo is therefore the shared Sprint 1 foundation, not the final application.
+The public demo remains the shared Sprint 1 foundation rather than the final application because Member 2 is still pending and Member 4's Sprint 1 Student work intentionally uses the agreed mock boundary until its later backend endpoint is connected.
 
 ## Public-demo architecture
 

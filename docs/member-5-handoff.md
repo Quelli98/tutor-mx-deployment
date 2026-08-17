@@ -63,7 +63,7 @@ npm run test:backend -- src/app.test.ts src/auth/auth-routes.test.ts src/server.
 npm run build:backend
 ```
 
-Final integrated verification is recorded in `docs/sprint1-members-1-3-5-6-integration.md`. Backend lint, strict TypeScript checking, route/persistence tests, database migration tests and the production build pass.
+The earlier Members 1, 3, 5 and 6 integrated verification is recorded in `docs/sprint1-members-1-3-5-6-integration.md`. The current mapping including Member 4 is in `docs/sprint1-members-1-3-4-5-6-integration.md`.
 
 ## Status-code table
 

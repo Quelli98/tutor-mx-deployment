@@ -61,7 +61,7 @@ export function AccountSettings() {
   }
 
   return (
-    <main className="dashboard-shell">
+    <main id="main-content" className="dashboard-shell">
       <header className="dashboard-header">
         <div>
           <p className="eyebrow">Tutor Mx</p>
