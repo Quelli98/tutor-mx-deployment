@@ -300,8 +300,7 @@ function App() {
 
   return (
     <div className="app-shell">
-      <RoleRouter currentRole={currentRole} />
-      <button type="button" className="primary-button sign-out-button" onClick={handleSignOut}>Sign out</button>
+      <RoleRouter currentRole={currentRole} onSignOut={handleSignOut} />
     </div>
   )
 }

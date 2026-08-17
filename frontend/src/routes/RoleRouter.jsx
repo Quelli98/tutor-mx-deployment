@@ -7,7 +7,7 @@ import { ROLE_ROUTE_MAP } from './roleMap'
 import { StudentOverflow } from '../features/StudentOverflow'
 import { SkipToContent } from '../components/shared/SkipToContent'
 
-function RoleNavigation({ currentRole }) {
+function RoleNavigation({ currentRole, onSignOut }) {
   const roleRoute = ROLE_ROUTE_MAP[currentRole]
   if (!roleRoute) return null
 
@@ -45,6 +45,16 @@ function RoleNavigation({ currentRole }) {
         >
           Account settings
         </NavLink>
+
+        {(currentRole === 'TUTOR' || currentRole === 'STUDENT') && (
+          <button
+            type="button"
+            className="dashboard-sign-out-button"
+            onClick={onSignOut}
+          >
+            Sign out
+          </button>
+        )}
       </div>
     </nav>
   )
@@ -58,13 +68,13 @@ function protect(currentRole, allowedRoles, children) {
   )
 }
 
-export function RoleRouter({ currentRole }) {
+export function RoleRouter({ currentRole, onSignOut }) {
   const entryPath = ROLE_ROUTE_MAP[currentRole]?.path
 
   return (
     <>
       <SkipToContent />
-      <RoleNavigation currentRole={currentRole} />
+      <RoleNavigation currentRole={currentRole} onSignOut={onSignOut} />
       <Routes>
         <Route path="/" element={<Navigate to={entryPath || '/access-denied'} replace />} />
         <Route path="/dashboard" element={<Navigate to={entryPath || '/access-denied'} replace />} />

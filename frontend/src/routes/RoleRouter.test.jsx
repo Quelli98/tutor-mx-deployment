@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react'
+import { fireEvent, render, screen } from '@testing-library/react'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { describe, expect, it, vi } from 'vitest'
 import { RoleRouter } from './RoleRouter'
@@ -20,11 +20,11 @@ vi.mock('../api/tutorDashboard', () => ({
     Promise.resolve({ allocations: [], weeklyLimit: 10, usedHours: 0, remainingHours: 10 }),
 }))
 
-function renderRole(currentRole, path = '/') {
+function renderRole(currentRole, path = '/', onSignOut = vi.fn()) {
   render(
     <MemoryRouter initialEntries={[path]}>
       <Routes>
-        <Route path="/*" element={<RoleRouter currentRole={currentRole} />} />
+        <Route path="/*" element={<RoleRouter currentRole={currentRole} onSignOut={onSignOut} />} />
       </Routes>
     </MemoryRouter>,
   )
@@ -89,6 +89,30 @@ describe('RoleRouter', () => {
   it('shows organiser navigation for an organiser', () => {
     renderRole('ORGANISER')
     expect(screen.getByRole('link', { name: /organiser workspace/i })).toBeInTheDocument()
+  })
+
+
+  it('shows sign out for students and tutors but not the organiser workspace', () => {
+    const tutorSignOut = vi.fn()
+    const { unmount } = render(
+      <MemoryRouter initialEntries={['/tutor']}>
+        <Routes>
+          <Route path="/*" element={<RoleRouter currentRole="TUTOR" onSignOut={tutorSignOut} />} />
+        </Routes>
+      </MemoryRouter>,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: /sign out/i }))
+    expect(tutorSignOut).toHaveBeenCalledTimes(1)
+    unmount()
+
+    renderRole('STUDENT', '/student')
+    expect(screen.getByRole('button', { name: /sign out/i })).toBeInTheDocument()
+  })
+
+  it('does not add the dashboard sign out control to organiser yet', () => {
+    renderRole('ORGANISER', '/organiser')
+    expect(screen.queryByRole('button', { name: /sign out/i })).not.toBeInTheDocument()
   })
 
   it('provides a skip link to the shared main-content target', () => {
