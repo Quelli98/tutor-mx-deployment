@@ -25,6 +25,8 @@ services:
         sync: false
       - key: AUTH0_MANAGEMENT_CLIENT_SECRET
         sync: false
+      - key: ALLOW_SELF_SERVICE_ORGANISER
+        value: "false"
       - key: AUTH0_DB_CONNECTION
         value: Username-Password-Authentication
       - key: AUTH0_ROLES_CLAIM

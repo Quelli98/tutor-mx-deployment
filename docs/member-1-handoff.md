@@ -45,12 +45,12 @@ Final local verification for the Members 1, 3, 5 and 6 integration:
 - Frontend: 15 test files, 52 tests passed; 89.34% statements, 83.85% branches, 93.61% functions and 92.26% lines in the conservative clean-archive run.
 - Backend/frontend lint, strict backend type-check, both production builds and the tracked-file secret/AI-attribution check passed.
 - A built API smoke returned `200 {"status":"ok"}` for `/health` and the agreed safe `401` JSON for unauthenticated `/api/me`.
-- The full cross-member acceptance mapping is in `docs/sprint1-members-1-3-5-6-integration.md`.
+- The current cross-member acceptance mapping, including Member 4, is in `docs/sprint1-members-1-3-4-5-6-integration.md`. The counts above remain the earlier Members 1, 3, 5 and 6 verification snapshot.
 
 ## External actions still owned by the team
 
 - Configure the Auth0 SPA, API audience, database connection, callback/logout/origin URLs and reviewed role-claim Action.
-- Link Auth0 subjects to the correct `Profile.auth0Id` and role records in Neon.
+- Configure the server-only Auth0 Management API permissions for self-service onboarding. New users are now linked to matching Auth0 roles and Neon `Profile` records automatically by `POST /api/auth/onboarding`; manual per-user linking is no longer the normal path.
 - Configure `CODECOV_TOKEN`, protect `main`, open the required issue PRs into `main` and obtain Member 2 review.
 - The supplied evidence confirms Qoder application version 1.23.0, VS Code version 1.106.3, Quest Agent mode and the Auto tier. The underlying model was automatically routed and not disclosed; use `Qoder[Auto tier; underlying model automatically routed]` and do not guess a provider model.
 - Commit this generated integration with `Assisted-by: Codex[GPT-5]` and retain the required assessment transcript or allowed substitute.

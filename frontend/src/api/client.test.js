@@ -39,9 +39,8 @@ describe('fetchWithBearerToken', () => {
       json: async () => ({ error: { code: 'FORBIDDEN', message: 'Access denied.' } }),
     })
 
-    await expect(fetchWithBearerToken('/api/me', {}, 'token-123')).rejects.toThrow(
-      'Access denied.',
-    )
+    const promise = fetchWithBearerToken('/api/me', {}, 'token-123')
+    await expect(promise).rejects.toMatchObject({ message: 'Access denied.', code: 'FORBIDDEN' })
   })
 })
 

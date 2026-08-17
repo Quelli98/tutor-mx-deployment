@@ -8,6 +8,7 @@ import {
 } from "./auth/contract.js";
 import {
   createAuthenticationMiddleware,
+  createProfileRoleMiddleware,
   requireRole,
   type AuthenticatedRequest,
 } from "./auth/middleware.js";
@@ -126,6 +127,8 @@ export interface RouteError extends Error {
 export interface AppDependencies {
   corsOrigin?: string;
   findProfileByAuth0Id: (auth0Id: string) => Promise<ProfileSummary | null>;
+  onboardUser: (auth0Id: string, role: TutorRole) => Promise<ProfileSummary>;
+  allowSelfServiceOrganiser?: boolean;
   listCourses: () => Promise<CourseSummary[]>;
   createCourse: (input: CourseWriteInput) => Promise<CourseSummary>;
   updateCourse: (
@@ -160,6 +163,9 @@ export interface AppDependencies {
 const unavailableDependencies: AppDependencies = {
   async findProfileByAuth0Id() {
     throw new Error("Authentication is not configured");
+  },
+  async onboardUser() {
+    throw new Error("Self-service onboarding is not configured");
   },
   async listCourses() {
     throw new Error("Backend course and tutor endpoints are not configured");
@@ -561,6 +567,7 @@ export function createApp(
   const authenticate = createAuthenticationMiddleware(
     dependencies.verifyAccessToken,
   );
+  const resolveProfileRole = createProfileRoleMiddleware(dependencies.findProfileByAuth0Id);
   const requireTutorMxRole = requireRole(...TUTOR_ROLES);
 
   app.disable("x-powered-by");
@@ -671,13 +678,38 @@ export function createApp(
     }
   });
 
-  app.get("/api/me", authenticate, requireTutorMxRole, (request, response) =>
+  app.post(
+    "/api/auth/onboarding",
+    sensitiveAuthLimiter,
+    authenticate,
+    async (request, response) => {
+      const role = request.body?.role;
+      if (!TUTOR_ROLES.includes(role)) {
+        const result = error(400, "VALIDATION_ERROR", "Choose Student, Tutor or Organiser.");
+        response.status(result.status).json(result.body);
+        return;
+      }
+      if (role === "ORGANISER" && !dependencies.allowSelfServiceOrganiser) {
+        const result = error(403, "ORGANISER_SELF_SIGNUP_DISABLED", "Organiser self-sign-up is not enabled for this environment.");
+        response.status(result.status).json(result.body);
+        return;
+      }
+      const auth = (request as AuthenticatedRequest).auth!;
+      try {
+        const profile = await dependencies.onboardUser(auth.subject, role);
+        response.status(200).json({ data: { profile } });
+      } catch (value) { sendRouteError(response, value); }
+    },
+  );
+
+  app.get("/api/me", authenticate, resolveProfileRole, requireTutorMxRole, (request, response) =>
     currentProfileRoute(dependencies, request, response),
   );
 
   app.get(
     "/api/profile/current",
     authenticate,
+    resolveProfileRole,
     requireTutorMxRole,
     (request, response) => currentProfileRoute(dependencies, request, response),
   );
@@ -685,6 +717,7 @@ export function createApp(
   app.get(
     "/api/courses",
     authenticate,
+    resolveProfileRole,
     requireTutorMxRole,
     async (_request, response) => {
       try {
@@ -699,6 +732,7 @@ export function createApp(
   app.post(
     "/api/courses",
     authenticate,
+    resolveProfileRole,
     requireRole("ORGANISER"),
     async (request, response) => {
       const parsed = parseCourseInput(request.body);
@@ -724,6 +758,7 @@ export function createApp(
   app.patch(
     "/api/courses/:courseId",
     authenticate,
+    resolveProfileRole,
     requireRole("ORGANISER"),
     async (request, response) => {
       const courseId = parseNumericId(request.params.courseId, "Course");
@@ -764,6 +799,7 @@ export function createApp(
   app.delete(
     "/api/courses/:courseId",
     authenticate,
+    resolveProfileRole,
     requireRole("ORGANISER"),
     async (request, response) => {
       const courseId = parseNumericId(request.params.courseId, "Course");
@@ -790,6 +826,7 @@ export function createApp(
   app.get(
     "/api/tutors",
     authenticate,
+    resolveProfileRole,
     requireRole("ORGANISER"),
     async (_request, response) => {
       try {
@@ -804,6 +841,7 @@ export function createApp(
   app.post(
     "/api/tutors",
     authenticate,
+    resolveProfileRole,
     requireRole("ORGANISER"),
     async (request, response) => {
       const parsed = parseTutorCreateInput(request.body);
@@ -830,6 +868,7 @@ export function createApp(
   app.patch(
     "/api/tutors/:tutorId",
     authenticate,
+    resolveProfileRole,
     requireRole("ORGANISER"),
     async (request, response) => {
       const tutorId = parseNumericId(request.params.tutorId, "Tutor");
@@ -869,6 +908,7 @@ export function createApp(
   app.get(
     "/api/tutor/dashboard",
     authenticate,
+    resolveProfileRole,
     requireRole("TUTOR"),
     async (request, response) => {
       const auth = (request as AuthenticatedRequest).auth!;
@@ -884,6 +924,7 @@ export function createApp(
   app.post(
     "/api/tutor/time-slots",
     authenticate,
+    resolveProfileRole,
     requireRole("TUTOR"),
     async (request, response) => {
       const parsed = parseTutorTimeSlotInput(request.body);
@@ -913,6 +954,7 @@ export function createApp(
   app.post(
     "/api/tutor/work-logs",
     authenticate,
+    resolveProfileRole,
     requireRole("TUTOR"),
     async (request, response) => {
       const parsed = parseTutorWorkLogInput(request.body);
@@ -942,6 +984,7 @@ export function createApp(
   app.post(
     "/api/tutor/excuses",
     authenticate,
+    resolveProfileRole,
     requireRole("TUTOR"),
     async (request, response) => {
       const parsed = parseTutorExcuseInput(request.body);
@@ -972,6 +1015,7 @@ export function createApp(
     "/api/auth/delete-account",
     sensitiveAuthLimiter,
     authenticate,
+    resolveProfileRole,
     requireTutorMxRole,
     async (request, response) => {
       const auth = (request as AuthenticatedRequest).auth!;

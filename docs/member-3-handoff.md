@@ -120,6 +120,6 @@ npm run check
 npm run coverage
 ```
 
-The final integrated counts and coverage are recorded in `docs/sprint1-members-1-3-5-6-integration.md`.
+The earlier Members 1, 3, 5 and 6 counts/coverage remain recorded in `docs/sprint1-members-1-3-5-6-integration.md`; the current integration mapping including Member 4 is in `docs/sprint1-members-1-3-4-5-6-integration.md`.
 
 The preceding document was generated and reviewed with the assistance of the following: Codex[GPT-5].

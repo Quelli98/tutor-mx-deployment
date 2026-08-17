@@ -4,16 +4,48 @@ import { AccountSettings } from '../features/AccountSettings'
 import TutorDashboard from '../features/TutorDashboard'
 import TutorForms from '../features/TutorForms'
 import { ROLE_ROUTE_MAP } from './roleMap'
+import { StudentOverflow } from '../features/StudentOverflow'
+import { SkipToContent } from '../components/shared/SkipToContent'
 
 function RoleNavigation({ currentRole }) {
   const roleRoute = ROLE_ROUTE_MAP[currentRole]
   if (!roleRoute) return null
 
   return (
-    <nav className="role-navigation" aria-label="Tutor Mx navigation">
-      <NavLink to={roleRoute.path}>{roleRoute.label}</NavLink>
-      {currentRole === 'TUTOR' && <NavLink to="/tutor/forms">Tutor forms</NavLink>}
-      <NavLink to="/settings">Account settings</NavLink>
+    <nav
+      className="role-navigation"
+      aria-label="Tutor Mx primary navigation"
+    >
+      <div className="role-navigation-inner">
+        <NavLink
+          to={roleRoute.path}
+          className={({ isActive }) =>
+            `role-navigation-link${isActive ? ' active' : ''}`
+          }
+        >
+          {roleRoute.label}
+        </NavLink>
+
+        {currentRole === 'TUTOR' && (
+          <NavLink
+            to="/tutor/forms"
+            className={({ isActive }) =>
+              `role-navigation-link${isActive ? ' active' : ''}`
+            }
+          >
+            Tutor forms
+          </NavLink>
+        )}
+
+        <NavLink
+          to="/settings"
+          className={({ isActive }) =>
+            `role-navigation-link${isActive ? ' active' : ''}`
+          }
+        >
+          Account settings
+        </NavLink>
+      </div>
     </nav>
   )
 }
@@ -31,6 +63,7 @@ export function RoleRouter({ currentRole }) {
 
   return (
     <>
+      <SkipToContent />
       <RoleNavigation currentRole={currentRole} />
       <Routes>
         <Route path="/" element={<Navigate to={entryPath || '/access-denied'} replace />} />
@@ -49,7 +82,7 @@ export function RoleRouter({ currentRole }) {
         />
         <Route
           path="/student"
-          element={protect(currentRole, ['STUDENT'], <RolePage role="Student" />)}
+          element={protect(currentRole, ['STUDENT'], <StudentOverflow />)}
         />
         <Route
           path="/settings"
@@ -65,7 +98,7 @@ export function RoleRouter({ currentRole }) {
 
 function RolePage({ role }) {
   return (
-    <main className="dashboard-shell">
+    <main id="main-content" className="dashboard-shell">
       <div className="dashboard-header">
         <div>
           <p className="eyebrow">Tutor Mx</p>
@@ -82,7 +115,7 @@ function RolePage({ role }) {
 
 function AccessDeniedPage() {
   return (
-    <main className="dashboard-shell" role="alert">
+    <main id="main-content" className="dashboard-shell" role="alert">
       <section className="role-card danger-zone">
         <h1>Access denied</h1>
         <p>Your account does not have permission to open this page.</p>

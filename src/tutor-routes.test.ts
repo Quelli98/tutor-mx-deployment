@@ -23,6 +23,7 @@ function makeApp(overrides: Partial<AppDependencies> = {}) {
       fullName: "Current Tutor",
       role: "TUTOR",
     }),
+    onboardUser: async (_auth0Id, role) => ({ id: 7, email: "tutor@tutormx.example", fullName: "Current Tutor", role }),
     listCourses: async () => [],
     createCourse: async (input) => ({ id: 1, ...input }),
     updateCourse: async (id, input) => ({ id, ...input }),
