@@ -90,7 +90,7 @@ Authorization: Bearer <access-token>
 | `GET /api/tutors` | Organiser | `200 { data: { tutors } }` | `401`, `403`, safe `500` |
 | `POST /api/tutors` | Organiser | `201 { data: { tutor } }` | `400`, `401`, `403`, `409` |
 | `PATCH /api/tutors/:tutorId` | Organiser | `200 { data: { tutor } }` | `400`, `401`, `403`, `404`, `409` |
-| `GET /api/tutor/dashboard` | Tutor; identity comes from token | `200 { data: { dashboard } }` | `401`, `403`, `404`, `409`, safe `500` |
+| `GET /api/tutor/dashboard` | Tutor; identity comes from token | `200 { data: { dashboard } }` | `401`, `403`, `404`, safe `500` |
 | `POST /api/tutor/time-slots` | Tutor; identity comes from token | `201 { data: { timeSlot } }` | `400`, `401`, `403`, `404`, `409` |
 | `POST /api/tutor/work-logs` | Tutor; identity comes from token | `201 { data: { workLog } }` | `400`, `401`, `403`, `404`, `409` |
 | `POST /api/tutor/excuses` | Tutor; identity comes from token | `201 { data: { excuse } }` | `400`, `401`, `403`, `404`, `409` |
@@ -99,6 +99,8 @@ Authorization: Bearer <access-token>
 The API verifies the RS256 signature against Auth0 JWKS, issuer, audience, subject, expiry and not-before values. The frontend token cache is explicitly in memory. Password entry, sign-up, sign-in and the actual new-password form stay on Auth0 Universal Login.
 
 Tutor workflow URLs never accept a browser-supplied tutor identifier. The backend resolves `Profile.auth0Id` from the verified token subject, checks the database role and applies allocation ownership before returning or changing records. The dashboard and forms therefore cannot be redirected to another tutor by changing a URL or request body.
+
+A newly self-onboarded Tutor may legitimately have no `TutorHourLimit` and no allocations until an Organiser configures them. That state now returns a usable dashboard instead of a `409`: `weeklyLimit` and `remainingHours` are `null`, `usedHours` is still safe to display, and the frontend shows **Weekly hour limit not set yet** plus the normal no-work state.
 
 Sprint 1 Student overflow remains behind the protected `STUDENT` route and uses the agreed mocked work/claim boundary from Member 4. It does not access Prisma/Neon from the browser. The production Student endpoint is a later backend-connection step; the current integration deliberately preserves the Sprint 1 mock contract rather than inventing an unfinished server API.
 

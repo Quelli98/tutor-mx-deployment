@@ -439,9 +439,11 @@ describe("server-side API persistence", () => {
     mocks.getTutorHourSummary.mockResolvedValueOnce(null);
     await expect(
       dependencies.getTutorDashboard("auth0|current-tutor"),
-    ).rejects.toMatchObject({
-      status: 409,
-      code: "TUTOR_HOUR_LIMIT_MISSING",
+    ).resolves.toEqual({
+      allocations: [],
+      weeklyLimit: null,
+      usedHours: 0,
+      remainingHours: null,
     });
   });
 

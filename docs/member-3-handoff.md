@@ -9,6 +9,7 @@
 - The route has no tutor-ID path parameter. The Express backend derives the tutor from the verified Auth0 subject and checks the linked database role.
 - The safe response contains only the current tutor's proposed/confirmed allocations plus the Member 6 weekly-hour summary.
 - Filled, empty, loading, safe error and working retry states are implemented and tested.
+- A newly onboarded Tutor with no organiser-configured weekly-hour limit now receives a valid empty dashboard instead of `TUTOR_HOUR_LIMIT_MISSING`; `weeklyLimit` and `remainingHours` are `null` until configured.
 - Course/session, date/time, expected hours, allocation status and remaining weekly hours are visible.
 - A request to `/api/tutor/dashboard/:tutorId` is deliberately not implemented and returns the shared `404` response.
 
@@ -37,7 +38,7 @@ Dashboard response shape:
 }
 ```
 
-The frontend validates this contract and rejects an unexpected or identity-bearing response instead of rendering it.
+The frontend validates this contract and rejects an unexpected or identity-bearing response instead of rendering it. For a valid new Tutor whose weekly limit has not been configured yet, the same response uses `"weeklyLimit": null` and `"remainingHours": null` while keeping `usedHours` numeric.
 
 ### S1-M3-2 - Availability, work-log and excuse forms
 

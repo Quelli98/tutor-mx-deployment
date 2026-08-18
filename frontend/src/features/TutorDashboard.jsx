@@ -77,10 +77,23 @@ export default function TutorDashboard() {
 
       <section className="role-card hours-summary" aria-labelledby="weekly-hours-heading">
         <h2 id="weekly-hours-heading">Weekly hours</h2>
-        <p>
-          <strong>{remainingHours} of {weeklyLimit} hours remaining</strong>
-        </p>
-        <p className="helper-text">{usedHours} hours are currently allocated this week.</p>
+        {weeklyLimit === null || remainingHours === null ? (
+          <>
+            <p><strong>Weekly hour limit not set yet</strong></p>
+            <p className="helper-text">
+              {usedHours > 0
+                ? `${usedHours} hours are currently allocated this week.`
+                : 'You can still use your tutor workspace. Your weekly limit can be configured later.'}
+            </p>
+          </>
+        ) : (
+          <>
+            <p>
+              <strong>{remainingHours} of {weeklyLimit} hours remaining</strong>
+            </p>
+            <p className="helper-text">{usedHours} hours are currently allocated this week.</p>
+          </>
+        )}
       </section>
 
       <section className="role-card" aria-labelledby="assigned-sessions-heading">

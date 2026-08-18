@@ -70,9 +70,9 @@ export interface TutorAllocationSummary {
 
 export interface TutorDashboardSummary {
   allocations: TutorAllocationSummary[];
-  weeklyLimit: number;
+  weeklyLimit: number | null;
   usedHours: number;
-  remainingHours: number;
+  remainingHours: number | null;
 }
 
 export interface TutorTimeSlotWriteInput {
