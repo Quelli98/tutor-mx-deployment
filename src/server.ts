@@ -395,18 +395,36 @@ const app = createApp(
         );
       }
 
+      const weekStart = mondayUtcFor(new Date());
       const hourSummary = await getTutorHourSummary(
         queryClient,
         profile.id,
-        mondayUtcFor(new Date()),
+        weekStart,
       );
-      if (!hourSummary) {
-        throw createRouteError(
-          409,
-          "TUTOR_HOUR_LIMIT_MISSING",
-          "A weekly-hour limit must be configured before the dashboard can be used.",
+
+      // A newly self-onboarded tutor can exist before an organiser has configured
+      // their weekly-hour limit. That is a valid account state, not a dashboard
+      // failure. Keep the tutor workspace usable and expose the missing limit as
+      // null so the frontend can show a clear "not configured yet" state.
+      const nextWeekStart = new Date(weekStart);
+      nextWeekStart.setUTCDate(nextWeekStart.getUTCDate() + 7);
+      const confirmedHoursThisWeek = profile.allocations
+        .filter(
+          (allocation) =>
+            allocation.status === "CONFIRMED" &&
+            allocation.startsAt >= weekStart &&
+            allocation.startsAt < nextWeekStart,
+        )
+        .reduce(
+          (total, allocation) => total + Number(allocation.allocatedHours),
+          0,
         );
-      }
+
+      const dashboardHours = hourSummary ?? {
+        weeklyLimit: null,
+        usedHours: confirmedHoursThisWeek,
+        remainingHours: null,
+      };
 
       return {
         allocations: profile.allocations.map((allocation) => ({
@@ -419,9 +437,9 @@ const app = createApp(
           status:
             allocation.status === "CONFIRMED" ? "CONFIRMED" : "PROPOSED",
         })),
-        weeklyLimit: hourSummary.weeklyLimit,
-        usedHours: hourSummary.usedHours,
-        remainingHours: hourSummary.remainingHours,
+        weeklyLimit: dashboardHours.weeklyLimit,
+        usedHours: dashboardHours.usedHours,
+        remainingHours: dashboardHours.remainingHours,
       };
     },
     async createTutorTimeSlot(auth0Id, input) {

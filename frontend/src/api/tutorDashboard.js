@@ -6,6 +6,10 @@ function isFiniteNonNegativeNumber(value) {
   return typeof value === 'number' && Number.isFinite(value) && value >= 0
 }
 
+function isNullableNonNegativeNumber(value) {
+  return value === null || isFiniteNonNegativeNumber(value)
+}
+
 function isAllocation(value) {
   if (!value || typeof value !== 'object' || 'tutorId' in value) return false
 
@@ -34,9 +38,9 @@ export function parseTutorDashboardResponse(body) {
     !dashboard ||
     !Array.isArray(dashboard.allocations) ||
     !dashboard.allocations.every(isAllocation) ||
-    !isFiniteNonNegativeNumber(dashboard.weeklyLimit) ||
+    !isNullableNonNegativeNumber(dashboard.weeklyLimit) ||
     !isFiniteNonNegativeNumber(dashboard.usedHours) ||
-    !isFiniteNonNegativeNumber(dashboard.remainingHours)
+    !isNullableNonNegativeNumber(dashboard.remainingHours)
   ) {
     throw new Error('The tutor dashboard response did not match the agreed contract.')
   }

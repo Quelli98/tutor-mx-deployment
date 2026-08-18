@@ -54,6 +54,22 @@ describe('TutorDashboard', () => {
     expect(await screen.findByText(/no work assigned/i)).toBeInTheDocument()
   })
 
+
+  it('keeps a newly onboarded tutor dashboard usable before an hour limit is configured', async () => {
+    mockFetchTutorDashboard.mockResolvedValue({
+      allocations: [],
+      weeklyLimit: null,
+      usedHours: 0,
+      remainingHours: null,
+    })
+
+    render(<TutorDashboard />)
+
+    expect(await screen.findByText(/weekly hour limit not set yet/i)).toBeInTheDocument()
+    expect(screen.getByText(/no work assigned/i)).toBeInTheDocument()
+    expect(screen.queryByText(/dashboard unavailable/i)).not.toBeInTheDocument()
+  })
+
   it('shows loading and retries after a safe error', async () => {
     mockFetchTutorDashboard.mockRejectedValueOnce(new Error('private detail'))
     render(<TutorDashboard />)

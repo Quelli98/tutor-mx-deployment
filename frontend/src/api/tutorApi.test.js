@@ -46,6 +46,27 @@ describe('tutor API contract', () => {
     expect(fetchWithBearerToken.mock.calls[0][0]).not.toMatch(/tutorId|\/\d+/)
   })
 
+
+  it('accepts a new tutor dashboard before the weekly-hour limit is configured', () => {
+    expect(
+      parseTutorDashboardResponse({
+        data: {
+          dashboard: {
+            allocations: [],
+            weeklyLimit: null,
+            usedHours: 0,
+            remainingHours: null,
+          },
+        },
+      }),
+    ).toEqual({
+      allocations: [],
+      weeklyLimit: null,
+      usedHours: 0,
+      remainingHours: null,
+    })
+  })
+
   it('fails when the dashboard contract changes or exposes a tutor id', () => {
     expect(() => parseTutorDashboardResponse({ data: { dashboard: {} } })).toThrow(
       /agreed contract/i,
