@@ -5,7 +5,15 @@ import TutorDashboard from '../features/TutorDashboard'
 import TutorForms from '../features/TutorForms'
 import { ROLE_ROUTE_MAP } from './roleMap'
 import { StudentOverflow } from '../features/StudentOverflow'
+import CourseManagement from '../features/CourseManagement'
+import TutorManagement from '../features/TutorManagement'
+import OrganiserDashboard from '../features/OrganiserDashboard'
 import { SkipToContent } from '../components/shared/SkipToContent'
+
+const ORGANISER_LINKS = Object.freeze([
+  { path: '/organiser/courses', label: 'Course management' },
+  { path: '/organiser/tutors', label: 'Tutor management' },
+])
 
 function RoleNavigation({ currentRole, onSignOut }) {
   const roleRoute = ROLE_ROUTE_MAP[currentRole]
@@ -36,6 +44,19 @@ function RoleNavigation({ currentRole, onSignOut }) {
             Tutor forms
           </NavLink>
         )}
+
+        {currentRole === 'ORGANISER' &&
+          ORGANISER_LINKS.map((link) => (
+            <NavLink
+              key={link.path}
+              to={link.path}
+              className={({ isActive }) =>
+                `role-navigation-link${isActive ? ' active' : ''}`
+              }
+            >
+              {link.label}
+            </NavLink>
+          ))}
 
         <NavLink
           to="/settings"
@@ -80,7 +101,15 @@ export function RoleRouter({ currentRole, onSignOut }) {
         <Route path="/dashboard" element={<Navigate to={entryPath || '/access-denied'} replace />} />
         <Route
           path="/organiser"
-          element={protect(currentRole, ['ORGANISER'], <RolePage role="Organiser" />)}
+          element={protect(currentRole, ['ORGANISER'], <OrganiserDashboard />)}
+        />
+        <Route
+          path="/organiser/courses"
+          element={protect(currentRole, ['ORGANISER'], <CourseManagement />)}
+        />
+        <Route
+          path="/organiser/tutors"
+          element={protect(currentRole, ['ORGANISER'], <TutorManagement />)}
         />
         <Route
           path="/tutor"
@@ -103,23 +132,6 @@ export function RoleRouter({ currentRole, onSignOut }) {
         <Route path="*" element={<Navigate to={entryPath || '/access-denied'} replace />} />
       </Routes>
     </>
-  )
-}
-
-function RolePage({ role }) {
-  return (
-    <main id="main-content" className="dashboard-shell">
-      <div className="dashboard-header">
-        <div>
-          <p className="eyebrow">Tutor Mx</p>
-          <h1>{role} workspace</h1>
-        </div>
-      </div>
-      <section className="role-card">
-        <h2>Secure role entry</h2>
-        <p>Only users with the matching {role.toLowerCase()} role can open this workspace.</p>
-      </section>
-    </main>
   )
 }
 

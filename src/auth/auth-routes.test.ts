@@ -3,11 +3,15 @@ import { describe, expect, it, vi } from "vitest";
 import {
   createApp,
   createRouteError,
+  type AllocationCandidateQuery,
+  type AllocationCandidateSummary,
   type CourseSummary,
   type ProfileSummary,
   type TutorDashboardSummary,
   type TutorExcuseSummary,
   type TutorExcuseWriteInput,
+  type TutorMarkSummary,
+  type TutorMarkWriteInput,
   type TutorSummary,
   type TutorTimeSlotSummary,
   type TutorTimeSlotWriteInput,
@@ -90,6 +94,19 @@ function makeApp(
       auth0Id: string,
       input: TutorExcuseWriteInput,
     ) => Promise<TutorExcuseSummary>;
+    listAllocationCandidates: (
+      input: AllocationCandidateQuery,
+    ) => Promise<AllocationCandidateSummary[]>;
+    upsertTutorMark: (
+      tutorId: number,
+      input: TutorMarkWriteInput,
+    ) => Promise<TutorMarkSummary>;
+    listTutorMarks: (tutorId: number) => Promise<TutorMarkSummary[]>;
+    listTutorTimeSlots: (tutorId: number) => Promise<TutorTimeSlotSummary[]>;
+    createTutorTimeSlotForTutor: (
+      tutorId: number,
+      input: TutorTimeSlotWriteInput,
+    ) => Promise<TutorTimeSlotSummary>;
     deleteAccount: (auth0Id: string) => Promise<void>;
     verifyAccessToken: (token: string) => Promise<AuthContext>;
   }> = {},
@@ -205,6 +222,33 @@ function makeApp(
         id: 1,
         status: "PENDING",
         ...input,
+      })),
+
+    listAllocationCandidates:
+      overrides.listAllocationCandidates ?? (async () => []),
+
+    upsertTutorMark:
+      overrides.upsertTutorMark ??
+      (async (_tutorId, input) => ({
+        id: 1,
+        courseId: input.courseId,
+        courseCode: "DEMO101",
+        courseName: "Demo Course",
+        mark: input.mark,
+      })),
+
+    listTutorMarks: overrides.listTutorMarks ?? (async () => []),
+
+    listTutorTimeSlots: overrides.listTutorTimeSlots ?? (async () => []),
+
+    createTutorTimeSlotForTutor:
+      overrides.createTutorTimeSlotForTutor ??
+      (async (_tutorId, input) => ({
+        id: 1,
+        type: input.type,
+        startsAt: input.startsAt.toISOString(),
+        endsAt: input.endsAt.toISOString(),
+        recurrence: input.recurrence ?? null,
       })),
 
     deleteAccount:
@@ -1047,5 +1091,342 @@ describe("shared HTTP behavior", () => {
 
     expect(response.status).toBe(404);
     expect(response.body.error.code).toBe("NOT_FOUND");
+  });
+});
+
+describe("allocation candidate route", () => {
+  const candidateQuery =
+    "courseId=3&startsAt=2030-09-04T14:00:00.000Z&endsAt=2030-09-04T16:00:00.000Z&minimumMark=50&requestedHours=2";
+
+  it("requires an Organiser token", async () => {
+    const listAllocationCandidates = vi.fn();
+    const withoutToken = await request(
+      makeApp({ listAllocationCandidates }),
+    ).get(`/api/allocations/candidates?${candidateQuery}`);
+    expect(withoutToken.status).toBe(401);
+    expect(listAllocationCandidates).not.toHaveBeenCalled();
+
+    const wrongRole = await request(
+      makeApp({
+        listAllocationCandidates,
+        verifyAccessToken: async () => auth("TUTOR"),
+      }),
+    )
+      .get(`/api/allocations/candidates?${candidateQuery}`)
+      .set("Authorization", "Bearer valid-token");
+    expect(wrongRole.status).toBe(403);
+    expect(listAllocationCandidates).not.toHaveBeenCalled();
+  });
+
+  it("validates the candidate query and returns ranked candidates", async () => {
+    const candidates = [
+      {
+        tutorId: 1,
+        fullName: "Eligible Tutor",
+        mark: 80,
+        weeklyLimit: 8,
+        usedHours: 2,
+        remainingHours: 6,
+        hasClash: false,
+        isEligible: true,
+        reasonCodes: [],
+      },
+    ];
+    const listAllocationCandidates = vi.fn().mockResolvedValue(candidates);
+    const app = makeApp({ ...organiserAccess(), listAllocationCandidates });
+
+    const invalid = await request(app)
+      .get(
+        "/api/allocations/candidates?courseId=3&minimumMark=150&requestedHours=2",
+      )
+      .set("Authorization", "Bearer valid-token");
+    expect(invalid.status).toBe(400);
+    expect(listAllocationCandidates).not.toHaveBeenCalled();
+
+    const inverted = await request(app)
+      .get(
+        "/api/allocations/candidates?courseId=3&startsAt=2030-09-04T16:00:00.000Z&endsAt=2030-09-04T14:00:00.000Z&minimumMark=50&requestedHours=2",
+      )
+      .set("Authorization", "Bearer valid-token");
+    expect(inverted.status).toBe(400);
+
+    const invalidHours = await request(app)
+      .get(
+        "/api/allocations/candidates?courseId=3&startsAt=2030-09-04T14:00:00.000Z&endsAt=2030-09-04T16:00:00.000Z&minimumMark=50&requestedHours=25",
+      )
+      .set("Authorization", "Bearer valid-token");
+    expect(invalidHours.status).toBe(400);
+
+    const ok = await request(app)
+      .get(`/api/allocations/candidates?${candidateQuery}`)
+      .set("Authorization", "Bearer valid-token");
+    expect(ok.status).toBe(200);
+    expect(ok.body).toEqual({ data: { candidates } });
+    expect(listAllocationCandidates).toHaveBeenCalledWith({
+      courseId: 3,
+      startsAt: new Date("2030-09-04T14:00:00.000Z"),
+      endsAt: new Date("2030-09-04T16:00:00.000Z"),
+      minimumMark: 50,
+      requestedHours: 2,
+    });
+  });
+
+  it("returns a safe error when the candidate service rejects", async () => {
+    const response = await request(
+      makeApp({
+        ...organiserAccess(),
+        listAllocationCandidates: async () => {
+          throw createRouteError(404, "COURSE_NOT_FOUND", "Course not found.");
+        },
+      }),
+    )
+      .get(`/api/allocations/candidates?${candidateQuery}`)
+      .set("Authorization", "Bearer valid-token");
+
+    expect(response.status).toBe(404);
+    expect(response.body.error.code).toBe("COURSE_NOT_FOUND");
+  });
+});
+
+describe("organiser tutor mark routes", () => {
+  it("requires an Organiser token to set marks", async () => {
+    const upsertTutorMark = vi.fn();
+    const withoutToken = await request(makeApp({ upsertTutorMark }))
+      .put("/api/tutors/7/marks")
+      .send({ courseId: 3, mark: 75 });
+    expect(withoutToken.status).toBe(401);
+    expect(upsertTutorMark).not.toHaveBeenCalled();
+  });
+
+  it("validates and upserts a tutor mark", async () => {
+    const mark = {
+      id: 11,
+      courseId: 3,
+      courseCode: "DEMO101",
+      courseName: "Demo Course",
+      mark: 75,
+    };
+    const upsertTutorMark = vi.fn().mockResolvedValue(mark);
+    const app = makeApp({ ...organiserAccess(), upsertTutorMark });
+
+    const invalid = await request(app)
+      .put("/api/tutors/7/marks")
+      .set("Authorization", "Bearer valid-token")
+      .send({ courseId: 3, mark: 150 });
+    expect(invalid.status).toBe(400);
+    expect(upsertTutorMark).not.toHaveBeenCalled();
+
+    for (const missingValue of [null, true, " "]) {
+      const missingMark = await request(app)
+        .put("/api/tutors/7/marks")
+        .set("Authorization", "Bearer valid-token")
+        .send({ courseId: 3, mark: missingValue });
+      expect(missingMark.status).toBe(400);
+      expect(upsertTutorMark).not.toHaveBeenCalled();
+    }
+
+    const invalidId = await request(app)
+      .put("/api/tutors/not-a-number/marks")
+      .set("Authorization", "Bearer valid-token")
+      .send({ courseId: 3, mark: 75 });
+    expect(invalidId.status).toBe(400);
+
+    const created = await request(app)
+      .put("/api/tutors/7/marks")
+      .set("Authorization", "Bearer valid-token")
+      .send({ courseId: 3, mark: 75 });
+    expect(created.status).toBe(200);
+    expect(created.body).toEqual({ data: { mark } });
+    expect(upsertTutorMark).toHaveBeenCalledWith(7, {
+      courseId: 3,
+      mark: 75,
+    });
+  });
+
+  it("lists a tutor's marks", async () => {
+    const marks = [
+      {
+        id: 11,
+        courseId: 3,
+        courseCode: "DEMO101",
+        courseName: "Demo Course",
+        mark: 75,
+      },
+    ];
+    const listTutorMarks = vi.fn().mockResolvedValue(marks);
+    const response = await request(
+      makeApp({ ...organiserAccess(), listTutorMarks }),
+    )
+      .get("/api/tutors/7/marks")
+      .set("Authorization", "Bearer valid-token");
+    expect(response.status).toBe(200);
+    expect(response.body).toEqual({ data: { marks } });
+    expect(listTutorMarks).toHaveBeenCalledWith(7);
+  });
+
+  it("validates mark-list tutor IDs and maps mark service errors", async () => {
+    const listTutorMarks = vi.fn().mockRejectedValue(
+      createRouteError(404, "TUTOR_NOT_FOUND", "Tutor not found."),
+    );
+    const app = makeApp({ ...organiserAccess(), listTutorMarks });
+
+    const invalid = await request(app)
+      .get("/api/tutors/invalid/marks")
+      .set("Authorization", "Bearer valid-token");
+    expect(invalid.status).toBe(400);
+    expect(listTutorMarks).not.toHaveBeenCalled();
+
+    const missing = await request(app)
+      .get("/api/tutors/7/marks")
+      .set("Authorization", "Bearer valid-token");
+    expect(missing.status).toBe(404);
+    expect(missing.body.error.code).toBe("TUTOR_NOT_FOUND");
+  });
+
+  it("maps tutor-mark write service errors", async () => {
+    const response = await request(
+      makeApp({
+        ...organiserAccess(),
+        upsertTutorMark: async () => {
+          throw createRouteError(404, "COURSE_NOT_FOUND", "Course not found.");
+        },
+      }),
+    )
+      .put("/api/tutors/7/marks")
+      .set("Authorization", "Bearer valid-token")
+      .send({ courseId: 3, mark: 75 });
+
+    expect(response.status).toBe(404);
+    expect(response.body.error.code).toBe("COURSE_NOT_FOUND");
+  });
+});
+
+describe("organiser tutor availability routes", () => {
+  it("requires an Organiser token to manage availability", async () => {
+    const createTutorTimeSlotForTutor = vi.fn();
+    const withoutToken = await request(
+      makeApp({ createTutorTimeSlotForTutor }),
+    )
+      .post("/api/tutors/7/time-slots")
+      .send({
+        type: "BUSY",
+        startsAt: "2030-09-04T14:00:00.000Z",
+        endsAt: "2030-09-04T16:00:00.000Z",
+      });
+    expect(withoutToken.status).toBe(401);
+    expect(createTutorTimeSlotForTutor).not.toHaveBeenCalled();
+  });
+
+  it("validates and creates a busy slot for a specific tutor", async () => {
+    const timeSlot = {
+      id: 9,
+      type: "BUSY",
+      startsAt: "2030-09-04T14:00:00.000Z",
+      endsAt: "2030-09-04T16:00:00.000Z",
+      recurrence: null,
+    };
+    const createTutorTimeSlotForTutor = vi.fn().mockResolvedValue(timeSlot);
+    const app = makeApp({
+      ...organiserAccess(),
+      createTutorTimeSlotForTutor,
+    });
+
+    const invalid = await request(app)
+      .post("/api/tutors/7/time-slots")
+      .set("Authorization", "Bearer valid-token")
+      .send({
+        type: "BUSY",
+        startsAt: "2030-09-04T16:00:00.000Z",
+        endsAt: "2030-09-04T14:00:00.000Z",
+      });
+    expect(invalid.status).toBe(400);
+    expect(createTutorTimeSlotForTutor).not.toHaveBeenCalled();
+
+    const invalidId = await request(app)
+      .post("/api/tutors/not-a-number/time-slots")
+      .set("Authorization", "Bearer valid-token")
+      .send({
+        type: "BUSY",
+        startsAt: "2030-09-04T14:00:00.000Z",
+        endsAt: "2030-09-04T16:00:00.000Z",
+      });
+    expect(invalidId.status).toBe(400);
+
+    const created = await request(app)
+      .post("/api/tutors/7/time-slots")
+      .set("Authorization", "Bearer valid-token")
+      .send({
+        type: "BUSY",
+        startsAt: "2030-09-04T14:00:00.000Z",
+        endsAt: "2030-09-04T16:00:00.000Z",
+      });
+    expect(created.status).toBe(201);
+    expect(created.body).toEqual({ data: { timeSlot } });
+    expect(createTutorTimeSlotForTutor).toHaveBeenCalledWith(7, {
+      type: "BUSY",
+      startsAt: new Date("2030-09-04T14:00:00.000Z"),
+      endsAt: new Date("2030-09-04T16:00:00.000Z"),
+    });
+  });
+
+  it("lists a tutor's availability", async () => {
+    const timeSlots = [
+      {
+        id: 8,
+        type: "BUSY",
+        startsAt: "2030-09-04T14:00:00.000Z",
+        endsAt: "2030-09-04T16:00:00.000Z",
+        recurrence: "WEEKLY",
+      },
+    ];
+    const listTutorTimeSlots = vi.fn().mockResolvedValue(timeSlots);
+    const response = await request(
+      makeApp({ ...organiserAccess(), listTutorTimeSlots }),
+    )
+      .get("/api/tutors/7/time-slots")
+      .set("Authorization", "Bearer valid-token");
+    expect(response.status).toBe(200);
+    expect(response.body).toEqual({ data: { timeSlots } });
+    expect(listTutorTimeSlots).toHaveBeenCalledWith(7);
+  });
+
+  it("validates time-slot list IDs and maps time-slot service errors", async () => {
+    const listTutorTimeSlots = vi.fn().mockRejectedValue(
+      createRouteError(404, "TUTOR_NOT_FOUND", "Tutor not found."),
+    );
+    const app = makeApp({ ...organiserAccess(), listTutorTimeSlots });
+
+    const invalid = await request(app)
+      .get("/api/tutors/invalid/time-slots")
+      .set("Authorization", "Bearer valid-token");
+    expect(invalid.status).toBe(400);
+    expect(listTutorTimeSlots).not.toHaveBeenCalled();
+
+    const missing = await request(app)
+      .get("/api/tutors/7/time-slots")
+      .set("Authorization", "Bearer valid-token");
+    expect(missing.status).toBe(404);
+    expect(missing.body.error.code).toBe("TUTOR_NOT_FOUND");
+  });
+
+  it("maps tutor time-slot write service errors", async () => {
+    const response = await request(
+      makeApp({
+        ...organiserAccess(),
+        createTutorTimeSlotForTutor: async () => {
+          throw createRouteError(409, "TIME_SLOT_CONFLICT", "Time slot conflict.");
+        },
+      }),
+    )
+      .post("/api/tutors/7/time-slots")
+      .set("Authorization", "Bearer valid-token")
+      .send({
+        type: "BUSY",
+        startsAt: "2030-09-04T14:00:00.000Z",
+        endsAt: "2030-09-04T16:00:00.000Z",
+      });
+
+    expect(response.status).toBe(409);
+    expect(response.body.error.code).toBe("TIME_SLOT_CONFLICT");
   });
 });

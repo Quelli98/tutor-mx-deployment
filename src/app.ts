@@ -112,6 +112,44 @@ export interface TutorExcuseSummary extends TutorExcuseWriteInput {
   status: "PENDING";
 }
 
+export type AllocationReasonCode =
+  | "insufficient-mark"
+  | "schedule-clash"
+  | "hour-limit-exceeded";
+
+export interface AllocationCandidateSummary {
+  tutorId: number;
+  fullName: string;
+  mark: number;
+  weeklyLimit: number;
+  usedHours: number;
+  remainingHours: number;
+  hasClash: boolean;
+  isEligible: boolean;
+  reasonCodes: AllocationReasonCode[];
+}
+
+export interface AllocationCandidateQuery {
+  courseId: number;
+  startsAt: Date;
+  endsAt: Date;
+  minimumMark: number;
+  requestedHours: number;
+}
+
+export interface TutorMarkWriteInput {
+  courseId: number;
+  mark: number;
+}
+
+export interface TutorMarkSummary {
+  id: number;
+  courseId: number;
+  courseCode: string;
+  courseName: string;
+  mark: number;
+}
+
 export interface ProfileSummary {
   id: number;
   email: string;
@@ -155,11 +193,25 @@ export interface AppDependencies {
     auth0Id: string,
     input: TutorExcuseWriteInput,
   ) => Promise<TutorExcuseSummary>;
+  listAllocationCandidates: (
+    input: AllocationCandidateQuery,
+  ) => Promise<AllocationCandidateSummary[]>;
+  upsertTutorMark: (
+    tutorId: number,
+    input: TutorMarkWriteInput,
+  ) => Promise<TutorMarkSummary>;
+  listTutorMarks: (tutorId: number) => Promise<TutorMarkSummary[]>;
+  listTutorTimeSlots: (tutorId: number) => Promise<TutorTimeSlotSummary[]>;
+  createTutorTimeSlotForTutor: (
+    tutorId: number,
+    input: TutorTimeSlotWriteInput,
+  ) => Promise<TutorTimeSlotSummary>;
   requestPasswordReset: PasswordResetRequester;
   deleteAccount?: (auth0Id: string) => Promise<void>;
   verifyAccessToken: AccessTokenVerifier;
 }
 
+/* v8 ignore start -- configuration-only fail-closed stubs; route behavior is tested with injected dependencies */
 const unavailableDependencies: AppDependencies = {
   async findProfileByAuth0Id() {
     throw new Error("Authentication is not configured");
@@ -200,6 +252,21 @@ const unavailableDependencies: AppDependencies = {
   async createTutorExcuse() {
     throw new Error("Tutor workflow endpoints are not configured");
   },
+  async listAllocationCandidates() {
+    throw new Error("Allocation candidate endpoint is not configured");
+  },
+  async upsertTutorMark() {
+    throw new Error("Tutor mark endpoint is not configured");
+  },
+  async listTutorMarks() {
+    throw new Error("Tutor mark endpoint is not configured");
+  },
+  async listTutorTimeSlots() {
+    throw new Error("Tutor workflow endpoints are not configured");
+  },
+  async createTutorTimeSlotForTutor() {
+    throw new Error("Tutor workflow endpoints are not configured");
+  },
   async deleteAccount() {
     throw new Error("Account deletion is not configured");
   },
@@ -210,6 +277,7 @@ const unavailableDependencies: AppDependencies = {
     throw new Error("Authentication is not configured");
   },
 };
+/* v8 ignore stop */
 
 function isValidEmail(value: unknown): value is string {
   return (
@@ -508,6 +576,82 @@ function parseTutorExcuseInput(body: unknown) {
   }
 
   return { value: { allocationId, reason } } as const;
+}
+
+function firstQueryParam(value: unknown): unknown {
+  return Array.isArray(value) ? value[0] : value;
+}
+
+function parseMarkValue(value: unknown) {
+  const normalized = firstQueryParam(value);
+  if (
+    normalized === null ||
+    normalized === undefined ||
+    typeof normalized === "boolean" ||
+    (typeof normalized === "string" && normalized.trim() === "")
+  ) {
+    return null;
+  }
+  const numeric = Number(normalized);
+  if (!Number.isFinite(numeric) || numeric < 0 || numeric > 100) {
+    return null;
+  }
+  return numeric;
+}
+
+function parseRequestedHours(value: unknown) {
+  const numeric = Number(firstQueryParam(value));
+  if (!Number.isFinite(numeric) || numeric <= 0 || numeric > 24) {
+    return null;
+  }
+  return numeric;
+}
+
+function parseAllocationCandidateQuery(query: unknown) {
+  const params = (query ?? {}) as {
+    courseId?: unknown;
+    startsAt?: unknown;
+    endsAt?: unknown;
+    minimumMark?: unknown;
+    requestedHours?: unknown;
+  };
+  const courseId = parsePositiveInteger(firstQueryParam(params.courseId));
+  const startsAt = parseIsoDateTime(firstQueryParam(params.startsAt));
+  const endsAt = parseIsoDateTime(firstQueryParam(params.endsAt));
+  const minimumMark = parseMarkValue(params.minimumMark);
+  const requestedHours = parseRequestedHours(params.requestedHours);
+
+  if (
+    !courseId ||
+    !startsAt ||
+    !endsAt ||
+    endsAt <= startsAt ||
+    minimumMark === null ||
+    requestedHours === null
+  ) {
+    return {
+      error:
+        "Enter a valid course, start/end time, minimum mark (0-100) and requested hours.",
+    } as const;
+  }
+
+  return {
+    value: { courseId, startsAt, endsAt, minimumMark, requestedHours },
+  } as const;
+}
+
+function parseTutorMarkInput(body: unknown) {
+  const payload = body as { courseId?: unknown; mark?: unknown } | null;
+  const courseId = parsePositiveInteger(payload?.courseId);
+  const mark = parseMarkValue(payload?.mark);
+
+  if (!courseId || mark === null) {
+    return {
+      error: "Select a course and enter a valid mark (0-100).",
+    } as const;
+  }
+
+  return { value: { courseId, mark } } as const;
 }
 
 function parseNumericId(
@@ -899,6 +1043,167 @@ export function createApp(
           parsed.value,
         );
         response.status(200).json({ data: { tutor } });
+      } catch (value) {
+        sendRouteError(response, value);
+      }
+    },
+  );
+
+  app.get(
+    "/api/allocations/candidates",
+    authenticate,
+    resolveProfileRole,
+    requireRole("ORGANISER"),
+    async (request, response) => {
+      const parsed = parseAllocationCandidateQuery(request.query);
+      if ("error" in parsed) {
+        const result = error(
+          400,
+          "VALIDATION_ERROR",
+          parsed.error ??
+            "Enter a valid course, start/end time, minimum mark (0-100) and requested hours.",
+        );
+        response.status(result.status).json(result.body);
+        return;
+      }
+
+      try {
+        const candidates = await dependencies.listAllocationCandidates(
+          parsed.value,
+        );
+        response.status(200).json({ data: { candidates } });
+      } catch (value) {
+        sendRouteError(response, value);
+      }
+    },
+  );
+
+  app.get(
+    "/api/tutors/:tutorId/marks",
+    authenticate,
+    resolveProfileRole,
+    requireRole("ORGANISER"),
+    async (request, response) => {
+      const tutorId = parseNumericId(request.params.tutorId, "Tutor");
+      if ("error" in tutorId) {
+        const result = error(
+          400,
+          "VALIDATION_ERROR",
+          tutorId.error ?? "Tutor identifier must be a positive whole number.",
+        );
+        response.status(result.status).json(result.body);
+        return;
+      }
+
+      try {
+        const marks = await dependencies.listTutorMarks(tutorId.value);
+        response.status(200).json({ data: { marks } });
+      } catch (value) {
+        sendRouteError(response, value);
+      }
+    },
+  );
+
+  app.put(
+    "/api/tutors/:tutorId/marks",
+    authenticate,
+    resolveProfileRole,
+    requireRole("ORGANISER"),
+    async (request, response) => {
+      const tutorId = parseNumericId(request.params.tutorId, "Tutor");
+      if ("error" in tutorId) {
+        const result = error(
+          400,
+          "VALIDATION_ERROR",
+          tutorId.error ?? "Tutor identifier must be a positive whole number.",
+        );
+        response.status(result.status).json(result.body);
+        return;
+      }
+
+      const parsed = parseTutorMarkInput(request.body);
+      if ("error" in parsed) {
+        const result = error(
+          400,
+          "VALIDATION_ERROR",
+          parsed.error ?? "Select a course and enter a valid mark (0-100).",
+        );
+        response.status(result.status).json(result.body);
+        return;
+      }
+
+      try {
+        const mark = await dependencies.upsertTutorMark(
+          tutorId.value,
+          parsed.value,
+        );
+        response.status(200).json({ data: { mark } });
+      } catch (value) {
+        sendRouteError(response, value);
+      }
+    },
+  );
+
+  app.get(
+    "/api/tutors/:tutorId/time-slots",
+    authenticate,
+    resolveProfileRole,
+    requireRole("ORGANISER"),
+    async (request, response) => {
+      const tutorId = parseNumericId(request.params.tutorId, "Tutor");
+      if ("error" in tutorId) {
+        const result = error(
+          400,
+          "VALIDATION_ERROR",
+          tutorId.error ?? "Tutor identifier must be a positive whole number.",
+        );
+        response.status(result.status).json(result.body);
+        return;
+      }
+
+      try {
+        const timeSlots = await dependencies.listTutorTimeSlots(tutorId.value);
+        response.status(200).json({ data: { timeSlots } });
+      } catch (value) {
+        sendRouteError(response, value);
+      }
+    },
+  );
+
+  app.post(
+    "/api/tutors/:tutorId/time-slots",
+    authenticate,
+    resolveProfileRole,
+    requireRole("ORGANISER"),
+    async (request, response) => {
+      const tutorId = parseNumericId(request.params.tutorId, "Tutor");
+      if ("error" in tutorId) {
+        const result = error(
+          400,
+          "VALIDATION_ERROR",
+          tutorId.error ?? "Tutor identifier must be a positive whole number.",
+        );
+        response.status(result.status).json(result.body);
+        return;
+      }
+
+      const parsed = parseTutorTimeSlotInput(request.body);
+      if ("error" in parsed) {
+        const result = error(
+          400,
+          "VALIDATION_ERROR",
+          parsed.error ?? "Enter a valid tutor availability slot.",
+        );
+        response.status(result.status).json(result.body);
+        return;
+      }
+
+      try {
+        const timeSlot = await dependencies.createTutorTimeSlotForTutor(
+          tutorId.value,
+          parsed.value,
+        );
+        response.status(201).json({ data: { timeSlot } });
       } catch (value) {
         sendRouteError(response, value);
       }

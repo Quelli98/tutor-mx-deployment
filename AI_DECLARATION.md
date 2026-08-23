@@ -2,6 +2,8 @@
 
 ## Current integration
 
+- Codex[GPT-5] was used on 23 August 2026 to audit the supplied Member 2 branch against Sprint Handbook pages 1-29, integrate it into the current main snapshot, complete the missing Organiser allocation board/rule messages/tutor mark and busy-time UI, add authenticated API contract wiring and tests, preserve the existing Auth0/Express/Prisma/Neon boundaries, and update integration evidence.
+
 - ChatGPT[GPT-5.6 Sol] was used on 17 August 2026 to integrate the supplied Member 4 Student overflow/shared UI work into the current Members 1, 3, 5 and 6 main snapshot, correct a case-sensitive frontend import/file-name mismatch, preserve role/security boundaries, update Sprint 1 integration documentation and perform static repository verification.
 
 - ChatGPT[GPT-5.6 Sol] was used on 16 August 2026 to compare the Gitea main snapshot with the GitHub deployment snapshot, integrate deployment changes back into the team source tree, update public-demo documentation and verify the merged file set.

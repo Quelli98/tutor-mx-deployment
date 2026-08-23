@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
   courseUpdate: vi.fn(),
   createApp: vi.fn(),
   excuseCreate: vi.fn(),
+  findAllocationCandidates: vi.fn(),
   getTutorHourSummary: vi.fn(),
   listen: vi.fn(),
   profileCreate: vi.fn(),
@@ -17,8 +18,11 @@ const mocks = vi.hoisted(() => ({
   profileUpdate: vi.fn(),
   queryRaw: vi.fn(),
   timeSlotCreate: vi.fn(),
+  timeSlotFindMany: vi.fn(),
   timesheetUpsert: vi.fn(),
   transaction: vi.fn(),
+  tutorMarkFindMany: vi.fn(),
+  tutorMarkUpsert: vi.fn(),
   workLogCreate: vi.fn(),
 }));
 
@@ -55,12 +59,18 @@ vi.mock("./database.js", () => ({
     },
     timeSlot: {
       create: mocks.timeSlotCreate,
+      findMany: mocks.timeSlotFindMany,
+    },
+    tutorMark: {
+      upsert: mocks.tutorMarkUpsert,
+      findMany: mocks.tutorMarkFindMany,
     },
   },
   queryClient: {},
 }));
 
 vi.mock("./services/allocation-queries.js", () => ({
+  findAllocationCandidates: mocks.findAllocationCandidates,
   getTutorHourSummary: mocks.getTutorHourSummary,
 }));
 
@@ -69,6 +79,10 @@ const originalEnvironment = {
   AUTH0_CLIENT_ID: process.env.AUTH0_CLIENT_ID,
   AUTH0_DB_CONNECTION: process.env.AUTH0_DB_CONNECTION,
   AUTH0_DOMAIN: process.env.AUTH0_DOMAIN,
+  AUTH0_MANAGEMENT_CLIENT_ID: process.env.AUTH0_MANAGEMENT_CLIENT_ID,
+  AUTH0_MANAGEMENT_CLIENT_SECRET: process.env.AUTH0_MANAGEMENT_CLIENT_SECRET,
+  AUTH0_ROLES_CLAIM: process.env.AUTH0_ROLES_CLAIM,
+  ALLOW_SELF_SERVICE_ORGANISER: process.env.ALLOW_SELF_SERVICE_ORGANISER,
   FRONTEND_ORIGIN: process.env.FRONTEND_ORIGIN,
   PORT: process.env.PORT,
 };
@@ -136,6 +150,35 @@ describe("server startup", () => {
 
     expect(consoleLog).toHaveBeenCalledWith(
       "Tutor Mx API listening on http://localhost:3000",
+    );
+  });
+
+  it("keeps every unconfigured Auth0 boundary fail-closed", async () => {
+    delete process.env.AUTH0_DOMAIN;
+    delete process.env.AUTH0_AUDIENCE;
+    delete process.env.AUTH0_CLIENT_ID;
+    delete process.env.AUTH0_DB_CONNECTION;
+    delete process.env.AUTH0_MANAGEMENT_CLIENT_ID;
+    delete process.env.AUTH0_MANAGEMENT_CLIENT_SECRET;
+
+    await import("./server.js");
+    const dependencies = capturedDependencies();
+
+    await expect(dependencies.verifyAccessToken("token")).rejects.toThrow(
+      "Auth0 access-token verification is not configured",
+    );
+    await expect(
+      dependencies.requestPasswordReset("user@tutormx.example"),
+    ).rejects.toThrow("Auth0 password reset is not configured");
+
+    mocks.profileFindUnique.mockResolvedValueOnce(null);
+    await expect(
+      dependencies.onboardUser("auth0|new", "TUTOR"),
+    ).rejects.toThrow("Auth0 Management API onboarding is not configured");
+
+    mocks.profileFindUnique.mockResolvedValueOnce(null);
+    await expect(dependencies.deleteAccount?.("auth0|new")).rejects.toThrow(
+      "Auth0 Management API deletion is not configured",
     );
   });
 
@@ -695,6 +738,198 @@ describe("server-side API persistence", () => {
     ).rejects.toMatchObject({ status: 409, code: "TUTOR_CONFLICT" });
   });
 
+  it("delegates allocation candidate queries to the Member 6 allocation engine", async () => {
+    await import("./server.js");
+    const dependencies = capturedDependencies();
+    const candidates = [
+      {
+        tutorId: 1,
+        fullName: "Eligible Tutor",
+        mark: 80,
+        weeklyLimit: 8,
+        usedHours: 2,
+        remainingHours: 6,
+        hasClash: false,
+        isEligible: true,
+        reasonCodes: [],
+      },
+    ];
+    mocks.findAllocationCandidates.mockResolvedValueOnce(candidates);
+    const input = {
+      courseId: 3,
+      startsAt: new Date("2030-09-04T14:00:00.000Z"),
+      endsAt: new Date("2030-09-04T16:00:00.000Z"),
+      minimumMark: 50,
+      requestedHours: 2,
+    };
+
+    await expect(dependencies.listAllocationCandidates(input)).resolves.toEqual(
+      candidates,
+    );
+    expect(mocks.findAllocationCandidates).toHaveBeenCalledWith({}, input);
+  });
+
+  it("upserts tutor marks and maps missing tutor or course references", async () => {
+    await import("./server.js");
+    const dependencies = capturedDependencies();
+
+    mocks.profileFindUnique.mockResolvedValueOnce({ role: "TUTOR" });
+    mocks.tutorMarkUpsert.mockResolvedValueOnce({
+      id: 11,
+      courseId: 3,
+      course: { code: "DEMO101", name: "Demo Course" },
+      mark: "75.00",
+    });
+    await expect(
+      dependencies.upsertTutorMark(7, { courseId: 3, mark: 75 }),
+    ).resolves.toEqual({
+      id: 11,
+      courseId: 3,
+      courseCode: "DEMO101",
+      courseName: "Demo Course",
+      mark: 75,
+    });
+    expect(mocks.tutorMarkUpsert.mock.calls[0]![0]).toMatchObject({
+      where: { tutorId_courseId: { tutorId: 7, courseId: 3 } },
+      create: { tutorId: 7, courseId: 3, mark: 75 },
+      update: { mark: 75 },
+    });
+
+    mocks.profileFindUnique.mockResolvedValueOnce({ role: "ORGANISER" });
+    await expect(
+      dependencies.upsertTutorMark(1, { courseId: 3, mark: 75 }),
+    ).rejects.toMatchObject({ status: 404, code: "TUTOR_NOT_FOUND" });
+
+    mocks.profileFindUnique.mockResolvedValueOnce({ role: "TUTOR" });
+    mocks.tutorMarkUpsert.mockRejectedValueOnce({ code: "P2003" });
+    await expect(
+      dependencies.upsertTutorMark(7, { courseId: 999, mark: 75 }),
+    ).rejects.toMatchObject({ status: 404, code: "COURSE_NOT_FOUND" });
+
+    mocks.profileFindUnique.mockResolvedValueOnce({ role: "TUTOR" });
+    mocks.tutorMarkUpsert.mockRejectedValueOnce({ code: "P2025" });
+    await expect(
+      dependencies.upsertTutorMark(7, { courseId: 999, mark: 75 }),
+    ).rejects.toMatchObject({ status: 404, code: "COURSE_NOT_FOUND" });
+  });
+
+  it("lists tutor marks as safe summaries ordered by course code", async () => {
+    await import("./server.js");
+    const dependencies = capturedDependencies();
+    mocks.tutorMarkFindMany.mockResolvedValueOnce([
+      {
+        id: 11,
+        courseId: 3,
+        course: { code: "DEMO101", name: "Demo Course" },
+        mark: "75.00",
+      },
+      {
+        id: 12,
+        courseId: 4,
+        course: { code: "DEMO102", name: "Other Course" },
+        mark: "60.50",
+      },
+    ]);
+
+    await expect(dependencies.listTutorMarks(7)).resolves.toEqual([
+      {
+        id: 11,
+        courseId: 3,
+        courseCode: "DEMO101",
+        courseName: "Demo Course",
+        mark: 75,
+      },
+      {
+        id: 12,
+        courseId: 4,
+        courseCode: "DEMO102",
+        courseName: "Other Course",
+        mark: 60.5,
+      },
+    ]);
+    expect(mocks.tutorMarkFindMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { tutorId: 7 } }),
+    );
+  });
+
+  it("lists and creates organiser-managed tutor availability", async () => {
+    await import("./server.js");
+    const dependencies = capturedDependencies();
+
+    mocks.timeSlotFindMany.mockResolvedValueOnce([
+      {
+        id: 8,
+        type: "BUSY",
+        startsAt: new Date("2030-09-04T14:00:00.000Z"),
+        endsAt: new Date("2030-09-04T16:00:00.000Z"),
+        recurrence: "WEEKLY",
+      },
+    ]);
+    await expect(dependencies.listTutorTimeSlots(7)).resolves.toEqual([
+      {
+        id: 8,
+        type: "BUSY",
+        startsAt: "2030-09-04T14:00:00.000Z",
+        endsAt: "2030-09-04T16:00:00.000Z",
+        recurrence: "WEEKLY",
+      },
+    ]);
+    expect(mocks.timeSlotFindMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { tutorId: 7 } }),
+    );
+
+    mocks.profileFindUnique.mockResolvedValueOnce({ role: "TUTOR" });
+    mocks.timeSlotCreate.mockResolvedValueOnce({
+      id: 9,
+      type: "BUSY",
+      startsAt: new Date("2030-09-04T14:00:00.000Z"),
+      endsAt: new Date("2030-09-04T16:00:00.000Z"),
+      recurrence: null,
+    });
+    await expect(
+      dependencies.createTutorTimeSlotForTutor(7, {
+        type: "BUSY",
+        startsAt: new Date("2030-09-04T14:00:00.000Z"),
+        endsAt: new Date("2030-09-04T16:00:00.000Z"),
+      }),
+    ).resolves.toMatchObject({ id: 9, type: "BUSY", recurrence: null });
+    expect(mocks.timeSlotCreate.mock.calls[0]![0].data.tutorId).toBe(7);
+
+    mocks.profileFindUnique.mockResolvedValueOnce({ role: "STUDENT" });
+    await expect(
+      dependencies.createTutorTimeSlotForTutor(1, {
+        type: "BUSY",
+        startsAt: new Date("2030-09-04T14:00:00.000Z"),
+        endsAt: new Date("2030-09-04T16:00:00.000Z"),
+      }),
+    ).rejects.toMatchObject({ status: 404, code: "TUTOR_NOT_FOUND" });
+  });
+
+  it("maps organiser busy-time persistence conflicts and preserves unexpected errors", async () => {
+    await import("./server.js");
+    const dependencies = capturedDependencies();
+    const input = {
+      type: "BUSY" as const,
+      startsAt: new Date("2030-09-04T14:00:00.000Z"),
+      endsAt: new Date("2030-09-04T16:00:00.000Z"),
+    };
+
+    for (const code of ["P2003", "P2004"]) {
+      mocks.profileFindUnique.mockResolvedValueOnce({ role: "TUTOR" });
+      mocks.timeSlotCreate.mockRejectedValueOnce({ code });
+      await expect(
+        dependencies.createTutorTimeSlotForTutor(7, input),
+      ).rejects.toMatchObject({ status: 409, code: "TIME_SLOT_CONFLICT" });
+    }
+
+    const unexpected = new Error("database unavailable");
+    mocks.profileFindUnique.mockResolvedValueOnce({ role: "TUTOR" });
+    mocks.timeSlotCreate.mockRejectedValueOnce(unexpected);
+    await expect(
+      dependencies.createTutorTimeSlotForTutor(7, input),
+    ).rejects.toBe(unexpected);
+  });
+
   it("does not hide unexpected persistence failures", async () => {
     await import("./server.js");
     const dependencies = capturedDependencies();
@@ -727,5 +962,37 @@ describe("server-side API persistence", () => {
     await expect(
       dependencies.updateTutor(7, { fullName: "Error Tutor" }),
     ).rejects.toBe(unexpected);
+
+    mocks.profileFindUnique.mockResolvedValueOnce({ role: "TUTOR" });
+    mocks.tutorMarkUpsert.mockRejectedValueOnce(unexpected);
+    await expect(
+      dependencies.upsertTutorMark(7, { courseId: 3, mark: 75 }),
+    ).rejects.toBe(unexpected);
+
+    mocks.profileFindUnique.mockResolvedValueOnce({ id: 7, role: "TUTOR" });
+    mocks.timeSlotCreate.mockRejectedValueOnce(unexpected);
+    await expect(
+      dependencies.createTutorTimeSlot("auth0|tutor", {
+        type: "BUSY",
+        startsAt: new Date("2030-09-04T14:00:00.000Z"),
+        endsAt: new Date("2030-09-04T16:00:00.000Z"),
+      }),
+    ).rejects.toBe(unexpected);
+
+    mocks.profileFindUnique.mockResolvedValueOnce({ id: 7, role: "TUTOR" });
+    mocks.allocationFindFirst.mockResolvedValueOnce({
+      id: 4,
+      status: "CONFIRMED",
+      startsAt: new Date("2030-09-04T14:00:00.000Z"),
+    });
+    mocks.transaction.mockRejectedValueOnce({ code: "P2004" });
+    await expect(
+      dependencies.createTutorWorkLog("auth0|tutor", {
+        allocationId: 4,
+        workDate: "2030-09-04",
+        hours: 2,
+        description: "Tutoring session",
+      }),
+    ).rejects.toMatchObject({ status: 409, code: "WORK_LOG_CONFLICT" });
   });
 });

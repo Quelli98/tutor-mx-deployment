@@ -1,6 +1,6 @@
 # Sprint 1 Member 4 Handoff
 
-> **Integration Lead note - 17 August 2026:** Member 4 is now integrated into the main-ready Members 1, 3, 4, 5 and 6 source. Member 2 remains pending. This handoff has been re-mapped to the exact Sprint 1 issue names on handbook pages 19-21.
+> **Integration Lead note - 17 August 2026:** Member 4 was integrated into the main-ready Members 1, 3, 4, 5 and 6 source at this checkpoint. Member 2 was subsequently integrated on 23 August 2026; see `docs/sprint1-members-1-2-3-4-5-6-integration.md` for current status. This handoff has been re-mapped to the exact Sprint 1 issue names on handbook pages 19-21.
 
 ## S1-M4-1 - Student overflow page shell
 
@@ -212,7 +212,7 @@ npm run security:check
 git diff --check
 ```
 
-The current cross-member mapping is in `docs/sprint1-members-1-3-4-5-6-integration.md`.
+The current cross-member mapping is in `docs/sprint1-members-1-2-3-4-5-6-integration.md`.
 
 ## Supplied branch history
 

@@ -1,0 +1,248 @@
+import { fetchWithBearerToken } from './client'
+
+function isCourse(value) {
+  return (
+    !!value &&
+    typeof value === 'object' &&
+    Number.isInteger(value.id) &&
+    typeof value.code === 'string' &&
+    typeof value.name === 'string'
+  )
+}
+
+function isTutor(value) {
+  return (
+    !!value &&
+    typeof value === 'object' &&
+    Number.isInteger(value.id) &&
+    typeof value.email === 'string' &&
+    typeof value.fullName === 'string' &&
+    (value.weeklyHours === null || typeof value.weeklyHours === 'number')
+  )
+}
+
+const ALLOCATION_REASON_CODES = new Set([
+  'insufficient-mark',
+  'schedule-clash',
+  'hour-limit-exceeded',
+])
+
+function isTutorMark(value) {
+  return (
+    !!value &&
+    typeof value === 'object' &&
+    Number.isInteger(value.id) &&
+    Number.isInteger(value.courseId) &&
+    typeof value.courseCode === 'string' &&
+    typeof value.courseName === 'string' &&
+    typeof value.mark === 'number' &&
+    Number.isFinite(value.mark)
+  )
+}
+
+function isTutorTimeSlot(value) {
+  return (
+    !!value &&
+    typeof value === 'object' &&
+    Number.isInteger(value.id) &&
+    (value.type === 'AVAILABLE' || value.type === 'BUSY') &&
+    typeof value.startsAt === 'string' &&
+    typeof value.endsAt === 'string' &&
+    (value.recurrence === null || value.recurrence === 'WEEKLY')
+  )
+}
+
+function isAllocationCandidate(value) {
+  return (
+    !!value &&
+    typeof value === 'object' &&
+    Number.isInteger(value.tutorId) &&
+    typeof value.fullName === 'string' &&
+    ['mark', 'weeklyLimit', 'usedHours', 'remainingHours'].every(
+      (field) => typeof value[field] === 'number' && Number.isFinite(value[field]),
+    ) &&
+    typeof value.hasClash === 'boolean' &&
+    typeof value.isEligible === 'boolean' &&
+    Array.isArray(value.reasonCodes) &&
+    value.reasonCodes.every((code) => ALLOCATION_REASON_CODES.has(code))
+  )
+}
+
+function courseFrom(body) {
+  const course = body?.data?.course
+  if (!isCourse(course)) {
+    throw new Error('The course response did not match the agreed contract.')
+  }
+  return course
+}
+
+function tutorFrom(body) {
+  const tutor = body?.data?.tutor
+  if (!isTutor(tutor)) {
+    throw new Error('The tutor response did not match the agreed contract.')
+  }
+  return tutor
+}
+
+export async function listCourses(tokenOrGetter) {
+  const body = await fetchWithBearerToken('/api/courses', {}, tokenOrGetter)
+  const courses = body?.data?.courses
+  if (!Array.isArray(courses) || !courses.every(isCourse)) {
+    throw new Error('The course response did not match the agreed contract.')
+  }
+  return courses
+}
+
+export async function createCourse(input, tokenOrGetter) {
+  const body = await fetchWithBearerToken(
+    '/api/courses',
+    {
+      method: 'POST',
+      body: JSON.stringify({ code: input.code, name: input.name }),
+    },
+    tokenOrGetter,
+  )
+  return courseFrom(body)
+}
+
+export async function updateCourse(input, tokenOrGetter) {
+  const body = await fetchWithBearerToken(
+    `/api/courses/${input.courseId}`,
+    {
+      method: 'PATCH',
+      body: JSON.stringify({ code: input.code, name: input.name }),
+    },
+    tokenOrGetter,
+  )
+  return courseFrom(body)
+}
+
+export async function deleteCourse(input, tokenOrGetter) {
+  await fetchWithBearerToken(
+    `/api/courses/${input.courseId}`,
+    { method: 'DELETE' },
+    tokenOrGetter,
+  )
+}
+
+export async function listTutors(tokenOrGetter) {
+  const body = await fetchWithBearerToken('/api/tutors', {}, tokenOrGetter)
+  const tutors = body?.data?.tutors
+  if (!Array.isArray(tutors) || !tutors.every(isTutor)) {
+    throw new Error('The tutor response did not match the agreed contract.')
+  }
+  return tutors
+}
+
+export async function createTutor(input, tokenOrGetter) {
+  const payload = {
+    auth0Id: input.auth0Id,
+    email: input.email,
+    fullName: input.fullName,
+  }
+  if (input.weeklyHours !== undefined) {
+    payload.weeklyHours = input.weeklyHours
+  }
+
+  const body = await fetchWithBearerToken(
+    '/api/tutors',
+    {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    },
+    tokenOrGetter,
+  )
+  return tutorFrom(body)
+}
+
+export async function updateTutor(input, tokenOrGetter) {
+  const { tutorId, ...fields } = input
+
+  const body = await fetchWithBearerToken(
+    `/api/tutors/${tutorId}`,
+    {
+      method: 'PATCH',
+      body: JSON.stringify(fields),
+    },
+    tokenOrGetter,
+  )
+  return tutorFrom(body)
+}
+
+export async function listAllocationCandidates(input, tokenOrGetter) {
+  const query = new URLSearchParams({
+    courseId: String(input.courseId),
+    startsAt: input.startsAt,
+    endsAt: input.endsAt,
+    minimumMark: String(input.minimumMark),
+    requestedHours: String(input.requestedHours),
+  })
+  const body = await fetchWithBearerToken(
+    `/api/allocations/candidates?${query.toString()}`,
+    {},
+    tokenOrGetter,
+  )
+  const candidates = body?.data?.candidates
+  if (!Array.isArray(candidates) || !candidates.every(isAllocationCandidate)) {
+    throw new Error('The allocation-candidate response did not match the agreed contract.')
+  }
+  return candidates
+}
+
+export async function listTutorMarks(tutorId, tokenOrGetter) {
+  const body = await fetchWithBearerToken(`/api/tutors/${tutorId}/marks`, {}, tokenOrGetter)
+  const marks = body?.data?.marks
+  if (!Array.isArray(marks) || !marks.every(isTutorMark)) {
+    throw new Error('The tutor-mark response did not match the agreed contract.')
+  }
+  return marks
+}
+
+export async function saveTutorMark(input, tokenOrGetter) {
+  const body = await fetchWithBearerToken(
+    `/api/tutors/${input.tutorId}/marks`,
+    {
+      method: 'PUT',
+      body: JSON.stringify({ courseId: input.courseId, mark: input.mark }),
+    },
+    tokenOrGetter,
+  )
+  const mark = body?.data?.mark
+  if (!isTutorMark(mark)) {
+    throw new Error('The tutor-mark response did not match the agreed contract.')
+  }
+  return mark
+}
+
+export async function listTutorTimeSlots(tutorId, tokenOrGetter) {
+  const body = await fetchWithBearerToken(
+    `/api/tutors/${tutorId}/time-slots`,
+    {},
+    tokenOrGetter,
+  )
+  const timeSlots = body?.data?.timeSlots
+  if (!Array.isArray(timeSlots) || !timeSlots.every(isTutorTimeSlot)) {
+    throw new Error('The tutor-time-slot response did not match the agreed contract.')
+  }
+  return timeSlots
+}
+
+export async function createTutorTimeSlot(input, tokenOrGetter) {
+  const payload = {
+    type: input.type,
+    startsAt: input.startsAt,
+    endsAt: input.endsAt,
+  }
+  if (input.recurrence) payload.recurrence = input.recurrence
+
+  const body = await fetchWithBearerToken(
+    `/api/tutors/${input.tutorId}/time-slots`,
+    { method: 'POST', body: JSON.stringify(payload) },
+    tokenOrGetter,
+  )
+  const timeSlot = body?.data?.timeSlot
+  if (!isTutorTimeSlot(timeSlot)) {
+    throw new Error('The tutor-time-slot response did not match the agreed contract.')
+  }
+  return timeSlot
+}

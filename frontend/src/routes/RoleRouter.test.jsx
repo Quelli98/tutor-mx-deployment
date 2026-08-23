@@ -15,6 +15,16 @@ vi.mock('../api/studentOverflow', () => ({
   getStudentOverflowWork: vi.fn().mockResolvedValue([]),
 }))
 
+vi.mock('../api/organiser', () => ({
+  listCourses: vi.fn().mockResolvedValue([]),
+  createCourse: vi.fn(),
+  updateCourse: vi.fn(),
+  deleteCourse: vi.fn(),
+  listTutors: vi.fn().mockResolvedValue([]),
+  createTutor: vi.fn(),
+  updateTutor: vi.fn(),
+}))
+
 vi.mock('../api/tutorDashboard', () => ({
   fetchTutorDashboard: () =>
     Promise.resolve({ allocations: [], weeklyLimit: 10, usedHours: 0, remainingHours: 10 }),
@@ -34,6 +44,7 @@ describe('RoleRouter', () => {
   it('opens the ORGANISER entry route after sign in', () => {
     renderRole('ORGANISER')
     expect(screen.getByRole('heading', { name: 'Organiser workspace' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: /allocation board/i })).toBeInTheDocument()
   })
 
   it('opens the STUDENT entry route after sign in', async () => {
@@ -113,6 +124,46 @@ describe('RoleRouter', () => {
   it('does not add the dashboard sign out control to organiser yet', () => {
     renderRole('ORGANISER', '/organiser')
     expect(screen.queryByRole('button', { name: /sign out/i })).not.toBeInTheDocument()
+  })
+
+  it('shows the organiser management links only to an organiser', () => {
+    renderRole('ORGANISER')
+
+    expect(screen.getByRole('link', { name: /course management/i })).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: /tutor management/i })).toBeInTheDocument()
+  })
+
+  it('hides the organiser management links from a tutor', () => {
+    renderRole('TUTOR', '/tutor')
+
+    expect(screen.queryByRole('link', { name: /course management/i })).not.toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: /tutor management/i })).not.toBeInTheDocument()
+  })
+
+  it('hides the organiser management links from a student', () => {
+    renderRole('STUDENT', '/student')
+
+    expect(screen.queryByRole('link', { name: /course management/i })).not.toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: /tutor management/i })).not.toBeInTheDocument()
+  })
+
+  it('opens course management for an organiser', () => {
+    renderRole('ORGANISER', '/organiser/courses')
+
+    expect(screen.getByRole('heading', { name: 'Course management' })).toBeInTheDocument()
+  })
+
+  it('opens tutor management for an organiser', () => {
+    renderRole('ORGANISER', '/organiser/tutors')
+
+    expect(screen.getByRole('heading', { name: 'Tutor management' })).toBeInTheDocument()
+  })
+
+  it('keeps course management away from a tutor', () => {
+    renderRole('TUTOR', '/organiser/courses')
+
+    expect(screen.getByRole('heading', { name: /access denied/i })).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: 'Course management' })).not.toBeInTheDocument()
   })
 
   it('provides a skip link to the shared main-content target', () => {

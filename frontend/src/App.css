@@ -22,6 +22,16 @@
 }
 
 .app-shell {
+  --auth-blue: #1268e8;
+  --auth-blue-dark: #0a4fb8;
+  --auth-green: #16a66a;
+  --auth-green-dark: #0d7b4d;
+  --auth-ink: #10233d;
+  --auth-muted: #66768b;
+  --auth-border: #dbe5ef;
+  --auth-soft-blue: #edf5ff;
+  --auth-soft-green: #ecfaf4;
+
   min-height: 100vh;
   padding: 32px 24px 48px;
   background: linear-gradient(135deg, #f5f9ff 0%, #f2fbf7 100%);
@@ -1012,4 +1022,197 @@ a:focus-visible {
   margin: 0;
   color: #252b46;
   font-weight: 600;
+}
+
+.organiser-dashboard {
+  text-align: left;
+}
+
+.allocation-form {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px;
+}
+
+.allocation-check-button {
+  align-self: end;
+  justify-self: start;
+}
+
+.candidate-results {
+  display: grid;
+  gap: 20px;
+  padding: 22px;
+  border: 1px solid rgba(92, 108, 170, 0.14);
+  border-radius: 20px;
+  background: rgba(255, 255, 255, 0.88);
+  box-shadow: 0 12px 24px rgba(73, 82, 134, 0.08);
+}
+
+.candidate-results-header,
+.candidate-card-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.candidate-results-header h2,
+.candidate-card-header h3 {
+  margin: 0 0 5px;
+}
+
+.candidate-results-header p,
+.candidate-card-header p {
+  margin: 0;
+  color: #5e6784;
+}
+
+.candidate-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 16px;
+}
+
+.candidate-card {
+  display: grid;
+  gap: 18px;
+  padding: 18px;
+  border: 1px solid #dfe5ef;
+  border-radius: 16px;
+  background: #ffffff;
+}
+
+.candidate-card.selected {
+  border-color: #1268e8;
+  box-shadow: 0 0 0 3px rgba(18, 104, 232, 0.1);
+}
+
+.rule-result-list,
+.detail-record-list {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.rule-result {
+  display: grid;
+  grid-template-columns: 30px minmax(0, 1fr);
+  gap: 10px;
+  align-items: start;
+  padding: 12px;
+  border: 1px solid #dfe5ef;
+  border-radius: 12px;
+  background: #f8fafc;
+}
+
+.rule-result-symbol {
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  font-weight: 900;
+}
+
+.rule-result-pass .rule-result-symbol {
+  background: #e4f8ee;
+  color: #0d7b4d;
+}
+
+.rule-result-fail .rule-result-symbol {
+  background: #fff0f2;
+  color: #a81f36;
+}
+
+.rule-result-unknown .rule-result-symbol {
+  background: #eef2f6;
+  color: #566175;
+}
+
+.rule-result-message {
+  display: block;
+  margin-top: 4px;
+  color: #5e6784;
+  font-size: 0.9rem;
+  line-height: 1.4;
+}
+
+.tutor-allocation-details {
+  display: grid;
+  gap: 22px;
+}
+
+.tutor-detail-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 22px;
+}
+
+.tutor-detail-grid > section {
+  display: grid;
+  align-content: start;
+  gap: 18px;
+  min-width: 0;
+  padding: 18px;
+  border: 1px solid #dfe5ef;
+  border-radius: 16px;
+  background: #f9fbfd;
+}
+
+.tutor-detail-grid h3 {
+  margin: 0;
+}
+
+.detail-record-list li {
+  display: grid;
+  gap: 3px;
+  padding: 12px;
+  border-radius: 12px;
+  background: #ffffff;
+  color: #4c536e;
+}
+
+.detail-record-list strong {
+  color: #1b2240;
+}
+
+.checkbox-field {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.checkbox-field input {
+  width: auto;
+}
+
+@media (max-width: 700px) {
+  .allocation-form,
+  .tutor-detail-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .allocation-check-button,
+  .candidate-results-header .primary-button,
+  .candidate-card-header .secondary-button {
+    width: 100%;
+  }
+
+  .candidate-results-header,
+  .candidate-card-header {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .candidate-results {
+    padding: 18px;
+    border-radius: 16px;
+  }
+
+  .candidate-grid {
+    grid-template-columns: 1fr;
+  }
 }
