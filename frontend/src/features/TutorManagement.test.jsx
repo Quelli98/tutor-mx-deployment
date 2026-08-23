@@ -4,13 +4,11 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import TutorManagement from './TutorManagement'
 
 const listTutors = vi.fn()
-const createTutor = vi.fn()
 const updateTutor = vi.fn()
 const getAccessTokenSilently = vi.fn()
 
 vi.mock('../api/organiser', () => ({
   listTutors: (...args) => listTutors(...args),
-  createTutor: (...args) => createTutor(...args),
   updateTutor: (...args) => updateTutor(...args),
 }))
 
@@ -56,19 +54,9 @@ function errorWithCode(code) {
   return error
 }
 
-function fillCreateForm({ auth0Id, email, fullName, weeklyHours }) {
-  fireEvent.change(screen.getByLabelText(/auth0 subject/i), { target: { value: auth0Id } })
-  fireEvent.change(screen.getByLabelText(/email/i), { target: { value: email } })
-  fireEvent.change(screen.getByLabelText(/full name/i), { target: { value: fullName } })
-  fireEvent.change(screen.getByLabelText(/weekly hours/i), {
-    target: { value: weeklyHours ?? '' },
-  })
-}
-
 describe('TutorManagement', () => {
   beforeEach(() => {
     listTutors.mockReset()
-    createTutor.mockReset()
     updateTutor.mockReset()
     getAccessTokenSilently.mockReset()
   })
@@ -86,6 +74,38 @@ describe('TutorManagement', () => {
     expect(within(table).getByText('Not set')).toBeInTheDocument()
   })
 
+  it('never asks the organiser for an Auth0 subject', async () => {
+    listTutors.mockResolvedValue(tutors)
+
+    renderPage()
+    await screen.findByRole('table')
+
+    expect(screen.queryByLabelText(/auth0 subject/i)).not.toBeInTheDocument()
+    expect(screen.queryByText(/copy their exact user id from auth0/i)).not.toBeInTheDocument()
+    expect(screen.getByText(/organisers do not need to open auth0 or copy a user id/i)).toBeInTheDocument()
+    expect(
+      screen.getByText(/tutors appear here automatically after they sign up and choose the tutor role/i),
+    ).toBeInTheDocument()
+  })
+
+  it('filters registered tutors by name or email', async () => {
+    listTutors.mockResolvedValue(tutors)
+
+    renderPage()
+    await screen.findByRole('table')
+
+    const search = screen.getByLabelText(/search tutors/i)
+    fireEvent.change(search, { target: { value: 'ash@' } })
+
+    const table = screen.getByRole('table')
+    expect(within(table).getByText('Ash Tutor')).toBeInTheDocument()
+    expect(within(table).queryByText('Sam Tutor')).not.toBeInTheDocument()
+
+    fireEvent.change(search, { target: { value: 'nobody' } })
+    expect(screen.queryByRole('table')).not.toBeInTheDocument()
+    expect(screen.getByText(/no tutors match that name or email/i)).toBeInTheDocument()
+  })
+
   it('opens the selected tutor marks and busy-time controls', async () => {
     listTutors.mockResolvedValue(tutors)
 
@@ -98,122 +118,33 @@ describe('TutorManagement', () => {
     expect(screen.getByText(/allocation details for Sam Tutor/i)).toBeInTheDocument()
   })
 
-  it('explains where the Auth0 subject comes from, alongside any field error', async () => {
+  it('edits an existing tutor using the database tutor id and reloads the list', async () => {
     listTutors.mockResolvedValue(tutors)
+    updateTutor.mockResolvedValue({ ...tutorWithHours, weeklyHours: 12 })
 
     renderPage()
     await screen.findByRole('table')
 
-    const auth0Field = screen.getByLabelText(/auth0 subject/i)
-    expect(auth0Field).toHaveAccessibleDescription(/must sign up on tutor mx first/i)
-    expect(auth0Field).toHaveAccessibleDescription(/copy their exact user id from auth0/i)
+    fireEvent.click(screen.getByRole('button', { name: /edit Sam Tutor/i }))
 
-    fireEvent.click(screen.getByRole('button', { name: /^add tutor$/i }))
+    expect(screen.getByLabelText(/email/i)).toHaveValue('sam@tutormx.example')
+    expect(screen.getByLabelText(/full name/i)).toHaveValue('Sam Tutor')
+    expect(screen.getByLabelText(/weekly hours/i)).toHaveValue(10)
+    expect(screen.queryByLabelText(/auth0 subject/i)).not.toBeInTheDocument()
 
-    expect(auth0Field).toHaveAccessibleDescription(/enter the auth0 subject for this tutor/i)
-    expect(auth0Field).toHaveAccessibleDescription(/copy their exact user id from auth0/i)
-    expect(createTutor).not.toHaveBeenCalled()
-  })
-
-  it('sends a valid create payload and reloads the list', async () => {
-    listTutors.mockResolvedValue(tutors)
-    createTutor.mockResolvedValue({ ...tutorWithHours, id: 9 })
-
-    renderPage()
-    await screen.findByRole('table')
-
-    fillCreateForm({
-      auth0Id: '  auth0|tutor-9  ',
-      email: '  new@tutormx.example  ',
-      fullName: '  New Tutor  ',
-      weeklyHours: '7.5',
-    })
-    fireEvent.click(screen.getByRole('button', { name: /^add tutor$/i }))
+    fireEvent.change(screen.getByLabelText(/weekly hours/i), { target: { value: '12' } })
+    fireEvent.click(screen.getByRole('button', { name: /save changes/i }))
 
     await waitFor(() => {
-      expect(createTutor).toHaveBeenCalledWith(
-        {
-          auth0Id: 'auth0|tutor-9',
-          email: 'new@tutormx.example',
-          fullName: 'New Tutor',
-          weeklyHours: 7.5,
-        },
+      expect(updateTutor).toHaveBeenCalledWith(
+        { tutorId: 7, weeklyHours: 12 },
         getAccessTokenSilently,
       )
     })
     await waitFor(() => {
       expect(listTutors).toHaveBeenCalledTimes(2)
     })
-    expect(await screen.findByText(/New Tutor was added/i)).toBeInTheDocument()
-  })
-
-  it('omits weeklyHours entirely when the field is left blank', async () => {
-    listTutors.mockResolvedValue(tutors)
-    createTutor.mockResolvedValue({ ...tutorWithoutHours, id: 9 })
-
-    renderPage()
-    await screen.findByRole('table')
-
-    fillCreateForm({
-      auth0Id: 'auth0|tutor-9',
-      email: 'new@tutormx.example',
-      fullName: 'New Tutor',
-      weeklyHours: '',
-    })
-    fireEvent.click(screen.getByRole('button', { name: /^add tutor$/i }))
-
-    await waitFor(() => {
-      expect(createTutor).toHaveBeenCalledWith(
-        {
-          auth0Id: 'auth0|tutor-9',
-          email: 'new@tutormx.example',
-          fullName: 'New Tutor',
-        },
-        getAccessTokenSilently,
-      )
-    })
-    expect(createTutor.mock.calls[0][0]).not.toHaveProperty('weeklyHours')
-  })
-
-  it('blocks an invalid email and sends no request', async () => {
-    listTutors.mockResolvedValue(tutors)
-
-    renderPage()
-    await screen.findByRole('table')
-
-    fillCreateForm({
-      auth0Id: 'auth0|tutor-9',
-      email: 'not-an-email',
-      fullName: 'New Tutor',
-      weeklyHours: '',
-    })
-    fireEvent.click(screen.getByRole('button', { name: /^add tutor$/i }))
-
-    expect(screen.getByLabelText(/email/i)).toHaveAccessibleDescription(
-      /enter a valid email address/i,
-    )
-    expect(createTutor).not.toHaveBeenCalled()
-    expect(listTutors).toHaveBeenCalledTimes(1)
-  })
-
-  it.each(['0', '200'])('blocks weekly hours of %s and sends no request', async (value) => {
-    listTutors.mockResolvedValue(tutors)
-
-    renderPage()
-    await screen.findByRole('table')
-
-    fillCreateForm({
-      auth0Id: 'auth0|tutor-9',
-      email: 'new@tutormx.example',
-      fullName: 'New Tutor',
-      weeklyHours: value,
-    })
-    fireEvent.click(screen.getByRole('button', { name: /^add tutor$/i }))
-
-    expect(screen.getByLabelText(/weekly hours/i)).toHaveAccessibleDescription(
-      /above 0 and no more than 168/i,
-    )
-    expect(createTutor).not.toHaveBeenCalled()
+    expect(await screen.findByText(/Sam Tutor was updated/i)).toBeInTheDocument()
   })
 
   it('sends only the changed field when editing', async () => {
@@ -224,11 +155,6 @@ describe('TutorManagement', () => {
     await screen.findByRole('table')
 
     fireEvent.click(screen.getByRole('button', { name: /edit Sam Tutor/i }))
-
-    expect(screen.getByLabelText(/email/i)).toHaveValue('sam@tutormx.example')
-    expect(screen.getByLabelText(/full name/i)).toHaveValue('Sam Tutor')
-    expect(screen.getByLabelText(/weekly hours/i)).toHaveValue(10)
-
     fireEvent.change(screen.getByLabelText(/full name/i), {
       target: { value: 'Samantha Tutor' },
     })
@@ -242,6 +168,39 @@ describe('TutorManagement', () => {
     })
     expect(updateTutor.mock.calls[0][0]).not.toHaveProperty('email')
     expect(updateTutor.mock.calls[0][0]).not.toHaveProperty('weeklyHours')
+    expect(updateTutor.mock.calls[0][0]).not.toHaveProperty('auth0Id')
+  })
+
+  it('blocks an invalid email and sends no request', async () => {
+    listTutors.mockResolvedValue(tutors)
+
+    renderPage()
+    await screen.findByRole('table')
+
+    fireEvent.click(screen.getByRole('button', { name: /edit Sam Tutor/i }))
+    fireEvent.change(screen.getByLabelText(/email/i), { target: { value: 'not-an-email' } })
+    fireEvent.click(screen.getByRole('button', { name: /save changes/i }))
+
+    expect(screen.getByLabelText(/email/i)).toHaveAccessibleDescription(
+      /enter a valid email address/i,
+    )
+    expect(updateTutor).not.toHaveBeenCalled()
+  })
+
+  it.each(['0', '200'])('blocks weekly hours of %s and sends no request', async (value) => {
+    listTutors.mockResolvedValue(tutors)
+
+    renderPage()
+    await screen.findByRole('table')
+
+    fireEvent.click(screen.getByRole('button', { name: /edit Sam Tutor/i }))
+    fireEvent.change(screen.getByLabelText(/weekly hours/i), { target: { value } })
+    fireEvent.click(screen.getByRole('button', { name: /save changes/i }))
+
+    expect(screen.getByLabelText(/weekly hours/i)).toHaveAccessibleDescription(
+      /above 0 and no more than 168/i,
+    )
+    expect(updateTutor).not.toHaveBeenCalled()
   })
 
   it('disables the edit submit until something changes', async () => {
@@ -281,24 +240,34 @@ describe('TutorManagement', () => {
     expect(listTutors).toHaveBeenCalledTimes(1)
   })
 
-  it('shows a friendly message for a conflicting tutor', async () => {
+  it('shows a friendly conflict message when an edit collides with another profile', async () => {
     listTutors.mockResolvedValue(tutors)
-    createTutor.mockRejectedValue(errorWithCode('TUTOR_CONFLICT'))
+    updateTutor.mockRejectedValue(errorWithCode('TUTOR_CONFLICT'))
 
     renderPage()
     await screen.findByRole('table')
 
-    fillCreateForm({
-      auth0Id: 'auth0|tutor-7',
-      email: 'sam@tutormx.example',
-      fullName: 'Sam Tutor',
-      weeklyHours: '',
+    fireEvent.click(screen.getByRole('button', { name: /edit Sam Tutor/i }))
+    fireEvent.change(screen.getByLabelText(/email/i), {
+      target: { value: 'ash@tutormx.example' },
     })
-    fireEvent.click(screen.getByRole('button', { name: /^add tutor$/i }))
+    fireEvent.click(screen.getByRole('button', { name: /save changes/i }))
 
     expect(
       await screen.findByText(/a tutor with those details already exists/i),
     ).toBeInTheDocument()
     expect(screen.queryByText(/raw server detail/i)).not.toBeInTheDocument()
+  })
+
+  it('tells the organiser how a tutor becomes available when no tutors exist', async () => {
+    listTutors.mockResolvedValue([])
+
+    renderPage()
+
+    expect(await screen.findByText(/no tutor accounts yet/i)).toBeInTheDocument()
+    expect(
+      screen.getByText(/ask the tutor to sign up to tutor mx and choose the tutor role/i),
+    ).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /add tutor/i })).not.toBeInTheDocument()
   })
 })
