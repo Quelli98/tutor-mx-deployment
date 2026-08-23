@@ -103,7 +103,7 @@ describe('RoleRouter', () => {
   })
 
 
-  it('shows sign out for students and tutors but not the organiser workspace', () => {
+  it('shows sign out for students and tutors', () => {
     const tutorSignOut = vi.fn()
     const { unmount } = render(
       <MemoryRouter initialEntries={['/tutor']}>
@@ -121,9 +121,21 @@ describe('RoleRouter', () => {
     expect(screen.getByRole('button', { name: /sign out/i })).toBeInTheDocument()
   })
 
-  it('does not add the dashboard sign out control to organiser yet', () => {
-    renderRole('ORGANISER', '/organiser')
-    expect(screen.queryByRole('button', { name: /sign out/i })).not.toBeInTheDocument()
+  it('signs an organiser out from the organiser workspace', () => {
+    const organiserSignOut = vi.fn()
+    render(
+      <MemoryRouter initialEntries={['/organiser']}>
+        <Routes>
+          <Route
+            path="/*"
+            element={<RoleRouter currentRole="ORGANISER" onSignOut={organiserSignOut} />}
+          />
+        </Routes>
+      </MemoryRouter>,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: /sign out/i }))
+    expect(organiserSignOut).toHaveBeenCalledTimes(1)
   })
 
   it('shows the organiser management links only to an organiser', () => {
