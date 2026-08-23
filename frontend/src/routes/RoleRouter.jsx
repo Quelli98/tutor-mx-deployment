@@ -67,15 +67,13 @@ function RoleNavigation({ currentRole, onSignOut }) {
           Account settings
         </NavLink>
 
-        {(currentRole === 'TUTOR' || currentRole === 'STUDENT') && (
-          <button
-            type="button"
-            className="dashboard-sign-out-button"
-            onClick={onSignOut}
-          >
-            Sign out
-          </button>
-        )}
+        <button
+          type="button"
+          className="dashboard-sign-out-button"
+          onClick={onSignOut}
+        >
+          Sign out
+        </button>
       </div>
     </nav>
   )
