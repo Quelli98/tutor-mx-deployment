@@ -88,7 +88,7 @@ Authorization: Bearer <access-token>
 | `PATCH /api/courses/:courseId` | Organiser | `200 { data: { course } }` | `400`, `401`, `403`, `404`, `409` |
 | `DELETE /api/courses/:courseId` | Organiser | `204` | `400`, `401`, `403`, `404`, `409` |
 | `GET /api/tutors` | Organiser | `200 { data: { tutors } }` | `401`, `403`, safe `500` |
-| `POST /api/tutors` | Organiser | `201 { data: { tutor } }` | `400`, `401`, `403`, `409` |
+| `POST /api/tutors` | Organiser (legacy integration route; not used by the self-service Tutor management UI) | `201 { data: { tutor } }` | `400`, `401`, `403`, `409` |
 | `PATCH /api/tutors/:tutorId` | Organiser | `200 { data: { tutor } }` | `400`, `401`, `403`, `404`, `409` |
 | `GET /api/tutors/:tutorId/marks` | Organiser | `200 { data: { marks } }` | `400`, `401`, `403`, safe `500` |
 | `PUT /api/tutors/:tutorId/marks` | Organiser | `200 { data: { mark } }` | `400`, `401`, `403`, `404`, safe `500` |
@@ -107,7 +107,7 @@ Tutor workflow URLs never accept a browser-supplied tutor identifier. The backen
 
 A newly self-onboarded Tutor may legitimately have no `TutorHourLimit` and no allocations until an Organiser configures them. That state now returns a usable dashboard instead of a `409`: `weeklyLimit` and `remainingHours` are `null`, `usedHours` is still safe to display, and the frontend shows **Weekly hour limit not set yet** plus the normal no-work state.
 
-The protected Organiser workspace now contains the Sprint 1 allocation board plus course and tutor management. Organisers can add/edit/remove courses, maintain tutor profile and weekly-hour data, record course marks and busy times, and view mark, timetable-clash and remaining-hour results together before selecting a tutor. Failed checks remain visible and every result includes written Pass/Fail wording so colour is never the only signal. The Sprint 1 **Save allocation** control is intentionally the handbook-approved action placeholder until the final allocation-write endpoint is agreed; it becomes available only after an eligible tutor is selected.
+The protected Organiser workspace now contains the Sprint 1 allocation board plus course and tutor management. Organisers can add/edit/remove courses, search registered tutor accounts, maintain tutor profile and weekly-hour data, record course marks and busy times, and view mark, timetable-clash and remaining-hour results together before selecting a tutor. Tutor accounts themselves are created by the self-service Auth0 onboarding flow, so organisers never need to copy Auth0 User IDs. Failed checks remain visible and every result includes written Pass/Fail wording so colour is never the only signal. The Sprint 1 **Save allocation** control is intentionally the handbook-approved action placeholder until the final allocation-write endpoint is agreed; it becomes available only after an eligible tutor is selected.
 
 Sprint 1 Student overflow remains behind the protected `STUDENT` route and uses the agreed mocked work/claim boundary from Member 4. It does not access Prisma/Neon from the browser. The production Student endpoint is a later backend-connection step; the current integration deliberately preserves the Sprint 1 mock contract rather than inventing an unfinished server API.
 

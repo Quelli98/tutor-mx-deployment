@@ -1,17 +1,16 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useAuth0 } from '@auth0/auth0-react'
-import { createTutor, listTutors, updateTutor } from '../api/organiser'
+import { listTutors, updateTutor } from '../api/organiser'
 import { EmptyState, ErrorState, LoadingState } from '../components/shared/StatusMessage'
 import TutorAllocationDetails from './TutorAllocationDetails'
 
-const MAX_AUTH0_ID_LENGTH = 100
 const MAX_EMAIL_LENGTH = 254
 const MAX_NAME_LENGTH = 120
 const MAX_WEEKLY_HOURS = 168
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
-const EMPTY_FORM = { auth0Id: '', email: '', fullName: '', weeklyHours: '' }
+const EMPTY_FORM = { email: '', fullName: '', weeklyHours: '' }
 
 function safeErrorMessage(error, fallback) {
   if (error?.code === 'PROFILE_NOT_FOUND') {
@@ -49,15 +48,6 @@ function originalWeeklyHours(tutor) {
 
 function validateFields(form, fields) {
   const errors = {}
-
-  if (fields.includes('auth0Id')) {
-    const auth0Id = form.auth0Id.trim()
-    if (!auth0Id) {
-      errors.auth0Id = 'Enter the Auth0 subject for this tutor.'
-    } else if (auth0Id.length > MAX_AUTH0_ID_LENGTH) {
-      errors.auth0Id = `Use ${MAX_AUTH0_ID_LENGTH} characters or fewer for the Auth0 subject.`
-    }
-  }
 
   if (fields.includes('email')) {
     const email = form.email.trim()
@@ -106,6 +96,7 @@ export default function TutorManagement() {
   const [status, setStatus] = useState('loading')
   const [tutors, setTutors] = useState([])
   const [errorMessage, setErrorMessage] = useState('')
+  const [searchText, setSearchText] = useState('')
 
   const [form, setForm] = useState(EMPTY_FORM)
   const [editingTutor, setEditingTutor] = useState(null)
@@ -146,6 +137,16 @@ export default function TutorManagement() {
     }
   }, [loadTutors])
 
+  const filteredTutors = useMemo(() => {
+    const query = searchText.trim().toLowerCase()
+    if (!query) return tutors
+
+    return tutors.filter(
+      (tutor) =>
+        tutor.fullName.toLowerCase().includes(query) || tutor.email.toLowerCase().includes(query),
+    )
+  }, [searchText, tutors])
+
   function updateFormField(field, value) {
     setForm((current) => ({ ...current, [field]: value }))
   }
@@ -160,7 +161,6 @@ export default function TutorManagement() {
   function startEditing(tutor) {
     setEditingTutor(tutor)
     setForm({
-      auth0Id: tutor.auth0Id ?? '',
       email: tutor.email,
       fullName: tutor.fullName,
       weeklyHours: originalWeeklyHours(tutor),
@@ -178,20 +178,16 @@ export default function TutorManagement() {
 
   async function handleSubmit(event) {
     event.preventDefault()
+    if (!editingTutor) return
 
-    const fields = editingTutor
-      ? changedFields(form, editingTutor)
-      : ['auth0Id', 'email', 'fullName', ...(form.weeklyHours.trim() ? ['weeklyHours'] : [])]
-
+    const fields = changedFields(form, editingTutor)
     const errors = validateFields(form, fields)
     setFieldErrors(errors)
     setFormError('')
     setSuccessMessage('')
-    if (Object.keys(errors).length > 0) return
-    if (editingTutor && fields.length === 0) return
+    if (Object.keys(errors).length > 0 || fields.length === 0) return
 
     const payload = {}
-    if (fields.includes('auth0Id')) payload.auth0Id = form.auth0Id.trim()
     if (fields.includes('email')) payload.email = form.email.trim()
     if (fields.includes('fullName')) payload.fullName = form.fullName.trim()
     if (fields.includes('weeklyHours')) payload.weeklyHours = Number(form.weeklyHours.trim())
@@ -199,14 +195,8 @@ export default function TutorManagement() {
     setFormStatus('saving')
 
     try {
-      if (editingTutor) {
-        await updateTutor({ tutorId: editingTutor.id, ...payload }, getAccessTokenSilently)
-        setSuccessMessage(`${editingTutor.fullName} was updated.`)
-      } else {
-        await createTutor(payload, getAccessTokenSilently)
-        setSuccessMessage(`${payload.fullName} was added.`)
-      }
-
+      await updateTutor({ tutorId: editingTutor.id, ...payload }, getAccessTokenSilently)
+      setSuccessMessage(`${editingTutor.fullName} was updated.`)
       resetForm()
       await loadTutors()
     } catch (err) {
@@ -218,7 +208,7 @@ export default function TutorManagement() {
 
   const isSaving = formStatus === 'saving'
   const pendingChanges = editingTutor ? changedFields(form, editingTutor) : []
-  const submitDisabled = isSaving || Boolean(editingTutor && pendingChanges.length === 0)
+  const submitDisabled = isSaving || pendingChanges.length === 0
   const limitAlreadySet = Boolean(editingTutor && originalWeeklyHours(editingTutor))
 
   return (
@@ -227,109 +217,89 @@ export default function TutorManagement() {
         <div>
           <p className="eyebrow">Tutor Mx</p>
           <h1>Tutor management</h1>
-          <p className="helper-text">Add tutors and keep their contact and weekly-hour details up to date.</p>
+          <p className="helper-text">
+            Tutors appear here automatically after they sign up and choose the Tutor role.
+          </p>
         </div>
       </header>
 
-      <section className="role-card" aria-labelledby="tutor-form-heading">
-        <form onSubmit={handleSubmit} noValidate>
-          <h2 id="tutor-form-heading">
-            {editingTutor ? `Edit ${editingTutor.fullName}` : 'Add a tutor'}
-          </h2>
+      <section className="role-card" aria-labelledby="automatic-tutor-heading">
+        <h2 id="automatic-tutor-heading">Tutor accounts are linked automatically</h2>
+        <p className="helper-text">
+          Organisers do not need to open Auth0 or copy a User ID. Search for a tutor by name or
+          email below, then use Edit to manage their details and weekly-hour limit.
+        </p>
+      </section>
 
-          {!editingTutor && (
+      {editingTutor && (
+        <section className="role-card" aria-labelledby="tutor-form-heading">
+          <form onSubmit={handleSubmit} noValidate>
+            <h2 id="tutor-form-heading">Edit {editingTutor.fullName}</h2>
+
             <div className="field-group">
-              <label htmlFor="tutor-auth0-id">Auth0 subject</label>
+              <label htmlFor="tutor-email">Email</label>
               <input
-                id="tutor-auth0-id"
-                type="text"
-                value={form.auth0Id}
-                onChange={(event) => updateFormField('auth0Id', event.target.value)}
-                aria-invalid={Boolean(fieldErrors.auth0Id)}
-                aria-describedby={
-                  ['tutor-auth0-id-help', fieldErrors.auth0Id && 'tutor-auth0-id-error']
-                    .filter(Boolean)
-                    .join(' ')
-                }
+                id="tutor-email"
+                type="email"
+                value={form.email}
+                onChange={(event) => updateFormField('email', event.target.value)}
+                aria-invalid={Boolean(fieldErrors.email)}
+                aria-describedby={fieldErrors.email ? 'tutor-email-error' : undefined}
               />
-              <p id="tutor-auth0-id-help" className="helper-text">
-                The tutor must sign up on Tutor Mx first. Copy their exact User ID from Auth0
-                (User Management &rarr; Users), for example auth0|abc123.
-              </p>
-              {fieldErrors.auth0Id && (
-                <p id="tutor-auth0-id-error" className="error-text">
-                  {fieldErrors.auth0Id}
+              {fieldErrors.email && (
+                <p id="tutor-email-error" className="error-text">
+                  {fieldErrors.email}
                 </p>
               )}
             </div>
-          )}
 
-          <div className="field-group">
-            <label htmlFor="tutor-email">Email</label>
-            <input
-              id="tutor-email"
-              type="email"
-              value={form.email}
-              onChange={(event) => updateFormField('email', event.target.value)}
-              aria-invalid={Boolean(fieldErrors.email)}
-              aria-describedby={fieldErrors.email ? 'tutor-email-error' : undefined}
-            />
-            {fieldErrors.email && (
-              <p id="tutor-email-error" className="error-text">
-                {fieldErrors.email}
+            <div className="field-group">
+              <label htmlFor="tutor-full-name">Full name</label>
+              <input
+                id="tutor-full-name"
+                type="text"
+                value={form.fullName}
+                onChange={(event) => updateFormField('fullName', event.target.value)}
+                aria-invalid={Boolean(fieldErrors.fullName)}
+                aria-describedby={fieldErrors.fullName ? 'tutor-full-name-error' : undefined}
+              />
+              {fieldErrors.fullName && (
+                <p id="tutor-full-name-error" className="error-text">
+                  {fieldErrors.fullName}
+                </p>
+              )}
+            </div>
+
+            <div className="field-group">
+              <label htmlFor="tutor-weekly-hours">Weekly hours</label>
+              <input
+                id="tutor-weekly-hours"
+                type="number"
+                step="any"
+                min="0"
+                value={form.weeklyHours}
+                onChange={(event) => updateFormField('weeklyHours', event.target.value)}
+                aria-invalid={Boolean(fieldErrors.weeklyHours)}
+                aria-describedby={
+                  fieldErrors.weeklyHours ? 'tutor-weekly-hours-error' : 'tutor-weekly-hours-help'
+                }
+              />
+              <p id="tutor-weekly-hours-help" className="helper-text">
+                {limitAlreadySet
+                  ? 'Enter a new value to change the weekly-hour limit. A limit cannot be removed once it is set.'
+                  : 'Optional. Leave blank if the weekly-hour limit is not decided yet.'}
               </p>
-            )}
-          </div>
+              {fieldErrors.weeklyHours && (
+                <p id="tutor-weekly-hours-error" className="error-text">
+                  {fieldErrors.weeklyHours}
+                </p>
+              )}
+            </div>
 
-          <div className="field-group">
-            <label htmlFor="tutor-full-name">Full name</label>
-            <input
-              id="tutor-full-name"
-              type="text"
-              value={form.fullName}
-              onChange={(event) => updateFormField('fullName', event.target.value)}
-              aria-invalid={Boolean(fieldErrors.fullName)}
-              aria-describedby={fieldErrors.fullName ? 'tutor-full-name-error' : undefined}
-            />
-            {fieldErrors.fullName && (
-              <p id="tutor-full-name-error" className="error-text">
-                {fieldErrors.fullName}
-              </p>
-            )}
-          </div>
-
-          <div className="field-group">
-            <label htmlFor="tutor-weekly-hours">Weekly hours</label>
-            <input
-              id="tutor-weekly-hours"
-              type="number"
-              step="any"
-              min="0"
-              value={form.weeklyHours}
-              onChange={(event) => updateFormField('weeklyHours', event.target.value)}
-              aria-invalid={Boolean(fieldErrors.weeklyHours)}
-              aria-describedby={
-                fieldErrors.weeklyHours ? 'tutor-weekly-hours-error' : 'tutor-weekly-hours-help'
-              }
-            />
-            <p id="tutor-weekly-hours-help" className="helper-text">
-              {limitAlreadySet
-                ? 'Enter a new value to change the weekly-hour limit. A limit cannot be removed once it is set.'
-                : 'Optional. Leave blank if the weekly-hour limit is not decided yet.'}
-            </p>
-            {fieldErrors.weeklyHours && (
-              <p id="tutor-weekly-hours-error" className="error-text">
-                {fieldErrors.weeklyHours}
-              </p>
-            )}
-          </div>
-
-          <div className="button-row">
-            <button className="primary-button" type="submit" disabled={submitDisabled}>
-              {isSaving ? 'Saving...' : editingTutor ? 'Save changes' : 'Add tutor'}
-            </button>
-
-            {editingTutor && (
+            <div className="button-row">
+              <button className="primary-button" type="submit" disabled={submitDisabled}>
+                {isSaving ? 'Saving...' : 'Save changes'}
+              </button>
               <button
                 className="secondary-button"
                 type="button"
@@ -338,16 +308,16 @@ export default function TutorManagement() {
               >
                 Cancel edit
               </button>
-            )}
-          </div>
+            </div>
 
-          {formError && (
-            <p className="status-note danger" role="alert">
-              {formError}
-            </p>
-          )}
-        </form>
-      </section>
+            {formError && (
+              <p className="status-note danger" role="alert">
+                {formError}
+              </p>
+            )}
+          </form>
+        </section>
+      )}
 
       {successMessage && (
         <p className="status-note" role="status">
@@ -367,52 +337,73 @@ export default function TutorManagement() {
       )}
 
       {status === 'success' && tutors.length === 0 && (
-        <EmptyState title="No tutors yet" message="No tutors have been set up for Tutor Mx yet." />
+        <EmptyState
+          title="No tutor accounts yet"
+          message="Ask the tutor to sign up to Tutor Mx and choose the Tutor role. Their account will then appear here automatically."
+        />
       )}
 
       {status === 'success' && tutors.length > 0 && (
         <section className="role-card" aria-labelledby="tutor-list-heading">
           <h2 id="tutor-list-heading">Tutors</h2>
-          <div className="table-scroll" tabIndex="0" aria-label="Tutor list table">
-            <table className="tutor-table">
-              <caption>Tutors currently set up for Tutor Mx</caption>
-              <thead>
-                <tr>
-                  <th scope="col">Full name</th>
-                  <th scope="col">Email</th>
-                  <th scope="col">Weekly hours</th>
-                  <th scope="col">Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {tutors.map((tutor) => (
-                  <tr key={tutor.id}>
-                    <td>{tutor.fullName}</td>
-                    <td>{tutor.email}</td>
-                    <td>{weeklyHoursText(tutor.weeklyHours)}</td>
-                    <td>
-                      <div className="button-row">
-                        <button
-                          className="secondary-button"
-                          type="button"
-                          onClick={() => startEditing(tutor)}
-                        >
-                          Edit {tutor.fullName}
-                        </button>
-                        <button
-                          className="secondary-button"
-                          type="button"
-                          onClick={() => startManagingDetails(tutor)}
-                        >
-                          Manage marks and busy times for {tutor.fullName}
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+
+          <div className="field-group">
+            <label htmlFor="tutor-search">Search tutors</label>
+            <input
+              id="tutor-search"
+              type="search"
+              value={searchText}
+              onChange={(event) => setSearchText(event.target.value)}
+              placeholder="Search by name or email"
+            />
           </div>
+
+          {filteredTutors.length === 0 ? (
+            <p className="helper-text" role="status">
+              No tutors match that name or email.
+            </p>
+          ) : (
+            <div className="table-scroll" tabIndex="0" aria-label="Tutor list table">
+              <table className="tutor-table">
+                <caption>Registered Tutor Mx tutor accounts</caption>
+                <thead>
+                  <tr>
+                    <th scope="col">Full name</th>
+                    <th scope="col">Email</th>
+                    <th scope="col">Weekly hours</th>
+                    <th scope="col">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredTutors.map((tutor) => (
+                    <tr key={tutor.id}>
+                      <td>{tutor.fullName}</td>
+                      <td>{tutor.email}</td>
+                      <td>{weeklyHoursText(tutor.weeklyHours)}</td>
+                      <td>
+                        <div className="button-row">
+                          <button
+                            className="secondary-button"
+                            type="button"
+                            onClick={() => startEditing(tutor)}
+                          >
+                            Edit {tutor.fullName}
+                          </button>
+                          <button
+                            className="secondary-button"
+                            type="button"
+                            onClick={() => startManagingDetails(tutor)}
+                          >
+                            Manage marks and busy times for {tutor.fullName}
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </section>
       )}
 

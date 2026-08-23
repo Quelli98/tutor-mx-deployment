@@ -362,7 +362,7 @@ export default function OrganiserDashboard() {
       {candidateStatus === 'success' && candidates.length === 0 && (
         <EmptyState
           title="No candidates found"
-          message="No tutor has a mark record for this course yet. Add tutor details and check again."
+          message="No tutor has a mark record for this course yet. Open Tutor management, add the tutor's course mark, and check again."
         />
       )}
       {candidateStatus === 'success' && candidates.length > 0 && (

@@ -80,6 +80,7 @@ Do not add `DATABASE_URL` or `AUTH0_MANAGEMENT_CLIENT_SECRET` to Cloudflare Page
 6. Confirm Auth0 -> User Management -> Users -> the new user has only `STUDENT` among the Tutor Mx roles.
 7. Confirm Neon -> `Profile` contains the same Auth0 subject/email and role `STUDENT` automatically.
 8. Repeat with a new Tutor account. A brand-new Tutor with no organiser-assigned weekly-hour limit must still reach `/tutor`; the dashboard shows **Weekly hour limit not set yet** and **You have no work assigned right now** instead of failing.
+   Then sign in as an Organiser and open **Tutor management**. The Tutor should already appear by name/email. The Organiser must not copy or enter the Auth0 User ID; Tutor Mx uses the stored profile/database ID internally.
 9. Repeat with a new Organiser account only if `ALLOW_SELF_SERVICE_ORGANISER=true`.
 
 ## Expected behaviour for existing unlinked Auth0 users

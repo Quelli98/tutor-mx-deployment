@@ -26,7 +26,8 @@
 
 ### Tutors, marks, busy times and weekly-hour limits
 
-- `/organiser/tutors` lists tutor profiles and supports valid add/edit requests.
+- `/organiser/tutors` lists tutor profiles created automatically by the self-service Tutor sign-up flow; the Organiser never enters or copies an Auth0 subject.
+- Organisers can search registered tutors by name or email, then edit the selected tutor using the internal database tutor ID already returned by the API.
 - Tutor email, full name and weekly-hour limit have field-level validation matching the backend limits.
 - Each tutor exposes **Manage marks and busy times**.
 - Organisers can upsert a course mark from 0-100 and immediately see the updated non-stale row.
