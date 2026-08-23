@@ -1,5 +1,7 @@
 # Sprint 1 Members 1, 3, 4, 5 and 6 integration
 
+> **Historical checkpoint:** This file records the 17 August 2026 pre-Member-2 state. Member 2 was integrated on 23 August 2026; use `docs/sprint1-members-1-2-3-4-5-6-integration.md` for the current status.
+
 ## Integration result
 
 This main-ready source starts from the supplied current `main` snapshot, which already contains Members 1, 3, 5 and 6, and integrates the supplied Member 4 Student overflow/shared-interface branch on top of it. Member 2 remains pending.

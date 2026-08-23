@@ -1,0 +1,41 @@
+Tutor Mx Sprint 1 Member 2 integration verification
+Date: 2026-08-23
+Baseline: live Gitea main commit c5a1e19071a2aade57f651ec5e8ed0c6b14e8b01
+Integrated source: supplied s1-m2-course-tutor-ui archive, corrected against handbook pages 1-29
+
+Implemented and corrected
+- Organiser allocation-board route with course/session/rule inputs and candidates on one page.
+- Loading, empty, error/retry, validation and keyboard-visible interaction states.
+- Reusable written pass/fail/unknown rule result for mark, timetable clash and remaining hours.
+- Eligible tutor selection and a deliberately non-persistent Sprint 1 allocation-action placeholder.
+- Course and tutor add/edit/remove workflows retained from Member 2 and connected to the organiser routes.
+- Tutor mark and busy-time organiser workflows connected to protected API routes.
+- Strict frontend response-contract validation for the new organiser APIs.
+- Server-side rejection of null, boolean and blank tutor marks.
+- Safe organiser route errors and Prisma conflict/not-found mappings.
+- Role routing changed so ORGANISER users land on the real allocation board.
+
+Verification results
+
+Backend
+- ESLint: passed
+- TypeScript no-emit typecheck: passed
+- Vitest: 13 files passed, 143 tests passed
+- V8 coverage: statements 90.15%, branches 86.65%, functions 92.85%, lines 92.61%
+- Production TypeScript build: passed
+
+Frontend
+- ESLint: passed
+- Vitest: 26 files passed, 146 tests passed
+- V8 coverage: statements 86.32%, branches 83.05%, functions 91.38%, lines 88.76%
+- Vite production build: passed (one advisory warning for a JavaScript chunk slightly above 500 kB)
+
+Repository checks
+- Tracked-file secret and AI-attribution check: passed
+- Browser source scan for DATABASE_URL, Prisma imports and pg imports: passed (no matches)
+- Git whitespace checks for baseline and integration changes: passed
+
+Local setup note
+Run `npm ci`, `npm ci --prefix frontend`, `npm run generate`, and then `npm run check`
+after copying the integrated source into a local clone. Generated Prisma client, dependency,
+coverage and build-output directories are intentionally excluded from the handoff archive.

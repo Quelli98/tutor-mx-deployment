@@ -1,5 +1,10 @@
 import "dotenv/config";
-import { createApp, createRouteError } from "./app.js";
+import {
+  createApp,
+  createRouteError,
+  type TutorMarkSummary,
+  type TutorTimeSlotSummary,
+} from "./app.js";
 import { createAuth0AccessTokenVerifier } from "./auth/auth0-verifier.js";
 import {
   normalizeTutorRole,
@@ -11,7 +16,10 @@ import {
 } from "./auth/password-reset.js";
 import { createAuth0RoleProvisioner, createAuth0UserDeleter } from "./auth/management-api.js";
 import { prisma, queryClient } from "./database.js";
-import { getTutorHourSummary } from "./services/allocation-queries.js";
+import {
+  findAllocationCandidates,
+  getTutorHourSummary,
+} from "./services/allocation-queries.js";
 
 const port = Number(process.env.PORT ?? 3000);
 
@@ -91,6 +99,37 @@ function toTutorSummary(profile: {
       profile.hourLimit?.weeklyHours === null
         ? null
         : Number(profile.hourLimit.weeklyHours),
+  };
+}
+
+function toTimeSlotSummary(timeSlot: {
+  id: number;
+  type: "AVAILABLE" | "BUSY";
+  startsAt: Date;
+  endsAt: Date;
+  recurrence: string | null;
+}): TutorTimeSlotSummary {
+  return {
+    id: timeSlot.id,
+    type: timeSlot.type,
+    startsAt: timeSlot.startsAt.toISOString(),
+    endsAt: timeSlot.endsAt.toISOString(),
+    recurrence: timeSlot.recurrence === "WEEKLY" ? "WEEKLY" : null,
+  };
+}
+
+function toTutorMarkSummary(mark: {
+  id: number;
+  courseId: number;
+  course: { code: string; name: string };
+  mark: unknown;
+}): TutorMarkSummary {
+  return {
+    id: mark.id,
+    courseId: mark.courseId,
+    courseCode: mark.course.code,
+    courseName: mark.course.name,
+    mark: Number(mark.mark),
   };
 }
 
@@ -461,14 +500,7 @@ const app = createApp(
             recurrence: true,
           },
         });
-        return {
-          id: timeSlot.id,
-          type: timeSlot.type,
-          startsAt: timeSlot.startsAt.toISOString(),
-          endsAt: timeSlot.endsAt.toISOString(),
-          recurrence:
-            timeSlot.recurrence === "WEEKLY" ? "WEEKLY" : null,
-        };
+        return toTimeSlotSummary(timeSlot);
       } catch (error) {
         if (
           isPrismaErrorCode(error, "P2003") ||
@@ -630,6 +662,123 @@ const app = createApp(
             409,
             "EXCUSE_CONFLICT",
             "The excuse conflicts with tutor or session rules.",
+          );
+        }
+        throw error;
+      }
+    },
+    async listAllocationCandidates(input) {
+      return findAllocationCandidates(queryClient, input);
+    },
+    async upsertTutorMark(tutorId, input) {
+      const existingTutor = await prisma.profile.findUnique({
+        where: { id: tutorId },
+        select: { role: true },
+      });
+      if (existingTutor?.role !== "TUTOR") {
+        throw createRouteError(
+          404,
+          "TUTOR_NOT_FOUND",
+          "The requested tutor could not be found.",
+        );
+      }
+      try {
+        const mark = await prisma.tutorMark.upsert({
+          where: { tutorId_courseId: { tutorId, courseId: input.courseId } },
+          create: {
+            tutorId,
+            courseId: input.courseId,
+            mark: input.mark,
+          },
+          update: { mark: input.mark },
+          select: {
+            id: true,
+            courseId: true,
+            course: { select: { code: true, name: true } },
+            mark: true,
+          },
+        });
+        return toTutorMarkSummary(mark);
+      } catch (error) {
+        if (
+          isPrismaErrorCode(error, "P2003") ||
+          isPrismaErrorCode(error, "P2025")
+        ) {
+          throw createRouteError(
+            404,
+            "COURSE_NOT_FOUND",
+            "The requested course could not be found.",
+          );
+        }
+        throw error;
+      }
+    },
+    async listTutorMarks(tutorId) {
+      const marks = await prisma.tutorMark.findMany({
+        where: { tutorId },
+        orderBy: { course: { code: "asc" } },
+        select: {
+          id: true,
+          courseId: true,
+          course: { select: { code: true, name: true } },
+          mark: true,
+        },
+      });
+      return marks.map(toTutorMarkSummary);
+    },
+    async listTutorTimeSlots(tutorId) {
+      const timeSlots = await prisma.timeSlot.findMany({
+        where: { tutorId },
+        orderBy: { startsAt: "asc" },
+        select: {
+          id: true,
+          type: true,
+          startsAt: true,
+          endsAt: true,
+          recurrence: true,
+        },
+      });
+      return timeSlots.map(toTimeSlotSummary);
+    },
+    async createTutorTimeSlotForTutor(tutorId, input) {
+      const existingTutor = await prisma.profile.findUnique({
+        where: { id: tutorId },
+        select: { role: true },
+      });
+      if (existingTutor?.role !== "TUTOR") {
+        throw createRouteError(
+          404,
+          "TUTOR_NOT_FOUND",
+          "The requested tutor could not be found.",
+        );
+      }
+      try {
+        const timeSlot = await prisma.timeSlot.create({
+          data: {
+            tutorId,
+            type: input.type,
+            startsAt: input.startsAt,
+            endsAt: input.endsAt,
+            recurrence: input.recurrence ?? null,
+          },
+          select: {
+            id: true,
+            type: true,
+            startsAt: true,
+            endsAt: true,
+            recurrence: true,
+          },
+        });
+        return toTimeSlotSummary(timeSlot);
+      } catch (error) {
+        if (
+          isPrismaErrorCode(error, "P2003") ||
+          isPrismaErrorCode(error, "P2004")
+        ) {
+          throw createRouteError(
+            409,
+            "TIME_SLOT_CONFLICT",
+            "The availability slot conflicts with tutor data rules.",
           );
         }
         throw error;
