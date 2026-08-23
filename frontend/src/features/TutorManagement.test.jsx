@@ -81,11 +81,9 @@ describe('TutorManagement', () => {
     await screen.findByRole('table')
 
     expect(screen.queryByLabelText(/auth0 subject/i)).not.toBeInTheDocument()
-    expect(screen.queryByText(/copy their exact user id from auth0/i)).not.toBeInTheDocument()
-    expect(screen.getByText(/organisers do not need to open auth0 or copy a user id/i)).toBeInTheDocument()
-    expect(
-      screen.getByText(/tutors appear here automatically after they sign up and choose the tutor role/i),
-    ).toBeInTheDocument()
+    expect(screen.queryByText(/auth0/i)).not.toBeInTheDocument()
+    expect(screen.queryByText(/user id/i)).not.toBeInTheDocument()
+    expect(screen.getByText(/search for a tutor by name or email below/i)).toBeInTheDocument()
   })
 
   it('filters registered tutors by name or email', async () => {
@@ -103,7 +101,7 @@ describe('TutorManagement', () => {
 
     fireEvent.change(search, { target: { value: 'nobody' } })
     expect(screen.queryByRole('table')).not.toBeInTheDocument()
-    expect(screen.getByText(/no tutors match that name or email/i)).toBeInTheDocument()
+    expect(screen.getByText(/no tutors found/i)).toBeInTheDocument()
   })
 
   it('opens the selected tutor marks and busy-time controls', async () => {
@@ -112,7 +110,7 @@ describe('TutorManagement', () => {
     renderPage()
     await screen.findByRole('table')
     fireEvent.click(
-      screen.getByRole('button', { name: /manage marks and busy times for Sam Tutor/i }),
+      screen.getByRole('button', { name: /manage marks and availability for Sam Tutor/i }),
     )
 
     expect(screen.getByText(/allocation details for Sam Tutor/i)).toBeInTheDocument()
@@ -264,9 +262,9 @@ describe('TutorManagement', () => {
 
     renderPage()
 
-    expect(await screen.findByText(/no tutor accounts yet/i)).toBeInTheDocument()
+    expect(await screen.findByText(/no tutors available/i)).toBeInTheDocument()
     expect(
-      screen.getByText(/ask the tutor to sign up to tutor mx and choose the tutor role/i),
+      screen.getByText(/tutor accounts will appear here after registration/i),
     ).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /add tutor/i })).not.toBeInTheDocument()
   })

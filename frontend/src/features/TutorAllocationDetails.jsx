@@ -97,7 +97,7 @@ export default function TutorAllocationDetails({ tutor, onClose }) {
         setCourses([])
         setMarks([])
         setTimeSlots([])
-        setErrorMessage(safeErrorMessage(error, 'Tutor allocation details could not be loaded safely.'))
+        setErrorMessage(safeErrorMessage(error, 'Unable to load tutor details. Please try again.'))
         setStatus('error')
       }
     },
@@ -139,7 +139,7 @@ export default function TutorAllocationDetails({ tutor, onClose }) {
       setMarkForm(EMPTY_MARK_FORM)
       setSuccessMessage(`${savedMark.courseCode} mark was saved for ${tutor.fullName}.`)
     } catch (error) {
-      setFormError(safeErrorMessage(error, 'The tutor mark could not be saved safely.'))
+      setFormError(safeErrorMessage(error, 'Unable to save the mark. Please try again.'))
     } finally {
       setSaving(null)
     }
@@ -169,7 +169,7 @@ export default function TutorAllocationDetails({ tutor, onClose }) {
       setBusyForm(EMPTY_BUSY_FORM)
       setSuccessMessage(`Busy time was added for ${tutor.fullName}.`)
     } catch (error) {
-      setFormError(safeErrorMessage(error, 'The busy time could not be saved safely.'))
+      setFormError(safeErrorMessage(error, 'Unable to save the busy time. Please try again.'))
     } finally {
       setSaving(null)
     }
@@ -179,20 +179,18 @@ export default function TutorAllocationDetails({ tutor, onClose }) {
     <section className="role-card tutor-allocation-details" aria-labelledby="tutor-details-heading">
       <div className="candidate-results-header">
         <div>
-          <h2 id="tutor-details-heading">Marks and busy times for {tutor.fullName}</h2>
-          <p className="helper-text">
-            These values feed the allocation board rules. Weekly-hour limits are edited in the tutor profile form.
-          </p>
+          <h2 id="tutor-details-heading">Marks & availability</h2>
+          <p className="section-intro">{tutor.fullName}</p>
         </div>
         {onClose && (
           <button type="button" className="secondary-button" onClick={onClose}>
-            Close tutor details
+            Close
           </button>
         )}
       </div>
 
       {status === 'loading' && (
-        <LoadingState title="Loading tutor details..." message="Marks and time slots are being loaded." />
+        <LoadingState title="Loading tutor details" message="Loading marks and availability." />
       )}
       {status === 'error' && (
         <ErrorState title="Tutor details unavailable" message={errorMessage} onRetry={() => loadDetails()} />
@@ -254,7 +252,7 @@ export default function TutorAllocationDetails({ tutor, onClose }) {
             </form>
 
             {marks.length === 0 ? (
-              <EmptyState title="No marks yet" message="Add the tutor's first course mark above." />
+              <EmptyState title="No marks recorded" message="Add a course mark above." />
             ) : (
               <ul className="detail-record-list" aria-label={`Course marks for ${tutor.fullName}`}>
                 {marks.map((mark) => (
@@ -324,7 +322,7 @@ export default function TutorAllocationDetails({ tutor, onClose }) {
             </form>
 
             {timeSlots.length === 0 ? (
-              <EmptyState title="No time slots yet" message="Add the tutor's first busy time above." />
+              <EmptyState title="No busy times recorded" message="Add a busy time above." />
             ) : (
               <ul className="detail-record-list" aria-label={`Time slots for ${tutor.fullName}`}>
                 {timeSlots.map((slot) => (

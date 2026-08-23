@@ -121,7 +121,7 @@ export default function TutorManagement() {
         if (!isActive()) return
 
         setTutors([])
-        setErrorMessage(safeErrorMessage(err, 'Tutors could not be loaded safely.'))
+        setErrorMessage(safeErrorMessage(err, 'Unable to load tutors. Please try again.'))
         setStatus('error')
       }
     },
@@ -200,7 +200,7 @@ export default function TutorManagement() {
       resetForm()
       await loadTutors()
     } catch (err) {
-      setFormError(safeErrorMessage(err, 'The tutor could not be saved safely.'))
+      setFormError(safeErrorMessage(err, 'Unable to save changes. Please try again.'))
     } finally {
       setFormStatus('idle')
     }
@@ -213,28 +213,21 @@ export default function TutorManagement() {
 
   return (
     <main id="main-content" className="dashboard-shell">
-      <header className="dashboard-header">
+      <header className="dashboard-header tutor-management-header">
         <div>
-          <p className="eyebrow">Tutor Mx</p>
           <h1>Tutor management</h1>
           <p className="helper-text">
-            Tutors appear here automatically after they sign up and choose the Tutor role.
+            Search for a tutor by name or email below. Select Edit to manage their details and
+            weekly-hour limit.
           </p>
         </div>
       </header>
 
-      <section className="role-card" aria-labelledby="automatic-tutor-heading">
-        <h2 id="automatic-tutor-heading">Tutor accounts are linked automatically</h2>
-        <p className="helper-text">
-          Organisers do not need to open Auth0 or copy a User ID. Search for a tutor by name or
-          email below, then use Edit to manage their details and weekly-hour limit.
-        </p>
-      </section>
-
       {editingTutor && (
         <section className="role-card" aria-labelledby="tutor-form-heading">
           <form onSubmit={handleSubmit} noValidate>
-            <h2 id="tutor-form-heading">Edit {editingTutor.fullName}</h2>
+            <h2 id="tutor-form-heading">Edit tutor</h2>
+            <p className="section-intro">{editingTutor.fullName}</p>
 
             <div className="field-group">
               <label htmlFor="tutor-email">Email</label>
@@ -286,8 +279,8 @@ export default function TutorManagement() {
               />
               <p id="tutor-weekly-hours-help" className="helper-text">
                 {limitAlreadySet
-                  ? 'Enter a new value to change the weekly-hour limit. A limit cannot be removed once it is set.'
-                  : 'Optional. Leave blank if the weekly-hour limit is not decided yet.'}
+                  ? 'Enter a new weekly-hour limit.'
+                  : 'Leave blank if no weekly-hour limit has been set.'}
               </p>
               {fieldErrors.weeklyHours && (
                 <p id="tutor-weekly-hours-error" className="error-text">
@@ -306,7 +299,7 @@ export default function TutorManagement() {
                 onClick={resetForm}
                 disabled={isSaving}
               >
-                Cancel edit
+                Cancel
               </button>
             </div>
 
@@ -326,10 +319,7 @@ export default function TutorManagement() {
       )}
 
       {status === 'loading' && (
-        <LoadingState
-          title="Loading tutors..."
-          message="Please wait while we load the tutor list."
-        />
+        <LoadingState title="Loading tutors" message="Loading tutor accounts." />
       )}
 
       {status === 'error' && (
@@ -338,34 +328,39 @@ export default function TutorManagement() {
 
       {status === 'success' && tutors.length === 0 && (
         <EmptyState
-          title="No tutor accounts yet"
-          message="Ask the tutor to sign up to Tutor Mx and choose the Tutor role. Their account will then appear here automatically."
+          title="No tutors available"
+          message="Tutor accounts will appear here after registration."
         />
       )}
 
       {status === 'success' && tutors.length > 0 && (
-        <section className="role-card" aria-labelledby="tutor-list-heading">
-          <h2 id="tutor-list-heading">Tutors</h2>
-
-          <div className="field-group">
-            <label htmlFor="tutor-search">Search tutors</label>
-            <input
-              id="tutor-search"
-              type="search"
-              value={searchText}
-              onChange={(event) => setSearchText(event.target.value)}
-              placeholder="Search by name or email"
-            />
+        <section className="role-card tutor-list-card" aria-labelledby="tutor-list-heading">
+          <div className="tutor-list-header">
+            <div>
+              <h2 id="tutor-list-heading">Tutors</h2>
+              <p className="tutor-list-meta">
+                {tutors.length} {tutors.length === 1 ? 'tutor' : 'tutors'}
+              </p>
+            </div>
+            <div className="field-group tutor-search-field">
+              <label htmlFor="tutor-search">Search tutors</label>
+              <input
+                id="tutor-search"
+                type="search"
+                value={searchText}
+                onChange={(event) => setSearchText(event.target.value)}
+                placeholder="Name or email"
+              />
+            </div>
           </div>
 
           {filteredTutors.length === 0 ? (
-            <p className="helper-text" role="status">
-              No tutors match that name or email.
+            <p className="empty-inline" role="status">
+              No tutors found.
             </p>
           ) : (
             <div className="table-scroll" tabIndex="0" aria-label="Tutor list table">
-              <table className="tutor-table">
-                <caption>Registered Tutor Mx tutor accounts</caption>
+              <table className="tutor-table" aria-label="Tutor accounts">
                 <thead>
                   <tr>
                     <th scope="col">Full name</th>
@@ -381,20 +376,22 @@ export default function TutorManagement() {
                       <td>{tutor.email}</td>
                       <td>{weeklyHoursText(tutor.weeklyHours)}</td>
                       <td>
-                        <div className="button-row">
+                        <div className="tutor-actions">
                           <button
                             className="secondary-button"
                             type="button"
                             onClick={() => startEditing(tutor)}
+                            aria-label={`Edit ${tutor.fullName}`}
                           >
-                            Edit {tutor.fullName}
+                            Edit
                           </button>
                           <button
                             className="secondary-button"
                             type="button"
                             onClick={() => startManagingDetails(tutor)}
+                            aria-label={`Manage marks and availability for ${tutor.fullName}`}
                           >
-                            Manage marks and busy times for {tutor.fullName}
+                            Marks & availability
                           </button>
                         </div>
                       </td>
