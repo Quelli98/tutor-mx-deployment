@@ -20,6 +20,7 @@ import {
   findAllocationCandidates,
   getTutorHourSummary,
 } from "./services/allocation-queries.js";
+import { createOrganiserService } from "./services/organiser-service.js";
 
 const port = Number(process.env.PORT ?? 3000);
 
@@ -155,6 +156,8 @@ async function findTutorProfileId(auth0Id: string) {
   }
   return profile.id;
 }
+
+const organiserService = createOrganiserService(prisma);
 
 const app = createApp(
   async () => {
@@ -670,6 +673,11 @@ const app = createApp(
     async listAllocationCandidates(input) {
       return findAllocationCandidates(queryClient, input);
     },
+    createAllocation: organiserService.createAllocation,
+    updateAllocation: organiserService.updateAllocation,
+    removeAllocation: organiserService.removeAllocation,
+    decideTimesheet: organiserService.decideTimesheet,
+    decideVolunteerClaim: organiserService.decideVolunteerClaim,
     async upsertTutorMark(tutorId, input) {
       const existingTutor = await prisma.profile.findUnique({
         where: { id: tutorId },

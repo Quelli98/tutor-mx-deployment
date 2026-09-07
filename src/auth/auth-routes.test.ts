@@ -227,6 +227,46 @@ function makeApp(
     listAllocationCandidates:
       overrides.listAllocationCandidates ?? (async () => []),
 
+    createAllocation: async (input) => ({
+      id: 1,
+      tutorId: input.tutorId,
+      courseId: input.courseId,
+      startsAt: input.startsAt.toISOString(),
+      endsAt: input.endsAt.toISOString(),
+      allocatedHours: input.requestedHours,
+      status: input.status ?? "PROPOSED",
+    }),
+
+    updateAllocation: async (id, input) => ({
+      id,
+      tutorId: input.tutorId,
+      courseId: input.courseId,
+      startsAt: input.startsAt.toISOString(),
+      endsAt: input.endsAt.toISOString(),
+      allocatedHours: input.requestedHours,
+      status: input.status ?? "PROPOSED",
+    }),
+
+    removeAllocation: async () => undefined,
+
+    decideTimesheet: async (_auth0Id, id, input) => ({
+      id,
+      tutorId: 7,
+      weekStart: "2030-09-02",
+      status: input.decision === "APPROVE" ? "APPROVED" : "RETURNED",
+      reviewedAt: "2030-09-06T12:00:00.000Z",
+      reviewedById: 8,
+      reviewReason: input.reason ?? null,
+    }),
+
+    decideVolunteerClaim: async (id, input) => ({
+      id,
+      overflowWorkId: 4,
+      studentId: 9,
+      status: input.decision === "APPROVE" ? "ACCEPTED" : "REJECTED",
+      reviewReason: input.reason ?? null,
+    }),
+
     upsertTutorMark:
       overrides.upsertTutorMark ??
       (async (_tutorId, input) => ({
