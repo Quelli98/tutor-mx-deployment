@@ -18,6 +18,7 @@ dashboard and open-work paths, with composite indexes that cover every filter an
 ## Query Performance Audit
 
 ### Allocation Candidate Query (`candidateQuerySql`)
+
 - **Pattern:** Single SQL with two CTEs — `tutor_hours` (aggregates weekly allocation
   hours per tutor) and `candidate_data` (joins marks, computes clash via EXISTS
   subqueries on TimeSlot and Allocation).
@@ -30,18 +31,21 @@ dashboard and open-work paths, with composite indexes that cover every filter an
   - `TutorMark @@index([courseId, mark])` — covers the course-filtered mark join.
 
 ### Tutor Hour Summary (`tutorHourSummarySql`)
+
 - **Pattern:** Single SQL per tutor — Profile JOIN TutorHourLimit LEFT JOIN Allocation
   with GROUP BY.
 - **N+1 check:** Not applicable (called once per dashboard load).
 - **Index coverage:** `Allocation @@index([tutorId, status, startsAt, endsAt])`.
 
 ### Open Work Listing (`openWorkQuerySql`)
+
 - **Pattern:** Single SQL — OverflowWork JOIN Course, filtered by status and time.
 - **N+1 check:** No loops. One round-trip for all open items.
 - **Index coverage:** `OverflowWork @@index([status, startsAt, closesAt])` — status
   filter + time range covered.
 
 ### Dashboard (`getTutorDashboard` in server.ts)
+
 - **Pattern:** Two queries total:
   1. Prisma `profile.findUnique` with `include` for allocations and nested course
      select (one SQL with JOINs).
@@ -49,6 +53,7 @@ dashboard and open-work paths, with composite indexes that cover every filter an
 - **N+1 check:** No per-item loops.
 
 ### Student Open Work (`listOpenWork` in student-workflows.ts)
+
 - **Pattern:** Three queries total:
   1. `profile.findUnique` — find student ID.
   2. Raw SQL `openWorkQuerySql` — all open work.
@@ -56,6 +61,7 @@ dashboard and open-work paths, with composite indexes that cover every filter an
 - **N+1 check:** Batched. No per-item queries.
 
 ### Timesheet / Excuse Workflows
+
 - **Pattern:** 2–3 queries per operation inside `$transaction(Serializable)`.
 - **N+1 check:** All use `findFirst`/`findUnique` with `select` projections.
   No per-item loops.
@@ -71,17 +77,17 @@ correct and production-quality. This branch serves as a verification-only audit.
 
 ## Clean Rehearsal Evidence (local, 2026-09-11)
 
-| Step | Result |
-|---|---|
-| `npm run generate` | Prisma Client 7.9.1 generated |
-| `npm run lint` (backend + frontend) | Clean — no warnings or errors |
-| `npm run typecheck` | Clean — no errors |
-| `npm run test:backend` | **284 / 284 passed** (18 test files, 7.6s) |
-| `npm run test:frontend` | **147 / 147 passed** (26 test files, 54.5s) |
-| `npm run coverage:backend` | 92.33% stmts / 88.55% branches / 95.13% funcs / 94.10% lines — **all above thresholds** (90/85/83/90) |
-| `npm run coverage:frontend` | 86.44% stmts / 82.83% branches / 91.44% funcs / 88.60% lines |
-| `npm run build` (backend + frontend) | Compiled successfully |
-| `npm run security:check` | Passed — no tracked secrets, AI attributions present |
+| Step                                 | Result                                                                                                |
+| ------------------------------------ | ----------------------------------------------------------------------------------------------------- |
+| `npm run generate`                   | Prisma Client 7.9.1 generated                                                                         |
+| `npm run lint` (backend + frontend)  | Clean — no warnings or errors                                                                         |
+| `npm run typecheck`                  | Clean — no errors                                                                                     |
+| `npm run test:backend`               | **284 / 284 passed** (18 test files, 7.6s)                                                            |
+| `npm run test:frontend`              | **147 / 147 passed** (26 test files, 54.5s)                                                           |
+| `npm run coverage:backend`           | 92.33% stmts / 88.55% branches / 95.13% funcs / 94.10% lines — **all above thresholds** (90/85/83/90) |
+| `npm run coverage:frontend`          | 86.44% stmts / 82.83% branches / 91.44% funcs / 88.60% lines                                          |
+| `npm run build` (backend + frontend) | Compiled successfully                                                                                 |
+| `npm run security:check`             | Passed — no tracked secrets, AI attributions present                                                  |
 
 ---
 
