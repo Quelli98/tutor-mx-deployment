@@ -13,6 +13,7 @@ import {
   type AuthenticatedRequest,
 } from "./auth/middleware.js";
 import type { PasswordResetRequester } from "./auth/password-reset.js";
+import type { CandidateReasonCode } from "./services/allocation-queries.js";
 
 type ReadinessCheck = () => Promise<void>;
 
@@ -157,10 +158,7 @@ export interface ExcuseDecisionInput {
   reason?: string;
 }
 
-export type AllocationReasonCode =
-  | "insufficient-mark"
-  | "schedule-clash"
-  | "hour-limit-exceeded";
+export type AllocationReasonCode = CandidateReasonCode;
 
 export interface AllocationCandidateSummary {
   tutorId: number;
@@ -180,6 +178,60 @@ export interface AllocationCandidateQuery {
   endsAt: Date;
   minimumMark: number;
   requestedHours: number;
+}
+
+export type AllocationWriteStatus = "PROPOSED" | "CONFIRMED";
+
+export interface AllocationWriteInput {
+  tutorId: number;
+  courseId: number;
+  startsAt: Date;
+  endsAt: Date;
+  minimumMark: number;
+  requestedHours: number;
+  status?: AllocationWriteStatus;
+}
+
+export interface AllocationSummary {
+  id: number;
+  tutorId: number;
+  courseId: number;
+  startsAt: string;
+  endsAt: string;
+  allocatedHours: number;
+  status: AllocationWriteStatus | "CANCELLED";
+}
+
+export interface AllocationRemoveInput {
+  minimumMark: number;
+}
+
+export interface TimesheetDecisionInput {
+  decision: "APPROVE" | "RETURN";
+  reason?: string;
+}
+
+export interface TimesheetDecisionSummary {
+  id: number;
+  tutorId: number;
+  weekStart: string;
+  status: "APPROVED" | "RETURNED";
+  reviewedAt: string;
+  reviewedById: number;
+  reviewReason: string | null;
+}
+
+export interface VolunteerClaimDecisionInput {
+  decision: "APPROVE" | "REJECT";
+  reason?: string;
+}
+
+export interface VolunteerClaimDecisionSummary {
+  id: number;
+  overflowWorkId: number;
+  studentId: number;
+  status: "ACCEPTED" | "REJECTED";
+  reviewReason: string | null;
 }
 
 export interface TutorMarkWriteInput {
@@ -272,6 +324,24 @@ export interface AppDependencies {
   listAllocationCandidates: (
     input: AllocationCandidateQuery,
   ) => Promise<AllocationCandidateSummary[]>;
+  createAllocation: (input: AllocationWriteInput) => Promise<AllocationSummary>;
+  updateAllocation: (
+    allocationId: number,
+    input: AllocationWriteInput,
+  ) => Promise<AllocationSummary>;
+  removeAllocation: (
+    allocationId: number,
+    input: AllocationRemoveInput,
+  ) => Promise<void>;
+  decideTimesheet: (
+    auth0Id: string,
+    timesheetId: number,
+    input: TimesheetDecisionInput,
+  ) => Promise<TimesheetDecisionSummary>;
+  decideVolunteerClaim: (
+    claimId: number,
+    input: VolunteerClaimDecisionInput,
+  ) => Promise<VolunteerClaimDecisionSummary>;
   upsertTutorMark: (
     tutorId: number,
     input: TutorMarkWriteInput,
@@ -354,6 +424,21 @@ const unavailableDependencies: AppDependencies = {
   },
   async listAllocationCandidates() {
     throw new Error("Allocation candidate endpoint is not configured");
+  },
+  async createAllocation() {
+    throw new Error("Allocation mutation endpoints are not configured");
+  },
+  async updateAllocation() {
+    throw new Error("Allocation mutation endpoints are not configured");
+  },
+  async removeAllocation() {
+    throw new Error("Allocation mutation endpoints are not configured");
+  },
+  async decideTimesheet() {
+    throw new Error("Timesheet decision endpoint is not configured");
+  },
+  async decideVolunteerClaim() {
+    throw new Error("Volunteer-claim decision endpoint is not configured");
   },
   async upsertTutorMark() {
     throw new Error("Tutor mark endpoint is not configured");
@@ -583,7 +668,16 @@ function parseDateOnly(value: unknown) {
 }
 
 function parsePositiveInteger(value: unknown) {
-  const numeric = Number(value);
+  const normalized = firstQueryParam(value);
+  if (
+    normalized === null ||
+    normalized === undefined ||
+    typeof normalized === "boolean" ||
+    (typeof normalized === "string" && normalized.trim() === "")
+  ) {
+    return null;
+  }
+  const numeric = Number(normalized);
   return Number.isInteger(numeric) && numeric > 0 ? numeric : null;
 }
 
@@ -759,7 +853,16 @@ function parseMarkValue(value: unknown) {
 }
 
 function parseRequestedHours(value: unknown) {
-  const numeric = Number(firstQueryParam(value));
+  const normalized = firstQueryParam(value);
+  if (
+    normalized === null ||
+    normalized === undefined ||
+    typeof normalized === "boolean" ||
+    (typeof normalized === "string" && normalized.trim() === "")
+  ) {
+    return null;
+  }
+  const numeric = Number(normalized);
   if (!Number.isFinite(numeric) || numeric <= 0 || numeric > 24) {
     return null;
   }
@@ -797,6 +900,106 @@ function parseAllocationCandidateQuery(query: unknown) {
   return {
     value: { courseId, startsAt, endsAt, minimumMark, requestedHours },
   } as const;
+}
+
+function parseAllocationWriteInput(body: unknown) {
+  const payload = body as {
+    tutorId?: unknown;
+    courseId?: unknown;
+    startsAt?: unknown;
+    endsAt?: unknown;
+    minimumMark?: unknown;
+    requestedHours?: unknown;
+    status?: unknown;
+  } | null;
+  const tutorId = parsePositiveInteger(payload?.tutorId);
+  const courseId = parsePositiveInteger(payload?.courseId);
+  const startsAt = parseIsoDateTime(payload?.startsAt);
+  const endsAt = parseIsoDateTime(payload?.endsAt);
+  const minimumMark = parseMarkValue(payload?.minimumMark);
+  const requestedHours = parseRequestedHours(payload?.requestedHours);
+  const status = payload?.status;
+
+  if (
+    !tutorId ||
+    !courseId ||
+    !startsAt ||
+    !endsAt ||
+    endsAt <= startsAt ||
+    minimumMark === null ||
+    requestedHours === null ||
+    (status !== undefined && status !== "PROPOSED" && status !== "CONFIRMED")
+  ) {
+    return {
+      error:
+        "Enter a valid tutor, course, start/end time, minimum mark (0-100), requested hours and allocation status.",
+    } as const;
+  }
+
+  const value: AllocationWriteInput = {
+    tutorId,
+    courseId,
+    startsAt,
+    endsAt,
+    minimumMark,
+    requestedHours,
+  };
+  if (status === "PROPOSED" || status === "CONFIRMED") {
+    value.status = status;
+  }
+  return { value } as const;
+}
+
+function parseDecisionReason(value: unknown) {
+  return value === undefined
+    ? undefined
+    : parseRequiredText(value, "reason", 1000);
+}
+
+function parseTimesheetDecisionInput(body: unknown) {
+  const payload = body as { decision?: unknown; reason?: unknown } | null;
+  const decision = payload?.decision;
+  const reason = parseDecisionReason(payload?.reason);
+
+  if (
+    (decision !== "APPROVE" && decision !== "RETURN") ||
+    reason === null ||
+    (decision === "RETURN" && reason === undefined)
+  ) {
+    return {
+      error:
+        "Choose APPROVE or RETURN and provide a valid reason when returning a timesheet.",
+    } as const;
+  }
+
+  const value: TimesheetDecisionInput = { decision };
+  if (reason !== undefined) {
+    value.reason = reason;
+  }
+  return { value } as const;
+}
+
+function parseVolunteerClaimDecisionInput(body: unknown) {
+  const payload = body as { decision?: unknown; reason?: unknown } | null;
+  const decision = payload?.decision;
+  const reason = parseDecisionReason(payload?.reason);
+
+  if (
+    (decision !== "APPROVE" && decision !== "REJECT") ||
+    reason === null ||
+    (decision === "REJECT" && reason === undefined)
+  ) {
+    return {
+      error:
+        "Choose APPROVE or REJECT and provide a valid reason when rejecting a volunteer claim.",
+    } as const;
+  }
+
+  const value: VolunteerClaimDecisionInput = { decision };
+  if (reason !== undefined) {
+    value.reason = reason;
+  }
+  return { value } as const;
 }
 
 function parseTutorMarkInput(body: unknown) {
@@ -1231,6 +1434,206 @@ export function createApp(
           parsed.value,
         );
         response.status(200).json({ data: { candidates } });
+      } catch (value) {
+        sendRouteError(response, value);
+      }
+    },
+  );
+
+  app.post(
+    "/api/allocations",
+    authenticate,
+    resolveProfileRole,
+    requireRole("ORGANISER"),
+    async (request, response) => {
+      const parsed = parseAllocationWriteInput(request.body);
+      if ("error" in parsed) {
+        const result = error(
+          400,
+          "VALIDATION_ERROR",
+          parsed.error ?? "Enter a valid allocation.",
+        );
+        response.status(result.status).json(result.body);
+        return;
+      }
+
+      try {
+        const allocation = await dependencies.createAllocation(parsed.value);
+        response.status(201).json({ data: { allocation } });
+      } catch (value) {
+        sendRouteError(response, value);
+      }
+    },
+  );
+
+  app.patch(
+    "/api/allocations/:allocationId",
+    authenticate,
+    resolveProfileRole,
+    requireRole("ORGANISER"),
+    async (request, response) => {
+      const allocationId = parseNumericId(
+        request.params.allocationId,
+        "Allocation",
+      );
+      if ("error" in allocationId) {
+        const result = error(
+          400,
+          "VALIDATION_ERROR",
+          allocationId.error ??
+            "Allocation identifier must be a positive whole number.",
+        );
+        response.status(result.status).json(result.body);
+        return;
+      }
+
+      const parsed = parseAllocationWriteInput(request.body);
+      if ("error" in parsed) {
+        const result = error(
+          400,
+          "VALIDATION_ERROR",
+          parsed.error ?? "Enter a valid allocation.",
+        );
+        response.status(result.status).json(result.body);
+        return;
+      }
+
+      try {
+        const allocation = await dependencies.updateAllocation(
+          allocationId.value,
+          parsed.value,
+        );
+        response.status(200).json({ data: { allocation } });
+      } catch (value) {
+        sendRouteError(response, value);
+      }
+    },
+  );
+
+  app.delete(
+    "/api/allocations/:allocationId",
+    authenticate,
+    resolveProfileRole,
+    requireRole("ORGANISER"),
+    async (request, response) => {
+      const allocationId = parseNumericId(
+        request.params.allocationId,
+        "Allocation",
+      );
+      if ("error" in allocationId) {
+        const result = error(
+          400,
+          "VALIDATION_ERROR",
+          allocationId.error ??
+            "Allocation identifier must be a positive whole number.",
+        );
+        response.status(result.status).json(result.body);
+        return;
+      }
+
+      const minimumMark = parseMarkValue(request.query.minimumMark);
+      if (minimumMark === null) {
+        const result = error(
+          400,
+          "VALIDATION_ERROR",
+          "Minimum mark must be a number from 0 to 100.",
+        );
+        response.status(result.status).json(result.body);
+        return;
+      }
+
+      try {
+        await dependencies.removeAllocation(allocationId.value, {
+          minimumMark,
+        });
+        response.status(204).end();
+      } catch (value) {
+        sendRouteError(response, value);
+      }
+    },
+  );
+
+  app.patch(
+    "/api/timesheets/:timesheetId/decision",
+    authenticate,
+    resolveProfileRole,
+    requireRole("ORGANISER"),
+    async (request, response) => {
+      const timesheetId = parseNumericId(
+        request.params.timesheetId,
+        "Timesheet",
+      );
+      if ("error" in timesheetId) {
+        const result = error(
+          400,
+          "VALIDATION_ERROR",
+          timesheetId.error ??
+            "Timesheet identifier must be a positive whole number.",
+        );
+        response.status(result.status).json(result.body);
+        return;
+      }
+
+      const parsed = parseTimesheetDecisionInput(request.body);
+      if ("error" in parsed) {
+        const result = error(
+          400,
+          "VALIDATION_ERROR",
+          parsed.error ?? "Enter a valid timesheet decision.",
+        );
+        response.status(result.status).json(result.body);
+        return;
+      }
+
+      const auth = (request as AuthenticatedRequest).auth!;
+      try {
+        const timesheet = await dependencies.decideTimesheet(
+          auth.subject,
+          timesheetId.value,
+          parsed.value,
+        );
+        response.status(200).json({ data: { timesheet } });
+      } catch (value) {
+        sendRouteError(response, value);
+      }
+    },
+  );
+
+  app.patch(
+    "/api/volunteer-claims/:claimId/decision",
+    authenticate,
+    resolveProfileRole,
+    requireRole("ORGANISER"),
+    async (request, response) => {
+      const claimId = parseNumericId(request.params.claimId, "Volunteer claim");
+      if ("error" in claimId) {
+        const result = error(
+          400,
+          "VALIDATION_ERROR",
+          claimId.error ??
+            "Volunteer claim identifier must be a positive whole number.",
+        );
+        response.status(result.status).json(result.body);
+        return;
+      }
+
+      const parsed = parseVolunteerClaimDecisionInput(request.body);
+      if ("error" in parsed) {
+        const result = error(
+          400,
+          "VALIDATION_ERROR",
+          parsed.error ?? "Enter a valid volunteer-claim decision.",
+        );
+        response.status(result.status).json(result.body);
+        return;
+      }
+
+      try {
+        const volunteerClaim = await dependencies.decideVolunteerClaim(
+          claimId.value,
+          parsed.value,
+        );
+        response.status(200).json({ data: { volunteerClaim } });
       } catch (value) {
         sendRouteError(response, value);
       }

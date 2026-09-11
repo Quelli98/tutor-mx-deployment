@@ -21,6 +21,7 @@ import {
   getTutorHourSummary,
 } from "./services/allocation-queries.js";
 import { createExcuseWorkflowService } from "./services/excuse-workflows.js";
+import { createOrganiserService } from "./services/organiser-service.js";
 import { createStudentWorkflowService } from "./services/student-workflows.js";
 import { createTimesheetWorkflowService } from "./services/timesheet-workflows.js";
 
@@ -165,6 +166,7 @@ const studentWorkflowService = createStudentWorkflowService(
 );
 const timesheetWorkflowService = createTimesheetWorkflowService(prisma);
 const excuseWorkflowService = createExcuseWorkflowService(prisma);
+const organiserService = createOrganiserService(prisma);
 
 const app = createApp(
   async () => {
@@ -690,6 +692,11 @@ const app = createApp(
     async listAllocationCandidates(input) {
       return findAllocationCandidates(queryClient, input);
     },
+    createAllocation: organiserService.createAllocation,
+    updateAllocation: organiserService.updateAllocation,
+    removeAllocation: organiserService.removeAllocation,
+    decideTimesheet: organiserService.decideTimesheet,
+    decideVolunteerClaim: organiserService.decideVolunteerClaim,
     async upsertTutorMark(tutorId, input) {
       const existingTutor = await prisma.profile.findUnique({
         where: { id: tutorId },
