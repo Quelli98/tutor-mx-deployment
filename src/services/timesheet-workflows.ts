@@ -1,3 +1,5 @@
+import { createRouteError } from "../app.js";
+
 export type TimesheetWorkflowStatus =
   | "DRAFT"
   | "SUBMITTED"
@@ -127,10 +129,7 @@ function workflowError(
   code: TimesheetWorkflowError["code"],
   message: string,
 ): TimesheetWorkflowError {
-  const error = new Error(message) as TimesheetWorkflowError;
-  error.status = status;
-  error.code = code;
-  return error;
+  return createRouteError(status, code, message) as TimesheetWorkflowError;
 }
 
 function tutorNotFound(): TimesheetWorkflowError {

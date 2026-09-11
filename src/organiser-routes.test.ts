@@ -231,6 +231,26 @@ function organiserMutationRequests(app: Express, withToken = false) {
 }
 
 describe("organiser mutation authorization", () => {
+  it.each([
+    new Error("Prisma SQL private-token"),
+    Object.assign(new Error("Auth0 secret database internals"), { status: 409, code: "PRIVATE_PROVIDER_ERROR" }),
+    { code: "P2039", meta: { connection: "private connection string" } },
+  ])("sanitizes unexpected failures on every organiser mutation %#", async (failure) => {
+    const fail = vi.fn().mockRejectedValue(failure);
+    const app = makeApp({
+      createAllocation: fail, updateAllocation: fail, removeAllocation: fail,
+      decideTimesheet: fail, decideVolunteerClaim: fail,
+    });
+    for (const pending of organiserMutationRequests(app, true)) {
+      const response = await pending;
+      expect(response.status).toBe(500);
+      expect(response.body).toEqual({ error: {
+        code: "INTERNAL_ERROR", message: "The request could not be completed.",
+      } });
+    }
+    expect(fail).toHaveBeenCalledTimes(5);
+  });
+
   it("requires authentication on every allocation and decision mutation", async () => {
     const app = makeApp();
 

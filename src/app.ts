@@ -476,6 +476,9 @@ function error(status: number, code: string, message: string) {
   return { status, body: { error: { code, message } } };
 }
 
+// Only deliberately constructed public errors may expose their message.
+const publicRouteErrors = new WeakSet<Error>();
+
 export function createRouteError(
   status: number,
   code: string,
@@ -484,6 +487,7 @@ export function createRouteError(
   const routeError = new Error(message) as RouteError;
   routeError.status = status;
   routeError.code = code;
+  publicRouteErrors.add(routeError);
   return routeError;
 }
 
@@ -492,6 +496,7 @@ function isRouteError(value: unknown): value is RouteError {
     typeof value === "object" &&
     value !== null &&
     value instanceof Error &&
+    publicRouteErrors.has(value) &&
     "status" in value &&
     typeof (value as RouteError).status === "number" &&
     "code" in value &&

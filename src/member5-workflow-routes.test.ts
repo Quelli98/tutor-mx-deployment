@@ -6,6 +6,7 @@ import {
   type AppDependencies,
 } from "./app.js";
 import type { AuthContext, TutorRole } from "./auth/contract.js";
+import { createTimesheetWorkflowService, type TimesheetWorkflowPrismaClient } from "./services/timesheet-workflows.js";
 
 const studentSubject = "auth0|member5-student";
 const tutorSubject = "auth0|member5-tutor";
@@ -247,6 +248,21 @@ const volunteerRequest = {
 };
 
 describe("Sprint 2 Member 5 workflow routes", () => {
+  it.each([
+    { row: null, status: 404, code: "TIMESHEET_NOT_FOUND", message: "The requested timesheet could not be found." },
+    { row: { workLogs: [{ hours: "invalid" }] }, status: 409, code: "TIMESHEET_HOURS_INVALID", message: "The timesheet hours or weekly limit are invalid." },
+  ])("preserves real timesheet service $status errors at the HTTP boundary", async ({ row, status, code, message }) => {
+    const service = createTimesheetWorkflowService({
+      profile: { findUnique: vi.fn().mockResolvedValue({ id: 7, role: "TUTOR", hourLimit: null }) },
+      timesheet: { findFirst: vi.fn().mockResolvedValue(row) },
+    } as unknown as TimesheetWorkflowPrismaClient);
+    const response = await apiRequest(makeApp("TUTOR", tutorSubject, {
+      getTutorTimesheetStatus: service.getStatus,
+    }), "GET", "/api/tutor/timesheets/99/status");
+    expect(response.status).toBe(status);
+    expect(response.body).toEqual({ error: { code, message } });
+  });
+
   it("serves Student open work and own volunteer actions using the token subject", async () => {
     const listStudentOpenWork = vi.fn().mockResolvedValue([openWork]);
     const createStudentVolunteerRequest = vi
@@ -464,6 +480,58 @@ describe("Sprint 2 Member 5 workflow routes", () => {
       wrongRole: "TUTOR",
     },
   ];
+
+  it.each(securedRoutes)(
+    "hides rejected token details for $method $path",
+    async ({ method, path, body, allowedRole }) => {
+      const response = await apiRequest(makeApp(allowedRole, "auth0|member5", {
+        verifyAccessToken: vi.fn().mockRejectedValue(new Error("Auth0 secret private-token")),
+      }), method, path, body);
+      expect(response.status).toBe(401);
+      expect(response.body).toEqual({ error: {
+        code: "INVALID_ACCESS_TOKEN", message: "A valid bearer token is required.",
+      } });
+    },
+  );
+
+  it.each(securedRoutes)(
+    "sanitizes dependency failures for $method $path",
+    async ({ method, path, body, allowedRole }) => {
+      for (const failure of [
+        new Error("Prisma SQL private-token"),
+        Object.assign(new Error("Auth0 secret database internals"), { status: 409, code: "PRIVATE_PROVIDER_ERROR" }),
+        { status: 400, code: "P2039", message: "private database detail" },
+      ]) {
+        const fail = vi.fn().mockRejectedValue(failure);
+        const response = await apiRequest(makeApp(allowedRole, "auth0|member5", {
+          listStudentOpenWork: fail, createStudentVolunteerRequest: fail,
+          getStudentVolunteerRequest: fail, withdrawStudentVolunteerRequest: fail,
+          getTutorTimesheetStatus: fail, submitTutorTimesheet: fail,
+          getTutorExcuseStatus: fail, decideExcuse: fail,
+        }), method, path, body);
+        expect(fail).toHaveBeenCalledOnce();
+        expect(response.status).toBe(500);
+        expect(response.body).toEqual({ error: {
+          code: "INTERNAL_ERROR", message: "The request could not be completed.",
+        } });
+      }
+    },
+  );
+
+  it.each(securedRoutes.filter(({ body }) => body !== undefined))(
+    "rejects invalid JSON before workflow execution for $method $path",
+    async ({ method, path, allowedRole }) => {
+      const fail = vi.fn();
+      const response = await apiRequest(makeApp(allowedRole, "auth0|member5", {
+        createStudentVolunteerRequest: fail, decideExcuse: fail,
+      }), method, path).set("Content-Type", "application/json").send('{"private-token":');
+      expect(response.status).toBe(400);
+      expect(response.body).toEqual({ error: {
+        code: "INVALID_JSON", message: "The request body must contain valid JSON.",
+      } });
+      expect(fail).not.toHaveBeenCalled();
+    },
+  );
 
   it.each(securedRoutes)(
     "requires authentication for $method $path",
