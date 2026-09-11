@@ -100,7 +100,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
-      DATABASE_URL: postgresql://tutor_mx@127.0.0.1:5432/tutor_mx
+      DATABASE_URL: postgresql://tutor_mx@postgres:5432/tutor_mx
       PGPASSWORD: tutor_mx
       PORT: 3000
 
@@ -113,12 +113,10 @@ jobs:
           POSTGRES_DB: tutor_mx
         ports:
           - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U tutor_mx -d tutor_mx"
-          --health-start-period 60s
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 10
+        # The shared Gitea runners have repeatedly marked the service unhealthy
+        # before the repository steps start. Readiness is checked explicitly below
+        # over the job/service Docker network instead.
+        options: --no-healthcheck
 
     steps:
       - name: Check out repository
@@ -132,6 +130,53 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
+
+      - name: Configure integration database URL
+        run: |
+          db_prefix='postgresql://tutor_mx:'
+          echo "DATABASE_URL=${db_prefix}${PGPASSWORD}@postgres:5432/tutor_mx" >> "$GITHUB_ENV"
+
+      - name: Wait for PostgreSQL readiness
+        timeout-minutes: 2
+        run: |
+          node --input-type=module <<'NODE'
+          import pg from "pg";
+
+          const deadline = Date.now() + 120_000;
+          let lastError;
+
+          while (Date.now() < deadline) {
+            const client = new pg.Client({
+              host: "postgres",
+              port: 5432,
+              user: "tutor_mx",
+              password: process.env.PGPASSWORD,
+              database: "tutor_mx",
+              connectionTimeoutMillis: 2_000,
+            });
+
+            try {
+              await client.connect();
+              await client.query("SELECT 1");
+              await client.end();
+              console.log("PostgreSQL is ready.");
+              process.exit(0);
+            } catch (error) {
+              lastError = error;
+              try {
+                await client.end();
+              } catch {}
+              console.log(`PostgreSQL not ready yet: ${error.message}`);
+              await new Promise((resolve) => setTimeout(resolve, 2_000));
+            }
+          }
+
+          console.error("PostgreSQL did not become ready within 120 seconds.");
+          if (lastError) {
+            console.error(lastError.message);
+          }
+          process.exit(1);
+          NODE
 
       - name: Generate Prisma Client
         run: npm run generate
