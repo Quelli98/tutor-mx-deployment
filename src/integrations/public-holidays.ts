@@ -1,10 +1,46 @@
+/**
+ * @module integrations/public-holidays
+ *
+ * HANDOFF — S2-M6-2 (Member 6 → Member 5 / Member 4)
+ *
+ * ── Route (Member 5) ───────────────────────────────────────────────────
+ * Suggested path:  GET /api/public-holidays?year=<YYYY>
+ *   • Auth: authenticate + resolveProfileRole + requireTutorMxRole
+ *     (all authenticated roles may read public-holiday data).
+ *   • Parse `year` from query string (4-digit integer, 2000–2100).
+ *   • Wire `getPublicHolidays: (year: number) => Promise<ExternalApiResult<PublicHoliday[]>>`
+ *     into AppDependencies (createSouthAfricaPublicHolidayService().execute).
+ *   • Response envelope:  { data: { source, holidays, retrievedAt, reason? } }
+ *     where `source` is "external" | "fallback" so the browser knows
+ *     whether the data is live or stale.
+ *   • The external call is server-only; the browser never contacts
+ *     Nager.Date directly.
+ *
+ * ── Safe fields for the UI (Member 4) ───────────────────────────────────
+ * Each holiday object exposes only:
+ *   • date           — ISO date string ("2026-01-01")
+ *   • name           — "New Year's Day"
+ *   • countryCode    — always "ZA"
+ *   • nationalHoliday— boolean
+ *   • holidayTypes   — string[], e.g. ["Public"]
+ * Plus the result envelope:
+ *   • source         — "external" | "fallback"
+ *   • retrievedAt    — ISO timestamp or null (fallback)
+ *   • reason?        — failure reason when source === "fallback"
+ * Render a "Data from external service / fallback" badge based on `source`
+ * and display `retrievedAt` so the user sees how fresh the list is.
+ * NEVER render `reason` as user-facing text — it is an internal code.
+ */
+
 import {
   createJsonExternalApiAdapter,
   type ExternalApiAdapter,
   type ExternalApiResult,
 } from "./external-api.js";
+import { createTtlCache, type TtlCache } from "./ttl-cache.js";
 
 const DEFAULT_TIMEOUT_MS = 3_000;
+const DEFAULT_CACHE_TTL_MS = 3_600_000; // 1 hour — holiday data rarely changes
 const MIN_SUPPORTED_YEAR = 2000;
 const MAX_SUPPORTED_YEAR = 2100;
 
@@ -20,6 +56,10 @@ export interface PublicHolidayServiceOptions {
   timeoutMs?: number;
   fetchImplementation?: typeof fetch;
   now?: () => Date;
+  /** Injectable cache; defaults to an in-memory TTL cache (1 hour). */
+  cache?: TtlCache<ExternalApiResult<PublicHoliday[]>>;
+  /** Override the default cache TTL in milliseconds. */
+  cacheTtlMs?: number;
 }
 
 export type SouthAfricaPublicHolidayService = ExternalApiAdapter<
@@ -104,22 +144,42 @@ export function publicHolidayUrl(year: number): URL {
 export function createSouthAfricaPublicHolidayService(
   options: PublicHolidayServiceOptions = {},
 ): SouthAfricaPublicHolidayService {
+  const nowFn = options.now ?? (() => new Date());
+  const cache =
+    options.cache ??
+    createTtlCache<ExternalApiResult<PublicHoliday[]>>({
+      ttlMs: options.cacheTtlMs ?? DEFAULT_CACHE_TTL_MS,
+      now: () => nowFn().valueOf(),
+    });
+
   return {
     async execute(year: number): Promise<ExternalApiResult<PublicHoliday[]>> {
+      const cacheKey = String(year);
+      const cached = cache.get(cacheKey);
+      if (cached !== null) {
+        return cached;
+      }
+
       const adapter = createJsonExternalApiAdapter<PublicHoliday[]>({
         url: publicHolidayUrl(year),
         decode: decodePublicHolidays,
         fallback: [],
         timeoutMs: options.timeoutMs ?? DEFAULT_TIMEOUT_MS,
         fetchImplementation: options.fetchImplementation,
-        now: options.now,
+        now: nowFn,
         headers: {
           accept: "application/json",
           "user-agent": "Tutor-Mx/1.0",
         },
       });
 
-      return adapter.execute();
+      const result = await adapter.execute();
+
+      if (result.source === "external") {
+        cache.set(cacheKey, result);
+      }
+
+      return result;
     },
   };
 }
