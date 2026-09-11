@@ -101,7 +101,6 @@ jobs:
     timeout-minutes: 15
     env:
       DATABASE_URL: postgresql://tutor_mx@postgres:5432/tutor_mx
-      PGPASSWORD: tutor_mx
       PORT: 3000
 
     services:
@@ -109,7 +108,7 @@ jobs:
         image: postgres:17-alpine
         env:
           POSTGRES_USER: tutor_mx
-          POSTGRES_PASSWORD: tutor_mx
+          POSTGRES_HOST_AUTH_METHOD: trust
           POSTGRES_DB: tutor_mx
         ports:
           - 5432:5432
@@ -131,11 +130,6 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Configure integration database URL
-        run: |
-          db_prefix='postgresql://tutor_mx:'
-          echo "DATABASE_URL=${db_prefix}${PGPASSWORD}@postgres:5432/tutor_mx" >> "$GITHUB_ENV"
-
       - name: Wait for PostgreSQL readiness
         timeout-minutes: 2
         run: |
@@ -150,7 +144,6 @@ jobs:
               host: "postgres",
               port: 5432,
               user: "tutor_mx",
-              password: process.env.PGPASSWORD,
               database: "tutor_mx",
               connectionTimeoutMillis: 2_000,
             });
