@@ -95,7 +95,7 @@ describe("Basic workflow migrations", () => {
 
     expect(roles.rows).toEqual([
       { role: "ORGANISER", count: 1 },
-      { role: "STUDENT", count: 1 },
+      { role: "STUDENT", count: 2 },
       { role: "TUTOR", count: 3 },
     ]);
   });
@@ -233,6 +233,82 @@ describe("Basic workflow migrations", () => {
     );
   });
 
+  it("rejects non-PROPOSED allocations without an organiser reviewer", async () => {
+    const ids = await database.query<{ tutor_id: number; course_id: number }>(`
+      SELECT
+        (SELECT "id" FROM "Profile" WHERE "auth0Id" = 'demo|tutor-pass') AS tutor_id,
+        (SELECT "id" FROM "Course" WHERE "code" = 'DEMO101') AS course_id;
+    `);
+
+    await expectDatabaseRejection(
+      database,
+      `INSERT INTO "Allocation" (
+        "tutorId", "courseId", "startsAt", "endsAt", "allocatedHours",
+        "status", "reviewedById"
+      ) VALUES ($1, $2, '2030-11-01 10:00', '2030-11-01 12:00', 2.00, 'CONFIRMED', NULL)`,
+      [ids.rows[0]!.tutor_id, ids.rows[0]!.course_id],
+    );
+  });
+
+  it("rejects a non-organiser profile as allocation reviewer", async () => {
+    const ids = await database.query<{
+      tutor_id: number;
+      student_id: number;
+      course_id: number;
+    }>(`
+      SELECT
+        (SELECT "id" FROM "Profile" WHERE "auth0Id" = 'demo|tutor-pass') AS tutor_id,
+        (SELECT "id" FROM "Profile" WHERE "auth0Id" = 'demo|student') AS student_id,
+        (SELECT "id" FROM "Course" WHERE "code" = 'DEMO101') AS course_id;
+    `);
+
+    await expectDatabaseRejection(
+      database,
+      `INSERT INTO "Allocation" (
+        "tutorId", "courseId", "startsAt", "endsAt", "allocatedHours",
+        "status", "reviewedById"
+      ) VALUES ($1, $3, '2030-11-01 10:00', '2030-11-01 12:00', 2.00, 'CONFIRMED', $2)`,
+      [ids.rows[0]!.tutor_id, ids.rows[0]!.student_id, ids.rows[0]!.course_id],
+    );
+  });
+
+  it("seeds Sprint 2 timesheet and volunteer claim workflow states", async () => {
+    const timesheets = await database.query<{
+      week_start: string;
+      status: string;
+      review_reason: string | null;
+    }>(`
+      SELECT t."weekStart"::text AS week_start, t."status"::text AS status, t."reviewReason" AS review_reason
+      FROM "Timesheet" t
+      JOIN "Profile" p ON p."id" = t."tutorId"
+      WHERE p."auth0Id" = 'demo|tutor-pass'
+      ORDER BY t."weekStart";
+    `);
+
+    expect(timesheets.rows).toEqual([
+      { week_start: "2030-09-02", status: "DRAFT", review_reason: null },
+      { week_start: "2030-09-09", status: "SUBMITTED", review_reason: null },
+      { week_start: "2030-09-16", status: "RETURNED", review_reason: "Please correct Tuesday hours" },
+    ]);
+
+    const claims = await database.query<{
+      auth0_id: string;
+      status: string;
+    }>(`
+      SELECT p."auth0Id" AS auth0_id, vc."status"::text AS status
+      FROM "VolunteerClaim" vc
+      JOIN "Profile" p ON p."id" = vc."studentId"
+      JOIN "OverflowWork" ow ON ow."id" = vc."overflowWorkId"
+      WHERE ow."startsAt" = TIMESTAMP '2030-09-09 10:00:00'
+      ORDER BY p."auth0Id";
+    `);
+
+    expect(claims.rows).toEqual([
+      { auth0_id: "demo|student", status: "ACCEPTED" },
+      { auth0_id: "demo|student-race", status: "PENDING" },
+    ]);
+  });
+
   it("can recreate and seed a second clean database", async () => {
     const secondDatabase = new PGlite();
     try {
@@ -241,7 +317,7 @@ describe("Basic workflow migrations", () => {
       const result = await secondDatabase.query<{ count: number }>(
         `SELECT count(*)::int AS count FROM "Profile" WHERE "auth0Id" LIKE 'demo|%'`,
       );
-      expect(result.rows[0]?.count).toBe(5);
+      expect(result.rows[0]?.count).toBe(6);
     } finally {
       await secondDatabase.close();
     }

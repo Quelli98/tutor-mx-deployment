@@ -61,6 +61,7 @@ model Profile {
   timeSlots           TimeSlot[]
   hourLimit           TutorHourLimit?
   allocations         Allocation[]
+  reviewedAllocations Allocation[]     @relation("AllocationReviewer")
   workLogs            WorkLog[]
   timesheets          Timesheet[]      @relation("TutorTimesheets")
   reviewedTimesheets  Timesheet[]      @relation("TimesheetReviewer")
@@ -122,6 +123,9 @@ model Allocation {
   status         AllocationStatus @default(PROPOSED)
   tutor          Profile          @relation(fields: [tutorId], references: [id], onDelete: Restrict)
   course         Course           @relation(fields: [courseId], references: [id], onDelete: Restrict)
+  reviewedBy     Profile?         @relation("AllocationReviewer", fields: [reviewedById], references: [id], onDelete: SetNull)
+  reviewedById   Int?
+  reviewedAt     DateTime?
   workLogs       WorkLog[]
   excuses        Excuse[]
   overflowWork   OverflowWork?
