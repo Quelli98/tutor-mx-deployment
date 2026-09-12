@@ -36,7 +36,8 @@ INSERT INTO "Profile" ("auth0Id", "email", "fullName", "role") VALUES
   ('demo|tutor-pass', 'tutor.pass@tutormx.example', 'Demo Tutor Pass', 'TUTOR'),
   ('demo|tutor-clash', 'tutor.clash@tutormx.example', 'Demo Tutor Clash', 'TUTOR'),
   ('demo|tutor-low-mark', 'tutor.lowmark@tutormx.example', 'Demo Tutor Low Mark', 'TUTOR'),
-  ('demo|student', 'student@tutormx.example', 'Demo Student', 'STUDENT');
+  ('demo|student', 'student@tutormx.example', 'Demo Student', 'STUDENT'),
+  ('demo|student-race', 'student.race@tutormx.example', 'Demo Student Race', 'STUDENT');
 
 INSERT INTO "Course" ("code", "name")
 VALUES ('DEMO101', 'Demo Introduction to Tutoring');
@@ -72,8 +73,11 @@ JOIN "Profile" p ON p."auth0Id" = allocation."auth0Id"
 CROSS JOIN "Course" c
 WHERE c."code" = 'DEMO101';
 
-UPDATE "Allocation" SET "status" = 'CONFIRMED'
-WHERE "courseId" = (SELECT "id" FROM "Course" WHERE "code" = 'DEMO101');
+UPDATE "Allocation"
+  SET "status" = 'CONFIRMED',
+      "reviewedById" = (SELECT "id" FROM "Profile" WHERE "auth0Id" = 'demo|organiser'),
+      "reviewedAt" = CURRENT_TIMESTAMP
+  WHERE "courseId" = (SELECT "id" FROM "Course" WHERE "code" = 'DEMO101');
 
 INSERT INTO "Timesheet" ("tutorId", "weekStart")
 SELECT "id", DATE '2030-09-02'
@@ -119,5 +123,118 @@ JOIN "Course" c ON c."id" = ow."courseId" AND c."code" = 'DEMO101'
 CROSS JOIN "Profile" p
 WHERE ow."startsAt" = TIMESTAMP '2030-09-06 10:00:00'
   AND p."auth0Id" = 'demo|student';
+
+-- Sprint 2 seed scenarios: workflow state, approval and race/duplicate fixtures.
+
+-- 1. SUBMITTED timesheet (pending organiser approval).
+INSERT INTO "Allocation" (
+  "tutorId", "courseId", "startsAt", "endsAt", "allocatedHours", "status"
+)
+SELECT p."id", c."id", TIMESTAMP '2030-09-09 10:00:00', TIMESTAMP '2030-09-09 12:00:00',
+  2.00, 'PROPOSED'
+FROM "Profile" p
+CROSS JOIN "Course" c
+WHERE p."auth0Id" = 'demo|tutor-pass' AND c."code" = 'DEMO101';
+
+UPDATE "Allocation"
+  SET "status" = 'CONFIRMED',
+      "reviewedById" = (SELECT "id" FROM "Profile" WHERE "auth0Id" = 'demo|organiser'),
+      "reviewedAt" = CURRENT_TIMESTAMP
+  WHERE "tutorId" = (SELECT "id" FROM "Profile" WHERE "auth0Id" = 'demo|tutor-pass')
+    AND "startsAt" = TIMESTAMP '2030-09-09 10:00:00';
+
+INSERT INTO "Timesheet" ("tutorId", "weekStart")
+SELECT "id", DATE '2030-09-09'
+FROM "Profile" WHERE "auth0Id" = 'demo|tutor-pass';
+
+INSERT INTO "WorkLog" (
+  "tutorId", "allocationId", "timesheetId", "workDate", "hours", "description"
+)
+SELECT p."id", a."id", t."id", DATE '2030-09-09', 2.00, 'Demo submitted session'
+FROM "Profile" p
+JOIN "Allocation" a ON a."tutorId" = p."id" AND a."startsAt" = TIMESTAMP '2030-09-09 10:00:00'
+JOIN "Timesheet" t ON t."tutorId" = p."id" AND t."weekStart" = DATE '2030-09-09'
+WHERE p."auth0Id" = 'demo|tutor-pass';
+
+UPDATE "Timesheet" SET "status" = 'SUBMITTED'
+WHERE "tutorId" = (SELECT "id" FROM "Profile" WHERE "auth0Id" = 'demo|tutor-pass')
+  AND "weekStart" = DATE '2030-09-09';
+
+-- 2. RETURNED timesheet with reason.
+INSERT INTO "Allocation" (
+  "tutorId", "courseId", "startsAt", "endsAt", "allocatedHours", "status"
+)
+SELECT p."id", c."id", TIMESTAMP '2030-09-16 10:00:00', TIMESTAMP '2030-09-16 12:00:00',
+  2.00, 'PROPOSED'
+FROM "Profile" p
+CROSS JOIN "Course" c
+WHERE p."auth0Id" = 'demo|tutor-pass' AND c."code" = 'DEMO101';
+
+UPDATE "Allocation"
+  SET "status" = 'CONFIRMED',
+      "reviewedById" = (SELECT "id" FROM "Profile" WHERE "auth0Id" = 'demo|organiser'),
+      "reviewedAt" = CURRENT_TIMESTAMP
+  WHERE "tutorId" = (SELECT "id" FROM "Profile" WHERE "auth0Id" = 'demo|tutor-pass')
+    AND "startsAt" = TIMESTAMP '2030-09-16 10:00:00';
+
+INSERT INTO "Timesheet" ("tutorId", "weekStart")
+SELECT "id", DATE '2030-09-16'
+FROM "Profile" WHERE "auth0Id" = 'demo|tutor-pass';
+
+INSERT INTO "WorkLog" (
+  "tutorId", "allocationId", "timesheetId", "workDate", "hours", "description"
+)
+SELECT p."id", a."id", t."id", DATE '2030-09-16', 1.50, 'Demo returned session'
+FROM "Profile" p
+JOIN "Allocation" a ON a."tutorId" = p."id" AND a."startsAt" = TIMESTAMP '2030-09-16 10:00:00'
+JOIN "Timesheet" t ON t."tutorId" = p."id" AND t."weekStart" = DATE '2030-09-16'
+WHERE p."auth0Id" = 'demo|tutor-pass';
+
+UPDATE "Timesheet" SET "status" = 'SUBMITTED'
+WHERE "tutorId" = (SELECT "id" FROM "Profile" WHERE "auth0Id" = 'demo|tutor-pass')
+  AND "weekStart" = DATE '2030-09-16';
+
+UPDATE "Timesheet" SET "status" = 'RETURNED', "reviewReason" = 'Please correct Tuesday hours'
+WHERE "tutorId" = (SELECT "id" FROM "Profile" WHERE "auth0Id" = 'demo|tutor-pass')
+  AND "weekStart" = DATE '2030-09-16';
+
+-- 3. Overflow work + accepted claim (triggers OverflowWork -> FILLED).
+--    No sourceAllocationId: the unique constraint on that column is already
+--    used by the existing seed, and this overflow represents organiser-posted work.
+INSERT INTO "OverflowWork" (
+  "courseId", "startsAt", "endsAt", "hours", "status"
+)
+SELECT c."id",
+  TIMESTAMP '2030-09-09 10:00:00', TIMESTAMP '2030-09-09 12:00:00',
+  2.00, 'OPEN'
+FROM "Course" c
+WHERE c."code" = 'DEMO101';
+
+--    Insert both claims as PENDING first (work is OPEN), then accept the
+--    first one so the after-trigger fills the work.
+INSERT INTO "VolunteerClaim" ("overflowWorkId", "studentId")
+SELECT ow."id", p."id"
+FROM "OverflowWork" ow
+JOIN "Course" c ON c."id" = ow."courseId" AND c."code" = 'DEMO101'
+CROSS JOIN "Profile" p
+WHERE ow."startsAt" = TIMESTAMP '2030-09-09 10:00:00'
+  AND p."auth0Id" = 'demo|student';
+
+INSERT INTO "VolunteerClaim" ("overflowWorkId", "studentId")
+SELECT ow."id", p."id"
+FROM "OverflowWork" ow
+JOIN "Course" c ON c."id" = ow."courseId" AND c."code" = 'DEMO101'
+CROSS JOIN "Profile" p
+WHERE ow."startsAt" = TIMESTAMP '2030-09-09 10:00:00'
+  AND p."auth0Id" = 'demo|student-race';
+
+--    Accept the first student's claim; the fill_overflow_work_after_accept
+--    trigger sets OverflowWork to FILLED automatically.
+UPDATE "VolunteerClaim" SET "status" = 'ACCEPTED'
+WHERE "overflowWorkId" = (
+  SELECT ow."id" FROM "OverflowWork" ow
+  JOIN "Course" c ON c."id" = ow."courseId"
+  WHERE c."code" = 'DEMO101' AND ow."startsAt" = TIMESTAMP '2030-09-09 10:00:00'
+) AND "studentId" = (SELECT "id" FROM "Profile" WHERE "auth0Id" = 'demo|student');
 
 COMMIT;

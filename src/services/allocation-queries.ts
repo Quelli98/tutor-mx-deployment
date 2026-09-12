@@ -11,6 +11,14 @@ export type CandidateReasonCode =
   | "schedule-clash"
   | "hour-limit-exceeded";
 
+export interface AllocationRuleCheck {
+  mark: number | null | undefined;
+  minimumMark: number | null | undefined;
+  hasClash: boolean | null | undefined;
+  remainingHours: number | null | undefined;
+  requestedHours: number | null | undefined;
+}
+
 interface CandidateRow {
   tutorId: number;
   fullName: string;
@@ -214,19 +222,20 @@ function assertCandidateQuery(input: CandidateQuery): void {
   }
 }
 
-function reasonCodesFor(
-  row: CandidateRow,
-  input: CandidateQuery,
+export function allocationReasonCodesFor(
+  check: AllocationRuleCheck,
 ): CandidateReasonCode[] {
   const reasons: CandidateReasonCode[] = [];
 
-  if (!meetsMinimumMark(row.mark, input.minimumMark)) {
+  if (meetsMinimumMark(check.mark, check.minimumMark) !== true) {
     reasons.push("insufficient-mark");
   }
-  if (row.hasClash) {
+  if (check.hasClash !== false) {
     reasons.push("schedule-clash");
   }
-  if (!hasEnoughRemainingHours(row.remainingHours, input.requestedHours)) {
+  if (
+    hasEnoughRemainingHours(check.remainingHours, check.requestedHours) !== true
+  ) {
     reasons.push("hour-limit-exceeded");
   }
 
@@ -248,7 +257,13 @@ export async function findAllocationCandidates(
 
   return result.rows.map((row) => ({
     ...row,
-    reasonCodes: reasonCodesFor(row, input),
+    reasonCodes: allocationReasonCodesFor({
+      mark: row.mark,
+      minimumMark: input.minimumMark,
+      hasClash: row.hasClash,
+      remainingHours: row.remainingHours,
+      requestedHours: input.requestedHours,
+    }),
   }));
 }
 

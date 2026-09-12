@@ -62,7 +62,7 @@ try {
       (SELECT "id" FROM "Profile" WHERE "auth0Id" = 'demo|tutor-pass') AS tutor_id,
       (SELECT "id" FROM "Course" WHERE "code" = 'DEMO101') AS course_id,
       (SELECT t."id" FROM "Timesheet" t JOIN "Profile" p ON p."id" = t."tutorId"
-        WHERE p."auth0Id" = 'demo|tutor-pass') AS sheet_id;
+        WHERE p."auth0Id" = 'demo|tutor-pass' AND t."weekStart" = DATE '2030-09-02') AS sheet_id;
   `);
 
   await expectRejected(

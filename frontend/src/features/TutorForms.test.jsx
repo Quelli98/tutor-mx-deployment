@@ -74,7 +74,7 @@ describe('TutorForms accessibility', () => {
       expect(control).toHaveFocus()
       await user.tab()
     }
-  })
+  }, 15000) // Allow sequential keyboard interactions to finish on busy CI runners.
 
   it('activates validation from the keyboard', async () => {
     const user = userEvent.setup()

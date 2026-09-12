@@ -99,60 +99,259 @@ jobs:
     name: Clean PostgreSQL migration and API smoke
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    env:
-      DATABASE_URL: postgresql://tutor_mx@127.0.0.1:5432/tutor_mx
-      PGPASSWORD: tutor_mx
-      PORT: 3000
 
-    services:
-      postgres:
-        image: postgres:17-alpine
-        env:
-          POSTGRES_USER: tutor_mx
-          POSTGRES_PASSWORD: tutor_mx
-          POSTGRES_DB: tutor_mx
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U tutor_mx -d tutor_mx"
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 10
+    # Run Node and PostgreSQL inside the same disposable container because
+    # service-container networking is unreliable on the shared Gitea runner.
+    container: node:24-bookworm
+
+    env:
+      DATABASE_URL: postgresql://tutor_mx@127.0.0.1:15432/tutor_mx
+      PGDATA: /tmp/tutor-mx-postgres-data
+      PGPORT: 15432
 
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
 
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 24
-          cache: npm
-
       - name: Install dependencies
         run: npm ci
 
-      - name: Generate Prisma Client
-        run: npm run generate
-
-      - name: Deploy clean migrations
-        run: npm run db:migrate
-
-      - name: Load safe demo data
-        run: npm run db:seed
-
-      - name: Verify constraints and allocation queries
-        run: npm run db:verify
-
-      - name: Build API
-        run: npm run build:backend
-
-      - name: Smoke local health and readiness
+      - name: Install PostgreSQL inside the job container
         run: |
-          npm start > /tmp/tutor-mx-api.log 2>&1 &
+          export DEBIAN_FRONTEND=noninteractive
+          apt-get update
+          apt-get install --yes --no-install-recommends postgresql postgresql-client
+
+      - name: Run clean migrations, verification and API smoke
+        run: |
+          set -euo pipefail
+
+          pg_bin="$(find /usr/lib/postgresql -type f -name initdb -printf '%h\n' | sort -V | tail -n 1)"
+
+          if [ -z "$pg_bin" ]; then
+            echo "PostgreSQL binaries were not installed."
+            exit 1
+          fi
+
+          install -d -m 0700 -o postgres -g postgres "$PGDATA"
+
+          runuser -u postgres -- "$pg_bin/initdb" \
+            --pgdata="$PGDATA" \
+            --username=tutor_mx \
+            --auth-local=trust \
+            --auth-host=trust \
+            --encoding=UTF8 \
+            --no-locale
+
+          runuser -u postgres -- "$pg_bin/pg_ctl" \
+            --pgdata="$PGDATA" \
+            --log=/tmp/tutor-mx-postgres.log \
+            --options="-h 127.0.0.1 -p $PGPORT" \
+            --wait start
+
+          api_pid=""
+
+          cleanup() {
+            if [ -n "$api_pid" ]; then
+              kill "$api_pid" 2>/dev/null || true
+              wait "$api_pid" 2>/dev/null || true
+            fi
+
+            runuser -u postgres -- "$pg_bin/pg_ctl" \
+              --pgdata="$PGDATA" \
+              --mode=fast \
+              --wait stop 2>/dev/null || true
+          }
+
+          trap cleanup EXIT
+
+          runuser -u postgres -- "$pg_bin/createdb" \
+            --host=127.0.0.1 \
+            --port="$PGPORT" \
+            --username=tutor_mx \
+            tutor_mx
+
+          node --input-type=module <<'NODE'
+          import pg from "pg";
+
+          const client = new pg.Client({
+            connectionString: process.env.DATABASE_URL,
+            connectionTimeoutMillis: 5_000,
+          });
+
+          await client.connect();
+
+          const result = await client.query(`
+            SELECT
+              current_setting('data_directory') AS data_dir,
+              current_user AS db_user,
+              current_database() AS db_name
+          `);
+
+          await client.end();
+
+          const row = result.rows[0];
+
+          if (
+            row?.data_dir !== process.env.PGDATA ||
+            row?.db_user !== "tutor_mx" ||
+            row?.db_name !== "tutor_mx"
+          ) {
+            throw new Error("Connected to an unexpected PostgreSQL instance.");
+          }
+
+          console.log("Isolated PostgreSQL CI database is ready.");
+          NODE
+
+          npm run generate
+          npm run db:migrate
+          npm run db:seed
+          npm run db:verify
+          npm run build:backend
+
+          # Port 3000 is occupied by a SolidStart process on some shared
+          # runners. Ask the kernel for an unused port for this job.
+          PORT="$(node --input-type=module <<'NODE'
+          import net from "node:net";
+
+          const server = net.createServer();
+
+          server.on("error", (error) => {
+            throw error;
+          });
+
+          server.listen(0, () => {
+            const address = server.address();
+
+            if (!address || typeof address === "string") {
+              throw new Error("Could not allocate a local API port.");
+            }
+
+            process.stdout.write(String(address.port));
+            server.close();
+          });
+          NODE
+          )"
+
+          export PORT
+
+          echo "Starting Tutor Mx API on isolated port $PORT."
+
+          node dist/server.js > /tmp/tutor-mx-api.log 2>&1 &
           api_pid=$!
-          trap 'kill "$api_pid" 2>/dev/null || true' EXIT
-          SMOKE_BASE_URL=http://127.0.0.1:3000 npm run smoke || {
+
+          node --input-type=module <<'NODE' || {
+          import http from "node:http";
+
+          const port = Number(process.env.PORT);
+
+          if (!Number.isInteger(port) || port < 1 || port > 65_535) {
+            throw new Error("PORT is not a valid TCP port.");
+          }
+
+          const hosts = ["::1", "127.0.0.1"];
+
+          function requestJson(hostname, path) {
+            return new Promise((resolve, reject) => {
+              const request = http.get(
+                {
+                  hostname,
+                  port,
+                  path,
+                  headers: {
+                    accept: "application/json",
+                  },
+
+                  // Prevent Node 24 from sending this local request through
+                  // the shared runner's configured HTTP proxy.
+                  agent: false,
+                },
+                (response) => {
+                  const chunks = [];
+
+                  response.on("data", (chunk) => {
+                    chunks.push(chunk);
+                  });
+
+                  response.on("end", () => {
+                    const text = Buffer.concat(chunks).toString("utf8");
+                    const statusCode = response.statusCode ?? 0;
+
+                    if (statusCode < 200 || statusCode >= 300) {
+                      reject(
+                        new Error(
+                          `${path} returned HTTP ${statusCode}: ${text}`,
+                        ),
+                      );
+                      return;
+                    }
+
+                    try {
+                      resolve(JSON.parse(text));
+                    } catch {
+                      reject(
+                        new Error(`${path} returned invalid JSON: ${text}`),
+                      );
+                    }
+                  });
+                },
+              );
+
+              request.setTimeout(5_000, () => {
+                request.destroy(new Error(`${path} timed out`));
+              });
+
+              request.on("error", reject);
+            });
+          }
+
+          async function check(path, expectedStatus) {
+            let lastError;
+
+            for (let attempt = 1; attempt <= 20; attempt += 1) {
+              for (const hostname of hosts) {
+                try {
+                  const body = await requestJson(hostname, path);
+
+                  if (body?.status !== expectedStatus) {
+                    throw new Error(
+                      `${path} returned an unexpected response`,
+                    );
+                  }
+
+                  console.log(
+                    `${path} passed via ${hostname}:${port}.`,
+                  );
+                  return;
+                } catch (error) {
+                  const message =
+                    error instanceof Error
+                      ? error.message
+                      : String(error);
+
+                  lastError = new Error(
+                    `${hostname}:${port}: ${message}`,
+                  );
+                }
+              }
+
+              if (attempt < 20) {
+                await new Promise((resolve) => {
+                  setTimeout(resolve, 500);
+                });
+              }
+            }
+
+            throw lastError;
+          }
+
+          await check("/health", "ok");
+          await check("/ready", "ready");
+
+          console.log(
+            "Local API health and readiness smoke passed.",
+          );
+          NODE
             sed -n '1,120p' /tmp/tutor-mx-api.log
             exit 1
           }

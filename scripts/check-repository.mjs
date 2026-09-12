@@ -31,7 +31,14 @@ for (const file of trackedFiles) {
   if (file.endsWith(".env.example") || statSync(file).size > 1_000_000) {
     continue;
   }
-  const content = readFileSync(file, "utf8");
+  let content = readFileSync(file, "utf8");
+  if (file === ".gitea/workflows/ci.yml") {
+    // Allow only the exact ephemeral service URL on its own DATABASE_URL line.
+    content = content.replace(
+      /^([ \t]*DATABASE_URL:[ \t]*)postgresql:\/\/tutor_mx:tutor_mx@postgres:5432\/tutor_mx(?=[ \t]*\r?$)/gm,
+      "$1[ephemeral CI database]",
+    );
+  }
   if (secretPatterns.some((pattern) => pattern.test(content))) {
     throw new Error(`Possible committed secret found in ${file}`);
   }

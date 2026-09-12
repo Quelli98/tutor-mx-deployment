@@ -20,6 +20,10 @@ import {
   findAllocationCandidates,
   getTutorHourSummary,
 } from "./services/allocation-queries.js";
+import { createExcuseWorkflowService } from "./services/excuse-workflows.js";
+import { createOrganiserService } from "./services/organiser-service.js";
+import { createStudentWorkflowService } from "./services/student-workflows.js";
+import { createTimesheetWorkflowService } from "./services/timesheet-workflows.js";
 
 const port = Number(process.env.PORT ?? 3000);
 
@@ -155,6 +159,14 @@ async function findTutorProfileId(auth0Id: string) {
   }
   return profile.id;
 }
+
+const studentWorkflowService = createStudentWorkflowService(
+  prisma,
+  queryClient,
+);
+const timesheetWorkflowService = createTimesheetWorkflowService(prisma);
+const excuseWorkflowService = createExcuseWorkflowService(prisma);
+const organiserService = createOrganiserService(prisma);
 
 const app = createApp(
   async () => {
@@ -667,9 +679,24 @@ const app = createApp(
         throw error;
       }
     },
+    listStudentOpenWork: studentWorkflowService.listOpenWork,
+    createStudentVolunteerRequest:
+      studentWorkflowService.createVolunteerRequest,
+    getStudentVolunteerRequest: studentWorkflowService.getVolunteerRequest,
+    withdrawStudentVolunteerRequest:
+      studentWorkflowService.withdrawVolunteerRequest,
+    getTutorTimesheetStatus: timesheetWorkflowService.getStatus,
+    submitTutorTimesheet: timesheetWorkflowService.submit,
+    getTutorExcuseStatus: excuseWorkflowService.getStatus,
+    decideExcuse: excuseWorkflowService.decide,
     async listAllocationCandidates(input) {
       return findAllocationCandidates(queryClient, input);
     },
+    createAllocation: organiserService.createAllocation,
+    updateAllocation: organiserService.updateAllocation,
+    removeAllocation: organiserService.removeAllocation,
+    decideTimesheet: organiserService.decideTimesheet,
+    decideVolunteerClaim: organiserService.decideVolunteerClaim,
     async upsertTutorMark(tutorId, input) {
       const existingTutor = await prisma.profile.findUnique({
         where: { id: tutorId },

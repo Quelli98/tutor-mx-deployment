@@ -224,8 +224,117 @@ function makeApp(
         ...input,
       })),
 
+    listStudentOpenWork: async () => [],
+
+    createStudentVolunteerRequest: async (_auth0Id, input) => ({
+      id: 1,
+      overflowWorkId: input.overflowWorkId,
+      status: "PENDING",
+      reviewReason: null,
+      createdAt: "2026-09-07T10:00:00.000Z",
+      updatedAt: "2026-09-07T10:00:00.000Z",
+    }),
+
+    getStudentVolunteerRequest: async () => ({
+      id: 1,
+      overflowWorkId: 2,
+      status: "PENDING",
+      reviewReason: null,
+      createdAt: "2026-09-07T10:00:00.000Z",
+      updatedAt: "2026-09-07T10:00:00.000Z",
+    }),
+
+    withdrawStudentVolunteerRequest: async () => ({
+      id: 1,
+      overflowWorkId: 2,
+      status: "WITHDRAWN",
+      reviewReason: null,
+      createdAt: "2026-09-07T10:00:00.000Z",
+      updatedAt: "2026-09-07T10:01:00.000Z",
+    }),
+
+    getTutorTimesheetStatus: async () => ({
+      id: 1,
+      weekStart: "2026-09-07",
+      status: "DRAFT",
+      submittedAt: null,
+      reviewedAt: null,
+      reviewReason: null,
+      totalHours: 1,
+    }),
+
+    submitTutorTimesheet: async () => ({
+      id: 1,
+      weekStart: "2026-09-07",
+      status: "SUBMITTED",
+      submittedAt: "2026-09-07T10:00:00.000Z",
+      reviewedAt: null,
+      reviewReason: null,
+      totalHours: 1,
+    }),
+
+    getTutorExcuseStatus: async () => ({
+      id: 1,
+      allocationId: 2,
+      reason: "Illness",
+      status: "PENDING",
+      reviewReason: null,
+      createdAt: "2026-09-07T10:00:00.000Z",
+      updatedAt: "2026-09-07T10:00:00.000Z",
+    }),
+
+    decideExcuse: async (id, input) => ({
+      id,
+      allocationId: 2,
+      reason: "Illness",
+      status: input.decision === "APPROVE" ? "APPROVED" : "REJECTED",
+      reviewReason: input.reason ?? null,
+      createdAt: "2026-09-07T10:00:00.000Z",
+      updatedAt: "2026-09-07T10:01:00.000Z",
+    }),
+
     listAllocationCandidates:
       overrides.listAllocationCandidates ?? (async () => []),
+
+    createAllocation: async (_auth0Id, input) => ({
+      id: 1,
+      tutorId: input.tutorId,
+      courseId: input.courseId,
+      startsAt: input.startsAt.toISOString(),
+      endsAt: input.endsAt.toISOString(),
+      allocatedHours: input.requestedHours,
+      status: input.status ?? "PROPOSED",
+    }),
+
+    updateAllocation: async (_auth0Id, id, input) => ({
+      id,
+      tutorId: input.tutorId,
+      courseId: input.courseId,
+      startsAt: input.startsAt.toISOString(),
+      endsAt: input.endsAt.toISOString(),
+      allocatedHours: input.requestedHours,
+      status: input.status ?? "PROPOSED",
+    }),
+
+    removeAllocation: async () => undefined,
+
+    decideTimesheet: async (_auth0Id, id, input) => ({
+      id,
+      tutorId: 7,
+      weekStart: "2030-09-02",
+      status: input.decision === "APPROVE" ? "APPROVED" : "RETURNED",
+      reviewedAt: "2030-09-06T12:00:00.000Z",
+      reviewedById: 8,
+      reviewReason: input.reason ?? null,
+    }),
+
+    decideVolunteerClaim: async (id, input) => ({
+      id,
+      overflowWorkId: 4,
+      studentId: 9,
+      status: input.decision === "APPROVE" ? "ACCEPTED" : "REJECTED",
+      reviewReason: input.reason ?? null,
+    }),
 
     upsertTutorMark:
       overrides.upsertTutorMark ??

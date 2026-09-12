@@ -3,6 +3,18 @@ import { describe, expect, it, vi } from "vitest";
 import { createApp } from "./app.js";
 
 describe("GET /health", () => {
+  it("keeps liveness available after a failed readiness probe", async () => {
+    const checkReadiness = vi.fn().mockRejectedValue(new Error("Prisma private connection string"));
+    const app = createApp(checkReadiness);
+    const ready = await request(app).get("/ready");
+    expect(ready.status).toBe(503);
+    expect(ready.body).toEqual({ status: "not ready", database: "disconnected" });
+    const health = await request(app).get("/health");
+    expect(health.status).toBe(200);
+    expect(health.body).toEqual({ status: "ok" });
+    expect(checkReadiness).toHaveBeenCalledOnce();
+  });
+
   it("returns an OK health status", async () => {
     const app = createApp(async () => undefined);
 

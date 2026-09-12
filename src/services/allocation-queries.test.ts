@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+  allocationReasonCodesFor,
   findAllocationCandidates,
   getTutorHourSummary,
   listOpenWork,
@@ -27,6 +28,85 @@ describe("allocation queries", () => {
   it("treats exact mark and hour thresholds as eligible", () => {
     expect(meetsMinimumMark(50, 50)).toBe(true);
     expect(hasEnoughRemainingHours(2, 2)).toBe(true);
+  });
+
+  it("returns no reasons at the exact mark and hour boundaries", () => {
+    expect(
+      allocationReasonCodesFor({
+        mark: 50,
+        minimumMark: 50,
+        hasClash: false,
+        remainingHours: 2,
+        requestedHours: 2,
+      }),
+    ).toEqual([]);
+  });
+
+  it.each([
+    {
+      check: {
+        mark: 49,
+        minimumMark: 50,
+        hasClash: false,
+        remainingHours: 2,
+        requestedHours: 2,
+      },
+      reason: "insufficient-mark",
+    },
+    {
+      check: {
+        mark: 50,
+        minimumMark: 50,
+        hasClash: true,
+        remainingHours: 2,
+        requestedHours: 2,
+      },
+      reason: "schedule-clash",
+    },
+    {
+      check: {
+        mark: 50,
+        minimumMark: 50,
+        hasClash: false,
+        remainingHours: 1,
+        requestedHours: 2,
+      },
+      reason: "hour-limit-exceeded",
+    },
+  ] as const)("returns only $reason for that failed rule", ({ check, reason }) => {
+    expect(allocationReasonCodesFor(check)).toEqual([reason]);
+  });
+
+  it("returns multiple reasons in stable mark, clash and hour order", () => {
+    expect(
+      allocationReasonCodesFor({
+        mark: 49,
+        minimumMark: 50,
+        hasClash: true,
+        remainingHours: 1,
+        requestedHours: 2,
+      }),
+    ).toEqual([
+      "insufficient-mark",
+      "schedule-clash",
+      "hour-limit-exceeded",
+    ]);
+  });
+
+  it("fails closed when allocation rule data is missing", () => {
+    expect(
+      allocationReasonCodesFor({
+        mark: undefined,
+        minimumMark: 50,
+        hasClash: undefined,
+        remainingHours: null,
+        requestedHours: 2,
+      }),
+    ).toEqual([
+      "insufficient-mark",
+      "schedule-clash",
+      "hour-limit-exceeded",
+    ]);
   });
 
   it("treats touching time ranges as non-overlapping and overlapping ranges as clashes", () => {
