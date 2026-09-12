@@ -99,10 +99,11 @@ jobs:
     name: Clean PostgreSQL migration and API smoke
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    # The shared Gitea runner does not expose `services:` container networking
-    # to this job. Run Node and an isolated PostgreSQL process inside the same
-    # disposable job container instead.
+
+    # Run Node and PostgreSQL inside the same disposable container because
+    # service-container networking is unreliable on the shared Gitea runner.
     container: node:24-bookworm
+
     env:
       DATABASE_URL: postgresql://tutor_mx@127.0.0.1:15432/tutor_mx
       PGDATA: /tmp/tutor-mx-postgres-data
@@ -133,6 +134,7 @@ jobs:
           fi
 
           install -d -m 0700 -o postgres -g postgres "$PGDATA"
+
           runuser -u postgres -- "$pg_bin/initdb" \
             --pgdata="$PGDATA" \
             --username=tutor_mx \
@@ -148,14 +150,19 @@ jobs:
             --wait start
 
           api_pid=""
+
           cleanup() {
             if [ -n "$api_pid" ]; then
               kill "$api_pid" 2>/dev/null || true
               wait "$api_pid" 2>/dev/null || true
             fi
+
             runuser -u postgres -- "$pg_bin/pg_ctl" \
-              --pgdata="$PGDATA" --mode=fast --wait stop 2>/dev/null || true
+              --pgdata="$PGDATA" \
+              --mode=fast \
+              --wait stop 2>/dev/null || true
           }
+
           trap cleanup EXIT
 
           runuser -u postgres -- "$pg_bin/createdb" \
@@ -173,15 +180,18 @@ jobs:
           });
 
           await client.connect();
+
           const result = await client.query(`
             SELECT
               current_setting('data_directory') AS data_dir,
               current_user AS db_user,
               current_database() AS db_name
           `);
+
           await client.end();
 
           const row = result.rows[0];
+
           if (
             row?.data_dir !== process.env.PGDATA ||
             row?.db_user !== "tutor_mx" ||
@@ -189,6 +199,7 @@ jobs:
           ) {
             throw new Error("Connected to an unexpected PostgreSQL instance.");
           }
+
           console.log("Isolated PostgreSQL CI database is ready.");
           NODE
 
@@ -200,18 +211,99 @@ jobs:
 
           node dist/server.js > /tmp/tutor-mx-api.log 2>&1 &
           api_pid=$!
-          env \
-            -u HTTP_PROXY \
-            -u HTTPS_PROXY \
-            -u ALL_PROXY \
-            -u http_proxy \
-            -u https_proxy \
-            -u all_proxy \
-            NODE_USE_ENV_PROXY=0 \
-            NO_PROXY=127.0.0.1,localhost \
-            no_proxy=127.0.0.1,localhost \
-            SMOKE_BASE_URL=http://127.0.0.1:3000 \
-            npm run smoke || {
+
+          node --input-type=module <<'NODE' || {
+          import http from "node:http";
+
+          function requestJson(path) {
+            return new Promise((resolve, reject) => {
+              const request = http.get(
+                {
+                  hostname: "127.0.0.1",
+                  port: 3000,
+                  path,
+                  headers: {
+                    accept: "application/json",
+                  },
+
+                  // Node 24 can inherit the Gitea runner's proxy configuration.
+                  // Disabling the shared agent forces this request directly to
+                  // the API running inside the current job container.
+                  agent: false,
+                },
+                (response) => {
+                  const chunks = [];
+
+                  response.on("data", (chunk) => {
+                    chunks.push(chunk);
+                  });
+
+                  response.on("end", () => {
+                    const text = Buffer.concat(chunks).toString("utf8");
+                    const statusCode = response.statusCode ?? 0;
+
+                    if (statusCode < 200 || statusCode >= 300) {
+                      reject(
+                        new Error(
+                          `${path} returned HTTP ${statusCode}: ${text}`,
+                        ),
+                      );
+                      return;
+                    }
+
+                    try {
+                      resolve(JSON.parse(text));
+                    } catch {
+                      reject(
+                        new Error(`${path} returned invalid JSON: ${text}`),
+                      );
+                    }
+                  });
+                },
+              );
+
+              request.setTimeout(5_000, () => {
+                request.destroy(new Error(`${path} timed out`));
+              });
+
+              request.on("error", reject);
+            });
+          }
+
+          async function check(path, expectedStatus) {
+            let lastError;
+
+            for (let attempt = 1; attempt <= 20; attempt += 1) {
+              try {
+                const body = await requestJson(path);
+
+                if (body?.status !== expectedStatus) {
+                  throw new Error(
+                    `${path} returned an unexpected response`,
+                  );
+                }
+
+                console.log(`${path} passed.`);
+                return;
+              } catch (error) {
+                lastError = error;
+
+                if (attempt < 20) {
+                  await new Promise((resolve) => {
+                    setTimeout(resolve, 500);
+                  });
+                }
+              }
+            }
+
+            throw lastError;
+          }
+
+          await check("/health", "ok");
+          await check("/ready", "ready");
+
+          console.log("Local API health and readiness smoke passed.");
+          NODE
             sed -n '1,120p' /tmp/tutor-mx-api.log
             exit 1
           }
