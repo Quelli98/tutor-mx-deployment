@@ -108,8 +108,10 @@ jobs:
         image: postgres:17-alpine
         env:
           POSTGRES_USER: tutor_mx
-          POSTGRES_PASSWORD: tutor_mx
+          POSTGRES_PASSWORD: "tutor_mx"
           POSTGRES_DB: tutor_mx
+          # Keep each service container's database outside the default data volume.
+          PGDATA: /tmp/tutor-mx-postgres-data
         ports:
           - 5432:5432
         # The shared Gitea runners have repeatedly marked the service unhealthy
