@@ -103,22 +103,19 @@ jobs:
       PORT: 3000
 
     services:
-      postgres:
+      tutormxdb:
         image: postgres:17-alpine
         env:
           POSTGRES_USER: tutor_mx
-          POSTGRES_PASSWORD: tutor_mx
           POSTGRES_DB: tutor_mx
-          # This database exists only for this CI job. Trust auth removes any
-          # dependency on password state left by a shared runner/service setup.
+          # Disposable CI-only database. No production data or credentials are used.
           POSTGRES_HOST_AUTH_METHOD: trust
-          # A unique in-container data directory proves that the workflow is
-          # talking to this service rather than some other PostgreSQL instance.
+          # Keep the cluster outside the image default volume and verify this path
+          # before migrations run, so a stray shared-runner database cannot pass.
           PGDATA: /tmp/tutor-mx-postgres-data
-        ports:
-          # Keep the normal service port inside Docker, but expose a different
-          # host port for runners that execute job steps directly on the host.
-          - 15432:5432
+        # The lecturer's ubuntu-latest jobs run in Docker containers. Gitea places
+        # the job and its service containers on the same per-job Docker network,
+        # so no host port needs to be published.
         options: --no-healthcheck
 
     steps:
@@ -144,24 +141,13 @@ jobs:
           const expectedDataDirectory = "/tmp/tutor-mx-postgres-data";
           const outputFile = "/tmp/tutor-mx-ci-database-url";
 
-          // Gitea act_runner can execute jobs either in a Docker job container
-          // or directly on the runner host. Support both networking models.
+          // The service hostname is the service label on the job's Docker network.
+          // Use a project-specific label instead of the generic `postgres` name so
+          // a shared runner cannot accidentally resolve a different database.
           const candidates = [
             {
-              label: "runner-host mapped port",
-              url: "postgresql://tutor_mx:tutor_mx@127.0.0.1:15432/tutor_mx",
-            },
-            {
-              label: "runner-host mapped port (trust)",
-              url: "postgresql://tutor_mx@127.0.0.1:15432/tutor_mx",
-            },
-            {
-              label: "service alias",
-              url: "postgresql://tutor_mx:tutor_mx@postgres:5432/tutor_mx",
-            },
-            {
-              label: "service alias (trust)",
-              url: "postgresql://tutor_mx@postgres:5432/tutor_mx",
+              label: "Tutor Mx CI service alias",
+              url: "postgresql://tutor_mx@tutormxdb:5432/tutor_mx",
             },
           ];
 
