@@ -108,7 +108,6 @@ jobs:
       DATABASE_URL: postgresql://tutor_mx@127.0.0.1:15432/tutor_mx
       PGDATA: /tmp/tutor-mx-postgres-data
       PGPORT: 15432
-      PORT: 3000
 
     steps:
       - name: Check out repository
@@ -128,6 +127,7 @@ jobs:
           set -euo pipefail
 
           pg_bin="$(find /usr/lib/postgresql -type f -name initdb -printf '%h\n' | sort -V | tail -n 1)"
+
           if [ -z "$pg_bin" ]; then
             echo "PostgreSQL binaries were not installed."
             exit 1
@@ -209,26 +209,61 @@ jobs:
           npm run db:verify
           npm run build:backend
 
+          # Port 3000 is occupied by a SolidStart process on some shared
+          # runners. Ask the kernel for an unused port for this job.
+          PORT="$(node --input-type=module <<'NODE'
+          import net from "node:net";
+
+          const server = net.createServer();
+
+          server.on("error", (error) => {
+            throw error;
+          });
+
+          server.listen(0, () => {
+            const address = server.address();
+
+            if (!address || typeof address === "string") {
+              throw new Error("Could not allocate a local API port.");
+            }
+
+            process.stdout.write(String(address.port));
+            server.close();
+          });
+          NODE
+          )"
+
+          export PORT
+
+          echo "Starting Tutor Mx API on isolated port $PORT."
+
           node dist/server.js > /tmp/tutor-mx-api.log 2>&1 &
           api_pid=$!
 
           node --input-type=module <<'NODE' || {
           import http from "node:http";
 
-          function requestJson(path) {
+          const port = Number(process.env.PORT);
+
+          if (!Number.isInteger(port) || port < 1 || port > 65_535) {
+            throw new Error("PORT is not a valid TCP port.");
+          }
+
+          const hosts = ["::1", "127.0.0.1"];
+
+          function requestJson(hostname, path) {
             return new Promise((resolve, reject) => {
               const request = http.get(
                 {
-                  hostname: "127.0.0.1",
-                  port: 3000,
+                  hostname,
+                  port,
                   path,
                   headers: {
                     accept: "application/json",
                   },
 
-                  // Node 24 can inherit the Gitea runner's proxy configuration.
-                  // Disabling the shared agent forces this request directly to
-                  // the API running inside the current job container.
+                  // Prevent Node 24 from sending this local request through
+                  // the shared runner's configured HTTP proxy.
                   agent: false,
                 },
                 (response) => {
@@ -274,25 +309,36 @@ jobs:
             let lastError;
 
             for (let attempt = 1; attempt <= 20; attempt += 1) {
-              try {
-                const body = await requestJson(path);
+              for (const hostname of hosts) {
+                try {
+                  const body = await requestJson(hostname, path);
 
-                if (body?.status !== expectedStatus) {
-                  throw new Error(
-                    `${path} returned an unexpected response`,
+                  if (body?.status !== expectedStatus) {
+                    throw new Error(
+                      `${path} returned an unexpected response`,
+                    );
+                  }
+
+                  console.log(
+                    `${path} passed via ${hostname}:${port}.`,
+                  );
+                  return;
+                } catch (error) {
+                  const message =
+                    error instanceof Error
+                      ? error.message
+                      : String(error);
+
+                  lastError = new Error(
+                    `${hostname}:${port}: ${message}`,
                   );
                 }
+              }
 
-                console.log(`${path} passed.`);
-                return;
-              } catch (error) {
-                lastError = error;
-
-                if (attempt < 20) {
-                  await new Promise((resolve) => {
-                    setTimeout(resolve, 500);
-                  });
-                }
+              if (attempt < 20) {
+                await new Promise((resolve) => {
+                  setTimeout(resolve, 500);
+                });
               }
             }
 
@@ -302,7 +348,9 @@ jobs:
           await check("/health", "ok");
           await check("/ready", "ready");
 
-          console.log("Local API health and readiness smoke passed.");
+          console.log(
+            "Local API health and readiness smoke passed.",
+          );
           NODE
             sed -n '1,120p' /tmp/tutor-mx-api.log
             exit 1
