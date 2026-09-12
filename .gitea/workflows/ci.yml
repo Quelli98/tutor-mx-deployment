@@ -100,7 +100,6 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
-      DATABASE_URL: postgresql://tutor_mx:tutor_mx@postgres:5432/tutor_mx
       PORT: 3000
 
     services:
@@ -108,15 +107,18 @@ jobs:
         image: postgres:17-alpine
         env:
           POSTGRES_USER: tutor_mx
-          POSTGRES_PASSWORD: "tutor_mx"
+          POSTGRES_PASSWORD: tutor_mx
           POSTGRES_DB: tutor_mx
-          # Keep each service container's database outside the default data volume.
+          # This database exists only for this CI job. Trust auth removes any
+          # dependency on password state left by a shared runner/service setup.
+          POSTGRES_HOST_AUTH_METHOD: trust
+          # A unique in-container data directory proves that the workflow is
+          # talking to this service rather than some other PostgreSQL instance.
           PGDATA: /tmp/tutor-mx-postgres-data
         ports:
-          - 5432:5432
-        # The shared Gitea runners have repeatedly marked the service unhealthy
-        # before the repository steps start. Readiness is checked explicitly below
-        # over the job/service Docker network instead.
+          # Keep the normal service port inside Docker, but expose a different
+          # host port for runners that execute job steps directly on the host.
+          - 15432:5432
         options: --no-healthcheck
 
     steps:
@@ -132,71 +134,122 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Wait for PostgreSQL readiness
+      - name: Find and verify the PostgreSQL service
         timeout-minutes: 2
         run: |
           node --input-type=module <<'NODE'
+          import fs from "node:fs";
           import pg from "pg";
 
-          const connectionString = process.env.DATABASE_URL;
-          if (!connectionString || !new URL(connectionString).password) {
-            console.error("DATABASE_URL must include a PostgreSQL password.");
-            process.exit(1);
-          }
+          const expectedDataDirectory = "/tmp/tutor-mx-postgres-data";
+          const outputFile = "/tmp/tutor-mx-ci-database-url";
+
+          // Gitea act_runner can execute jobs either in a Docker job container
+          // or directly on the runner host. Support both networking models.
+          const candidates = [
+            {
+              label: "runner-host mapped port",
+              url: "postgresql://tutor_mx:tutor_mx@127.0.0.1:15432/tutor_mx",
+            },
+            {
+              label: "runner-host mapped port (trust)",
+              url: "postgresql://tutor_mx@127.0.0.1:15432/tutor_mx",
+            },
+            {
+              label: "service alias",
+              url: "postgresql://tutor_mx:tutor_mx@postgres:5432/tutor_mx",
+            },
+            {
+              label: "service alias (trust)",
+              url: "postgresql://tutor_mx@postgres:5432/tutor_mx",
+            },
+          ];
+
           const deadline = Date.now() + 90_000;
-          let lastError;
+          const lastErrors = new Map();
 
           while (Date.now() < deadline) {
-            const client = new pg.Client({
-              connectionString,
-              connectionTimeoutMillis: 2_000,
-              query_timeout: 2_000,
-            });
+            for (const candidate of candidates) {
+              const client = new pg.Client({
+                connectionString: candidate.url,
+                connectionTimeoutMillis: 2_000,
+                query_timeout: 2_000,
+              });
 
-            try {
-              await client.connect();
-              await client.query("SELECT 1");
-              await client.end();
-              console.log("PostgreSQL is ready.");
-              process.exit(0);
-            } catch (error) {
-              lastError = error;
               try {
+                await client.connect();
+                const result = await client.query(`
+                  SELECT
+                    current_setting('data_directory') AS data_dir,
+                    current_user AS db_user,
+                    current_database() AS db_name
+                `);
+                const row = result.rows[0];
+
+                if (
+                  row?.data_dir !== expectedDataDirectory ||
+                  row?.db_user !== "tutor_mx" ||
+                  row?.db_name !== "tutor_mx"
+                ) {
+                  throw new Error(
+                    `connected to the wrong PostgreSQL instance ` +
+                      `(data_dir=${row?.data_dir ?? "unknown"}, ` +
+                      `user=${row?.db_user ?? "unknown"}, ` +
+                      `db=${row?.db_name ?? "unknown"})`,
+                  );
+                }
+
+                await client.query("SELECT 1");
                 await client.end();
-              } catch {}
-              if (error.code?.startsWith("28") || error.code === "3D000" || error.message.includes("SASL:")) {
-                console.error(`PostgreSQL authentication/configuration failed: ${error.message}`);
-                process.exit(1);
+                fs.writeFileSync(outputFile, candidate.url, { encoding: "utf8", mode: 0o600 });
+                console.log(`PostgreSQL CI service is ready via ${candidate.label}.`);
+                process.exit(0);
+              } catch (error) {
+                lastErrors.set(candidate.label, error instanceof Error ? error.message : String(error));
+                try {
+                  await client.end();
+                } catch {}
               }
-              console.log(`PostgreSQL not ready yet: ${error.message}`);
-              await new Promise((resolve) => setTimeout(resolve, 2_000));
             }
+
+            await new Promise((resolve) => setTimeout(resolve, 2_000));
           }
 
-          console.error("PostgreSQL did not become ready within 90 seconds.");
-          if (lastError) {
-            console.error(lastError.message);
+          console.error("Could not reach the intended PostgreSQL CI service within 90 seconds.");
+          for (const [label, message] of lastErrors) {
+            console.error(`${label}: ${message}`);
           }
           process.exit(1);
           NODE
 
       - name: Generate Prisma Client
-        run: npm run generate
+        run: |
+          export DATABASE_URL="$(cat /tmp/tutor-mx-ci-database-url)"
+          npm run generate
 
       - name: Deploy clean migrations
-        run: npm run db:migrate
+        run: |
+          export DATABASE_URL="$(cat /tmp/tutor-mx-ci-database-url)"
+          npm run db:migrate
 
       - name: Load safe demo data
-        run: npm run db:seed
+        run: |
+          export DATABASE_URL="$(cat /tmp/tutor-mx-ci-database-url)"
+          npm run db:seed
 
       - name: Verify constraints and allocation queries
-        run: npm run db:verify
+        run: |
+          export DATABASE_URL="$(cat /tmp/tutor-mx-ci-database-url)"
+          npm run db:verify
 
       - name: Build API
-        run: npm run build:backend
+        run: |
+          export DATABASE_URL="$(cat /tmp/tutor-mx-ci-database-url)"
+          npm run build:backend
 
       - name: Smoke local health and readiness
         run: |
+          export DATABASE_URL="$(cat /tmp/tutor-mx-ci-database-url)"
           npm start > /tmp/tutor-mx-api.log 2>&1 &
           api_pid=$!
           trap 'kill "$api_pid" 2>/dev/null || true' EXIT
