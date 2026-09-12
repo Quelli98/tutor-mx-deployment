@@ -10,6 +10,7 @@ const mocks = vi.hoisted(() => ({
   createApp: vi.fn(),
   excuseCreate: vi.fn(),
   findAllocationCandidates: vi.fn(),
+  getPublicHolidays: vi.fn(),
   getTutorHourSummary: vi.fn(),
   listen: vi.fn(),
   profileCreate: vi.fn(),
@@ -72,6 +73,12 @@ vi.mock("./database.js", () => ({
 vi.mock("./services/allocation-queries.js", () => ({
   findAllocationCandidates: mocks.findAllocationCandidates,
   getTutorHourSummary: mocks.getTutorHourSummary,
+}));
+
+vi.mock("./integrations/public-holidays.js", () => ({
+  createSouthAfricaPublicHolidayService: () => ({
+    execute: mocks.getPublicHolidays,
+  }),
 }));
 
 const originalEnvironment = {
@@ -198,6 +205,22 @@ describe("server startup", () => {
     expect(consoleLog).toHaveBeenCalledWith(
       "Tutor Mx API listening on http://localhost:4100",
     );
+  });
+
+  it("wires the production public-holiday adapter into the Express dependencies", async () => {
+    const result = {
+      source: "external" as const,
+      data: [],
+      retrievedAt: "2026-09-12T10:00:00.000Z",
+    };
+    mocks.getPublicHolidays.mockResolvedValue(result);
+
+    await import("./server.js");
+
+    await expect(capturedDependencies().getPublicHolidays(2026)).resolves.toBe(
+      result,
+    );
+    expect(mocks.getPublicHolidays).toHaveBeenCalledWith(2026);
   });
 
   it("passes configured Auth0, CORS and safe request logging dependencies", async () => {

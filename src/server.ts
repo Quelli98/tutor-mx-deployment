@@ -16,6 +16,7 @@ import {
 } from "./auth/password-reset.js";
 import { createAuth0RoleProvisioner, createAuth0UserDeleter } from "./auth/management-api.js";
 import { prisma, queryClient } from "./database.js";
+import { createSouthAfricaPublicHolidayService } from "./integrations/public-holidays.js";
 import {
   findAllocationCandidates,
   getTutorHourSummary,
@@ -167,6 +168,7 @@ const studentWorkflowService = createStudentWorkflowService(
 const timesheetWorkflowService = createTimesheetWorkflowService(prisma);
 const excuseWorkflowService = createExcuseWorkflowService(prisma);
 const organiserService = createOrganiserService(prisma);
+const publicHolidayService = createSouthAfricaPublicHolidayService();
 
 const app = createApp(
   async () => {
@@ -177,6 +179,7 @@ const app = createApp(
     verifyAccessToken,
     requestPasswordReset,
     allowSelfServiceOrganiser: process.env.ALLOW_SELF_SERVICE_ORGANISER?.toLowerCase() === "true",
+    getPublicHolidays: (year) => publicHolidayService.execute(year),
     async findProfileByAuth0Id(auth0Id) {
       const profile = await prisma.profile.findUnique({
         where: { auth0Id },

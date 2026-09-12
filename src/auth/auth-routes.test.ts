@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   createApp,
   createRouteError,
+  type AppDependencies,
   type AllocationCandidateQuery,
   type AllocationCandidateSummary,
   type CourseSummary,
@@ -66,6 +67,7 @@ function makeApp(
     findProfileByAuth0Id: (id: string) => Promise<ProfileSummary | null>;
     onboardUser: (id: string, role: TutorRole) => Promise<ProfileSummary>;
     allowSelfServiceOrganiser: boolean;
+    getPublicHolidays: AppDependencies["getPublicHolidays"];
     listCourses: () => Promise<CourseSummary[]>;
     listTutors: () => Promise<TutorSummary[]>;
     requestPasswordReset: (email: string) => Promise<void>;
@@ -144,6 +146,15 @@ function makeApp(
 
     allowSelfServiceOrganiser:
       overrides.allowSelfServiceOrganiser ?? true,
+
+    getPublicHolidays:
+      overrides.getPublicHolidays ??
+      (async () => ({
+        source: "fallback",
+        data: [],
+        retrievedAt: null,
+        reason: "unavailable",
+      })),
 
     listCourses:
       overrides.listCourses ??
@@ -589,6 +600,131 @@ describe("authentication contract", () => {
     expect(deleteAccount).toHaveBeenCalledWith(
       "auth0|tutor",
     );
+  });
+});
+
+describe("GET /api/public-holidays", () => {
+  it("requires authentication before calling the external adapter", async () => {
+    const getPublicHolidays = vi.fn<AppDependencies["getPublicHolidays"]>();
+
+    const response = await request(makeApp({ getPublicHolidays })).get(
+      "/api/public-holidays?year=2026",
+    );
+
+    expect(response.status).toBe(401);
+    expect(response.body.error.code).toBe("AUTHENTICATION_REQUIRED");
+    expect(getPublicHolidays).not.toHaveBeenCalled();
+  });
+
+  it.each(["ORGANISER", "TUTOR", "STUDENT"] as const)(
+    "allows an authenticated %s profile to read safe holiday fields",
+    async (role) => {
+      const holidays = [
+        {
+          date: "2026-12-25",
+          name: "Christmas Day",
+          countryCode: "ZA" as const,
+          nationalHoliday: true,
+          holidayTypes: ["Public"],
+        },
+      ];
+      const getPublicHolidays = vi
+        .fn<AppDependencies["getPublicHolidays"]>()
+        .mockResolvedValue({
+          source: "external",
+          data: holidays,
+          retrievedAt: "2026-09-12T10:00:00.000Z",
+        });
+      const matchingProfile = { ...profile, role };
+      const app = makeApp({
+        findProfileByAuth0Id: async () => matchingProfile,
+        verifyAccessToken: async () => auth(role),
+        getPublicHolidays,
+      });
+
+      const response = await request(app)
+        .get("/api/public-holidays?year=2026")
+        .set("Authorization", "Bearer valid-token");
+
+      expect(response.status).toBe(200);
+      expect(response.body).toEqual({
+        data: {
+          source: "external",
+          holidays,
+          retrievedAt: "2026-09-12T10:00:00.000Z",
+        },
+      });
+      expect(getPublicHolidays).toHaveBeenCalledOnce();
+      expect(getPublicHolidays).toHaveBeenCalledWith(2026);
+    },
+  );
+
+  it("returns a controlled successful fallback when the provider is unavailable", async () => {
+    const getPublicHolidays = vi
+      .fn<AppDependencies["getPublicHolidays"]>()
+      .mockResolvedValue({
+        source: "fallback",
+        data: [],
+        retrievedAt: null,
+        reason: "timeout",
+      });
+
+    const response = await request(makeApp({ getPublicHolidays }))
+      .get("/api/public-holidays?year=2026")
+      .set("Authorization", "Bearer valid-token");
+
+    expect(response.status).toBe(200);
+    expect(response.body).toEqual({
+      data: {
+        source: "fallback",
+        holidays: [],
+        retrievedAt: null,
+        reason: "timeout",
+      },
+    });
+  });
+
+  it.each([
+    "/api/public-holidays",
+    "/api/public-holidays?year=1999",
+    "/api/public-holidays?year=2101",
+    "/api/public-holidays?year=2026.5",
+    "/api/public-holidays?year=20x6",
+    "/api/public-holidays?year=2026&year=2027",
+  ])("rejects an invalid or ambiguous year: %s", async (path) => {
+    const getPublicHolidays = vi.fn<AppDependencies["getPublicHolidays"]>();
+
+    const response = await request(makeApp({ getPublicHolidays }))
+      .get(path)
+      .set("Authorization", "Bearer valid-token");
+
+    expect(response.status).toBe(400);
+    expect(response.body).toEqual({
+      error: {
+        code: "VALIDATION_ERROR",
+        message: "Enter a four-digit year from 2000 to 2100.",
+      },
+    });
+    expect(getPublicHolidays).not.toHaveBeenCalled();
+  });
+
+  it("keeps unexpected adapter errors private", async () => {
+    const getPublicHolidays = vi
+      .fn<AppDependencies["getPublicHolidays"]>()
+      .mockRejectedValue(new Error("private upstream details"));
+
+    const response = await request(makeApp({ getPublicHolidays }))
+      .get("/api/public-holidays?year=2026")
+      .set("Authorization", "Bearer valid-token");
+
+    expect(response.status).toBe(500);
+    expect(response.body).toEqual({
+      error: {
+        code: "INTERNAL_ERROR",
+        message: "The request could not be completed.",
+      },
+    });
+    expect(response.text).not.toContain("private upstream details");
   });
 });
 
