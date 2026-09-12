@@ -290,7 +290,7 @@ describe("allocation mutation routes", () => {
 
     expect(created.status).toBe(201);
     expect(created.body).toEqual({ data: { allocation: allocationSummary } });
-    expect(createAllocation).toHaveBeenCalledWith({
+    expect(createAllocation).toHaveBeenCalledWith("auth0|organiser", {
       ...validAllocation,
       startsAt: new Date(validAllocation.startsAt),
       endsAt: new Date(validAllocation.endsAt),
@@ -303,7 +303,7 @@ describe("allocation mutation routes", () => {
 
     expect(updated.status).toBe(200);
     expect(updated.body).toEqual({ data: { allocation: allocationSummary } });
-    expect(updateAllocation).toHaveBeenCalledWith(11, {
+    expect(updateAllocation).toHaveBeenCalledWith("auth0|organiser", 11, {
       ...validAllocation,
       startsAt: new Date(validAllocation.startsAt),
       endsAt: new Date(validAllocation.endsAt),
@@ -314,7 +314,7 @@ describe("allocation mutation routes", () => {
       .set("Authorization", "Bearer valid-token");
 
     expect(removed.status).toBe(204);
-    expect(removeAllocation).toHaveBeenCalledWith(11, { minimumMark: 50 });
+    expect(removeAllocation).toHaveBeenCalledWith("auth0|organiser", 11, { minimumMark: 50 });
   });
 
   it("rejects malformed allocation input before delegation", async () => {

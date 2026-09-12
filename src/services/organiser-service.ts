@@ -289,9 +289,25 @@ function mapDecisionFailure(
   throw value;
 }
 
+async function allocationAudit(transaction: TransactionClient, auth0Id: string) {
+  const organiser = await transaction.profile.findUnique({
+    where: { auth0Id },
+    select: { id: true, role: true },
+  });
+  if (organiser?.role !== "ORGANISER") {
+    throw createRouteError(
+      404,
+      "ORGANISER_PROFILE_NOT_FOUND",
+      "No organiser profile is linked to this account.",
+    );
+  }
+  return { reviewedById: organiser.id, reviewedAt: new Date() };
+}
+
 export function createOrganiserService(client: PrismaClient) {
   return {
     async createAllocation(
+      organiserAuth0Id: string,
       input: AllocationWriteInput,
     ): Promise<AllocationSummary> {
       try {
@@ -312,7 +328,10 @@ export function createOrganiserService(client: PrismaClient) {
             if (input.status === "CONFIRMED") {
               allocation = await transaction.allocation.update({
                 where: { id: allocation.id },
-                data: { status: "CONFIRMED" },
+                data: {
+                  status: "CONFIRMED",
+                  ...await allocationAudit(transaction, organiserAuth0Id),
+                },
                 select: allocationSelection,
               });
             }
@@ -327,6 +346,7 @@ export function createOrganiserService(client: PrismaClient) {
     },
 
     async updateAllocation(
+      organiserAuth0Id: string,
       allocationId: number,
       input: AllocationWriteInput,
     ): Promise<AllocationSummary> {
@@ -367,6 +387,7 @@ export function createOrganiserService(client: PrismaClient) {
                 endsAt: input.endsAt,
                 allocatedHours: input.requestedHours,
                 status: nextStatus,
+                ...await allocationAudit(transaction, organiserAuth0Id),
               },
             });
             if (changed.count !== 1) {
@@ -398,6 +419,7 @@ export function createOrganiserService(client: PrismaClient) {
     },
 
     async removeAllocation(
+      organiserAuth0Id: string,
       allocationId: number,
       input: AllocationRemoveInput,
     ): Promise<void> {
@@ -438,7 +460,10 @@ export function createOrganiserService(client: PrismaClient) {
             );
             const changed = await transaction.allocation.updateMany({
               where: { id: allocationId, status: current.status },
-              data: { status: "CANCELLED" },
+              data: {
+                status: "CANCELLED",
+                ...await allocationAudit(transaction, organiserAuth0Id),
+              },
             });
             if (changed.count !== 1) {
               throw createRouteError(

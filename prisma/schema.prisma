@@ -133,6 +133,7 @@ model Allocation {
   updatedAt      DateTime         @updatedAt
 
   @@unique([id, tutorId])
+  @@index([reviewedById])
   @@index([tutorId, status, startsAt, endsAt])
   @@index([courseId, status, startsAt])
 }

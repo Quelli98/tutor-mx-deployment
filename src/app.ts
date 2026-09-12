@@ -324,12 +324,17 @@ export interface AppDependencies {
   listAllocationCandidates: (
     input: AllocationCandidateQuery,
   ) => Promise<AllocationCandidateSummary[]>;
-  createAllocation: (input: AllocationWriteInput) => Promise<AllocationSummary>;
+  createAllocation: (
+    auth0Id: string,
+    input: AllocationWriteInput,
+  ) => Promise<AllocationSummary>;
   updateAllocation: (
+    auth0Id: string,
     allocationId: number,
     input: AllocationWriteInput,
   ) => Promise<AllocationSummary>;
   removeAllocation: (
+    auth0Id: string,
     allocationId: number,
     input: AllocationRemoveInput,
   ) => Promise<void>;
@@ -1463,7 +1468,10 @@ export function createApp(
       }
 
       try {
-        const allocation = await dependencies.createAllocation(parsed.value);
+        const allocation = await dependencies.createAllocation(
+          (request as AuthenticatedRequest).auth!.subject,
+          parsed.value,
+        );
         response.status(201).json({ data: { allocation } });
       } catch (value) {
         sendRouteError(response, value);
@@ -1505,6 +1513,7 @@ export function createApp(
 
       try {
         const allocation = await dependencies.updateAllocation(
+          (request as AuthenticatedRequest).auth!.subject,
           allocationId.value,
           parsed.value,
         );
@@ -1548,9 +1557,11 @@ export function createApp(
       }
 
       try {
-        await dependencies.removeAllocation(allocationId.value, {
-          minimumMark,
-        });
+        await dependencies.removeAllocation(
+          (request as AuthenticatedRequest).auth!.subject,
+          allocationId.value,
+          { minimumMark },
+        );
         response.status(204).end();
       } catch (value) {
         sendRouteError(response, value);

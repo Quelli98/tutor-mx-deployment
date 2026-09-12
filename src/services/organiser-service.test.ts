@@ -112,7 +112,11 @@ function arrangePassingAllocationRules(
   } = options;
   const { transaction } = harness;
 
-  transaction.profile.findUnique.mockResolvedValue({ role: "TUTOR" });
+  transaction.profile.findUnique.mockImplementation(async ({ where }) =>
+    where.auth0Id === "auth0|organiser"
+      ? { id: 21, role: "ORGANISER" }
+      : { role: "TUTOR" },
+  );
   transaction.course.findUnique.mockResolvedValue({ id: 9 });
   transaction.tutorMark.findUnique.mockResolvedValue(
     mark === null ? null : { mark },
@@ -152,7 +156,7 @@ describe("organiser allocation service", () => {
     harness.transaction.allocation.create.mockResolvedValue(allocationRow());
 
     await expect(
-      harness.service.createAllocation(allocationInput()),
+      harness.service.createAllocation("auth0|organiser", allocationInput()),
     ).resolves.toEqual({
       id: 11,
       tutorId: 7,
@@ -191,6 +195,8 @@ describe("organiser allocation service", () => {
 
     await expect(
       harness.service.createAllocation(
+
+        "auth0|organiser",
         allocationInput({ requestedHours: 0.1 }),
       ),
     ).resolves.toMatchObject({ allocatedHours: 0.1 });
@@ -204,6 +210,9 @@ describe("organiser allocation service", () => {
     );
 
     const result = await harness.service.createAllocation(
+
+
+      "auth0|organiser",
       allocationInput({ status: "CONFIRMED" }),
     );
 
@@ -213,16 +222,29 @@ describe("organiser allocation service", () => {
     expect(harness.transaction.allocation.update).toHaveBeenCalledWith(
       expect.objectContaining({
         where: { id: 11 },
-        data: { status: "CONFIRMED" },
+        data: { status: "CONFIRMED", reviewedById: 21, reviewedAt: expect.any(Date) },
       }),
     );
+  });
+
+  it.each([null, { id: 7, role: "TUTOR" }])("rejects confirmation without an organiser profile: %j", async (profile) => {
+    arrangePassingAllocationRules(harness);
+    harness.transaction.profile.findUnique.mockImplementation(async ({ where }) =>
+      where.auth0Id ? profile : { role: "TUTOR" },
+    );
+    harness.transaction.allocation.create.mockResolvedValue(allocationRow());
+
+    await expect(harness.service.createAllocation(
+      "auth0|organiser", allocationInput({ status: "CONFIRMED" }),
+    )).rejects.toMatchObject({ code: "ORGANISER_PROFILE_NOT_FOUND" });
+    expect(harness.transaction.allocation.update).not.toHaveBeenCalled();
   });
 
   it("rejects an allocation below the mark requirement with the canonical reason code", async () => {
     arrangePassingAllocationRules(harness, { mark: 64 });
 
     await expect(
-      harness.service.createAllocation(allocationInput()),
+      harness.service.createAllocation("auth0|organiser", allocationInput()),
     ).rejects.toMatchObject({ status: 409, code: "insufficient-mark" });
     expect(harness.transaction.allocation.create).not.toHaveBeenCalled();
   });
@@ -238,7 +260,7 @@ describe("organiser allocation service", () => {
     });
 
     await expect(
-      harness.service.createAllocation(allocationInput()),
+      harness.service.createAllocation("auth0|organiser", allocationInput()),
     ).rejects.toMatchObject({ status: 409, code: "schedule-clash" });
     expect(harness.transaction.allocation.create).not.toHaveBeenCalled();
   });
@@ -250,7 +272,7 @@ describe("organiser allocation service", () => {
     });
 
     await expect(
-      harness.service.createAllocation(allocationInput()),
+      harness.service.createAllocation("auth0|organiser", allocationInput()),
     ).rejects.toMatchObject({ status: 409, code: "hour-limit-exceeded" });
     expect(harness.transaction.allocation.create).not.toHaveBeenCalled();
   });
@@ -259,7 +281,7 @@ describe("organiser allocation service", () => {
     arrangePassingAllocationRules(harness, { weeklyHours: null });
 
     await expect(
-      harness.service.createAllocation(allocationInput()),
+      harness.service.createAllocation("auth0|organiser", allocationInput()),
     ).rejects.toMatchObject({ status: 409, code: "hour-limit-exceeded" });
   });
 
@@ -267,7 +289,7 @@ describe("organiser allocation service", () => {
     arrangePassingAllocationRules(harness, { mark: null, usedHours: null });
 
     await expect(
-      harness.service.createAllocation(allocationInput()),
+      harness.service.createAllocation("auth0|organiser", allocationInput()),
     ).rejects.toMatchObject({ status: 409, code: "insufficient-mark" });
   });
 
@@ -277,7 +299,7 @@ describe("organiser allocation service", () => {
       harness.transaction.profile.findUnique.mockResolvedValue(profile);
 
       await expect(
-        harness.service.createAllocation(allocationInput()),
+        harness.service.createAllocation("auth0|organiser", allocationInput()),
       ).rejects.toMatchObject({ status: 404, code: "TUTOR_NOT_FOUND" });
       expect(harness.transaction.course.findUnique).not.toHaveBeenCalled();
     },
@@ -288,7 +310,7 @@ describe("organiser allocation service", () => {
     harness.transaction.course.findUnique.mockResolvedValue(null);
 
     await expect(
-      harness.service.createAllocation(allocationInput()),
+      harness.service.createAllocation("auth0|organiser", allocationInput()),
     ).rejects.toMatchObject({ status: 404, code: "COURSE_NOT_FOUND" });
     expect(harness.transaction.allocation.create).not.toHaveBeenCalled();
   });
@@ -300,7 +322,7 @@ describe("organiser allocation service", () => {
     );
 
     await expect(
-      harness.service.createAllocation(allocationInput()),
+      harness.service.createAllocation("auth0|organiser", allocationInput()),
     ).rejects.toMatchObject({
       status: 409,
       code: "ALLOCATION_CONFLICT",
@@ -315,7 +337,7 @@ describe("organiser allocation service", () => {
     harness.transaction.allocation.create.mockRejectedValue(unexpected);
 
     await expect(
-      harness.service.createAllocation(allocationInput()),
+      harness.service.createAllocation("auth0|organiser", allocationInput()),
     ).rejects.toBe(unexpected);
   });
 
@@ -327,6 +349,9 @@ describe("organiser allocation service", () => {
     harness.transaction.allocation.updateMany.mockResolvedValue({ count: 1 });
 
     const result = await harness.service.updateAllocation(
+
+
+      "auth0|organiser",
       11,
       allocationInput({ status: "CONFIRMED" }),
     );
@@ -345,7 +370,7 @@ describe("organiser allocation service", () => {
     expect(harness.transaction.allocation.updateMany).toHaveBeenCalledWith(
       expect.objectContaining({
         where: { id: 11, status: "PROPOSED" },
-        data: expect.objectContaining({ status: "CONFIRMED" }),
+        data: expect.objectContaining({ status: "CONFIRMED", reviewedById: 21, reviewedAt: expect.any(Date) }),
       }),
     );
   });
@@ -354,7 +379,7 @@ describe("organiser allocation service", () => {
     harness.transaction.allocation.findUnique.mockResolvedValue(null);
 
     await expect(
-      harness.service.updateAllocation(404, allocationInput()),
+      harness.service.updateAllocation("auth0|organiser", 404, allocationInput()),
     ).rejects.toMatchObject({ status: 404, code: "ALLOCATION_NOT_FOUND" });
   });
 
@@ -377,6 +402,8 @@ describe("organiser allocation service", () => {
 
     await expect(
       harness.service.updateAllocation(
+
+        "auth0|organiser",
         11,
         allocationInput(requested ? { status: requested } : {}),
       ),
@@ -393,7 +420,7 @@ describe("organiser allocation service", () => {
     harness.transaction.allocation.updateMany.mockResolvedValue({ count: 0 });
 
     await expect(
-      harness.service.updateAllocation(11, allocationInput()),
+      harness.service.updateAllocation("auth0|organiser", 11, allocationInput()),
     ).rejects.toMatchObject({ status: 409, code: "ALLOCATION_CONFLICT" });
   });
 
@@ -405,7 +432,7 @@ describe("organiser allocation service", () => {
     harness.transaction.allocation.updateMany.mockResolvedValue({ count: 1 });
 
     await expect(
-      harness.service.updateAllocation(11, allocationInput()),
+      harness.service.updateAllocation("auth0|organiser", 11, allocationInput()),
     ).rejects.toMatchObject({ status: 409, code: "ALLOCATION_CONFLICT" });
   });
 
@@ -417,7 +444,7 @@ describe("organiser allocation service", () => {
     harness.transaction.allocation.updateMany.mockResolvedValue({ count: 1 });
 
     await expect(
-      harness.service.removeAllocation(11, { minimumMark: 65 }),
+      harness.service.removeAllocation("auth0|organiser", 11, { minimumMark: 65 }),
     ).resolves.toBeUndefined();
     expect(harness.transaction.allocation.aggregate).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -426,7 +453,7 @@ describe("organiser allocation service", () => {
     );
     expect(harness.transaction.allocation.updateMany).toHaveBeenCalledWith({
       where: { id: 11, status: "CONFIRMED" },
-      data: { status: "CANCELLED" },
+      data: { status: "CANCELLED", reviewedById: 21, reviewedAt: expect.any(Date) },
     });
   });
 
@@ -435,7 +462,7 @@ describe("organiser allocation service", () => {
     harness.transaction.allocation.findUnique.mockResolvedValue(allocationRow());
 
     await expect(
-      harness.service.removeAllocation(11, { minimumMark: 65 }),
+      harness.service.removeAllocation("auth0|organiser", 11, { minimumMark: 65 }),
     ).rejects.toMatchObject({ status: 409, code: "insufficient-mark" });
     expect(harness.transaction.allocation.updateMany).not.toHaveBeenCalled();
   });
@@ -444,7 +471,7 @@ describe("organiser allocation service", () => {
     harness.transaction.allocation.findUnique.mockResolvedValue(null);
 
     await expect(
-      harness.service.removeAllocation(404, { minimumMark: 65 }),
+      harness.service.removeAllocation("auth0|organiser", 404, { minimumMark: 65 }),
     ).rejects.toMatchObject({ status: 404, code: "ALLOCATION_NOT_FOUND" });
   });
 
@@ -454,7 +481,7 @@ describe("organiser allocation service", () => {
     );
 
     await expect(
-      harness.service.removeAllocation(11, { minimumMark: 65 }),
+      harness.service.removeAllocation("auth0|organiser", 11, { minimumMark: 65 }),
     ).rejects.toMatchObject({ status: 409, code: "ALLOCATION_CONFLICT" });
   });
 
@@ -464,7 +491,7 @@ describe("organiser allocation service", () => {
     harness.transaction.allocation.updateMany.mockResolvedValue({ count: 0 });
 
     await expect(
-      harness.service.removeAllocation(11, { minimumMark: 65 }),
+      harness.service.removeAllocation("auth0|organiser", 11, { minimumMark: 65 }),
     ).rejects.toMatchObject({ status: 409, code: "ALLOCATION_CONFLICT" });
   });
 });

@@ -128,7 +128,7 @@ function makeApp(overrides: Partial<AppDependencies> = {}) {
       updatedAt: "2026-09-07T10:01:00.000Z",
     }),
     listAllocationCandidates: async () => [],
-    createAllocation: async (input) => ({
+    createAllocation: async (_auth0Id, input) => ({
       id: 1,
       tutorId: input.tutorId,
       courseId: input.courseId,
@@ -137,7 +137,7 @@ function makeApp(overrides: Partial<AppDependencies> = {}) {
       allocatedHours: input.requestedHours,
       status: input.status ?? "PROPOSED",
     }),
-    updateAllocation: async (id, input) => ({
+    updateAllocation: async (_auth0Id, id, input) => ({
       id,
       tutorId: input.tutorId,
       courseId: input.courseId,

@@ -296,7 +296,7 @@ function makeApp(
     listAllocationCandidates:
       overrides.listAllocationCandidates ?? (async () => []),
 
-    createAllocation: async (input) => ({
+    createAllocation: async (_auth0Id, input) => ({
       id: 1,
       tutorId: input.tutorId,
       courseId: input.courseId,
@@ -306,7 +306,7 @@ function makeApp(
       status: input.status ?? "PROPOSED",
     }),
 
-    updateAllocation: async (id, input) => ({
+    updateAllocation: async (_auth0Id, id, input) => ({
       id,
       tutorId: input.tutorId,
       courseId: input.courseId,

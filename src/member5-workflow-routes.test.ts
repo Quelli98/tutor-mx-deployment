@@ -137,7 +137,7 @@ function dependenciesFor(
       updatedAt: "2030-09-02T08:00:00.000Z",
     }),
     listAllocationCandidates: async () => [],
-    createAllocation: async (input) => ({
+    createAllocation: async (_auth0Id, input) => ({
       id: 1,
       tutorId: input.tutorId,
       courseId: input.courseId,
@@ -146,7 +146,7 @@ function dependenciesFor(
       allocatedHours: input.requestedHours,
       status: input.status ?? "PROPOSED",
     }),
-    updateAllocation: async (id, input) => ({
+    updateAllocation: async (_auth0Id, id, input) => ({
       id,
       tutorId: input.tutorId,
       courseId: input.courseId,
