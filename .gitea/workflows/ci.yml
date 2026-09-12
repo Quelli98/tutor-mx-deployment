@@ -108,14 +108,14 @@ jobs:
         env:
           POSTGRES_USER: tutor_mx
           POSTGRES_DB: tutor_mx
-          # Disposable CI-only database. No production data or credentials are used.
+          # Disposable CI-only database. No production data or password is used.
           POSTGRES_HOST_AUTH_METHOD: trust
-          # Keep the cluster outside the image default volume and verify this path
-          # before migrations run, so a stray shared-runner database cannot pass.
           PGDATA: /tmp/tutor-mx-postgres-data
-        # The lecturer's ubuntu-latest jobs run in Docker containers. Gitea places
-        # the job and its service containers on the same per-job Docker network,
-        # so no host port needs to be published.
+        # On the lecturer's shared runners, job steps appear to run outside the
+        # service container's Docker network. Publish the disposable database on
+        # a non-default host port and discover the Docker-host gateway at runtime.
+        ports:
+          - 15432:5432
         options: --no-healthcheck
 
     steps:
@@ -141,15 +141,43 @@ jobs:
           const expectedDataDirectory = "/tmp/tutor-mx-postgres-data";
           const outputFile = "/tmp/tutor-mx-ci-database-url";
 
-          // The service hostname is the service label on the job's Docker network.
-          // Use a project-specific label instead of the generic `postgres` name so
-          // a shared runner cannot accidentally resolve a different database.
-          const candidates = [
-            {
-              label: "Tutor Mx CI service alias",
-              url: "postgresql://tutor_mx@tutormxdb:5432/tutor_mx",
-            },
-          ];
+          function defaultGatewayFromProc() {
+            try {
+              const lines = fs.readFileSync("/proc/net/route", "utf8").trim().split(/\r?\n/).slice(1);
+              for (const line of lines) {
+                const fields = line.trim().split(/\s+/);
+                if (fields[1] !== "00000000" || !fields[2]) continue;
+                const hex = fields[2];
+                if (!/^[0-9A-Fa-f]{8}$/.test(hex)) continue;
+                return [6, 4, 2, 0]
+                  .map((index) => Number.parseInt(hex.slice(index, index + 2), 16))
+                  .join(".");
+              }
+            } catch {}
+            return null;
+          }
+
+          const candidates = [];
+          const seen = new Set();
+          const addCandidate = (label, host, port) => {
+            if (!host) return;
+            const url = `postgresql://tutor_mx@${host}:${port}/tutor_mx`;
+            if (!seen.has(url)) {
+              seen.add(url);
+              candidates.push({ label, url });
+            }
+          };
+
+          // Docker-container job mode: the service label should resolve directly.
+          addCandidate("service alias", "tutormxdb", 5432);
+
+          // Host-mode runner inside Docker: published service ports live on the
+          // Docker daemon host, not on the runner container's own loopback.
+          addCandidate("Docker default gateway", defaultGatewayFromProc(), 15432);
+          addCandidate("Docker host DNS", "host.docker.internal", 15432);
+
+          // Native host-mode runner: the published port is available on loopback.
+          addCandidate("runner loopback", "127.0.0.1", 15432);
 
           const deadline = Date.now() + 90_000;
           const lastErrors = new Map();
