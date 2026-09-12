@@ -3,6 +3,7 @@
 **Branch:** `s2/m6/data-delivery-quality`
 **Author:** Member 6, Sprint 2
 **Date:** 2026-09-11
+**Integration recheck:** 2026-09-12 against Gitea `main` after Member 5 API-quality integration
 
 ---
 
@@ -75,16 +76,16 @@ correct and production-quality. This branch serves as a verification-only audit.
 
 ---
 
-## Clean Rehearsal Evidence (local, 2026-09-11)
+## Clean Rehearsal Evidence (integrated candidate, 2026-09-12)
 
 | Step                                 | Result                                                                                                |
 | ------------------------------------ | ----------------------------------------------------------------------------------------------------- |
 | `npm run generate`                   | Prisma Client 7.9.1 generated                                                                         |
 | `npm run lint` (backend + frontend)  | Clean — no warnings or errors                                                                         |
 | `npm run typecheck`                  | Clean — no errors                                                                                     |
-| `npm run test:backend`               | **284 / 284 passed** (18 test files, 7.6s)                                                            |
-| `npm run test:frontend`              | **147 / 147 passed** (26 test files, 54.5s)                                                           |
-| `npm run coverage:backend`           | 92.33% stmts / 88.55% branches / 95.13% funcs / 94.10% lines — **all above thresholds** (90/85/83/90) |
+| `npm run test:backend`               | **389 / 389 passed** (20 test files)                                                                  |
+| `npm run test:frontend`              | **147 / 147 passed** (26 test files)                                                                  |
+| `npm run coverage:backend`           | 93.50% stmts / 89.72% branches / 95.78% funcs / 94.99% lines — **all above thresholds** (90/85/83/90) |
 | `npm run coverage:frontend`          | 86.44% stmts / 82.83% branches / 91.44% funcs / 88.60% lines                                          |
 | `npm run build` (backend + frontend) | Compiled successfully                                                                                 |
 | `npm run security:check`             | Passed — no tracked secrets, AI attributions present                                                  |

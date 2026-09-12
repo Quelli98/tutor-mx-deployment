@@ -83,6 +83,7 @@ Authorization: Bearer <access-token>
 | `POST /api/auth/onboarding` | Valid Auth0 identity + selected role | Assigns Auth0 role and creates matching Neon Profile | `400`, `401`, `403`, `409`, safe `500` |
 | `GET /api/me` | Valid token linked to a Tutor Mx profile | `200 { data: { profile } }` | `401`, `403`, `404` in `{ error: { code, message } }` |
 | `GET /api/profile/current` | Valid token and supported matching role | Alias of the current-profile contract | `401`, `403`, `404` |
+| `GET /api/public-holidays?year=YYYY` | Any supported authenticated role | `200 { data: { source, holidays, retrievedAt, reason? } }`; fallback remains a successful non-blocking response | `400`, `401`, `403`, safe `500` |
 | `GET /api/courses` | Any supported authenticated role | `200 { data: { courses } }` | `401`, `403`, safe `500` |
 | `POST /api/courses` | Organiser | `201 { data: { course } }` | `400`, `401`, `403`, `409` |
 | `PATCH /api/courses/:courseId` | Organiser | `200 { data: { course } }` | `400`, `401`, `403`, `404`, `409` |

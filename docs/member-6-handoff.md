@@ -30,11 +30,11 @@ Decision and use case:
 
 - **Service:** Nager.Date Holiday API v4, which provides public holiday calendar data and does not require an API key for the community endpoint.
 - **Tutor Mx purpose:** retrieve South African public holidays for a requested year so later scheduling/allocation work can warn about dates that may be unsuitable for tutoring.
-- **Backend-only call:** `npm run spike:holidays -- 2026` calls `https://nagerholidays.com/api/v4/Holidays/ZA/2026`; no frontend code calls the external service.
+- **Backend-only call:** `GET /api/public-holidays?year=2026` is protected by the normal Tutor Mx bearer/profile-role middleware and calls `https://nagerholidays.com/api/v4/Holidays/ZA/2026` on the server. The browser never calls the external provider directly. The original `npm run spike:holidays -- 2026` command remains available for a manual adapter check.
 - **Safe response:** only `date`, `name`, `countryCode`, `nationalHoliday` and `holidayTypes` are retained. Unexpected fields are discarded.
 - **Resilience:** the request has a three-second abortable timeout, strict response decoding and an empty-list fallback with a controlled reason (`timeout`, `unavailable`, `invalid-response`, and related mapped failures).
 - **Privacy/secrets:** the request contains only country code `ZA` and a year. It sends no Tutor Mx user, authentication or database data and requires no credential.
-- **Limits:** the [official service page](https://nagerholidays.com/api) states that the community endpoint has no rate limit. A later production route should still cache responsibly and avoid requesting the service on every browser render.
+- **Limits:** the [official service page](https://nagerholidays.com/api) states that the community endpoint has no rate limit. The production service still caches each successful year result for one hour and does not cache fallbacks, so a temporary outage is retried instead of being hidden for the full TTL.
 - **Terms:** the [service terms](https://nagerholidays.com/legal/termsofservice) allow private/non-profit projects, require sponsorship for commercial use, prohibit operating a separate holiday portal from the data and do not guarantee availability or accuracy. Tutor Mx is using the service only as supporting scheduling information with a fallback, not as a holiday portal or source of truth.
 - **Privacy:** the [privacy policy](https://nagerholidays.com/legal/privacy) states that general visitors are not collected as personal data, while the provider/CDN may process technical request data such as IP logs. The Tutor Mx adapter sends no user identity, email, access token, database value or other personal record.
 
@@ -42,7 +42,7 @@ Mocked tests cover successful safe-field selection, timeout/abort and invalid re
 
 This service is the implemented Sprint 1 recommendation. The Project Coordinator should record the choice in issue `S1-M6-3`. If the stakeholder rejects it, record the replacement service and use case no later than **18 August 2026**, before the Sprint 1 end date.
 
-Member 5 can later expose this service through an authenticated handwritten Express route; Member 4 can later render the safe external/fallback result. Those follow-ups are outside Member 6's Sprint 1 issue.
+Sprint 2 now exposes this service through the authenticated handwritten Express route. Member 4 can render the returned safe external/fallback result without contacting the provider directly.
 
 ## Verification
 

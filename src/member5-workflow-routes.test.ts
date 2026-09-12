@@ -33,6 +33,12 @@ function dependenciesFor(
       fullName: "Member 5",
       role: requestedRole,
     }),
+    getPublicHolidays: async () => ({
+      source: "fallback",
+      data: [],
+      retrievedAt: null,
+      reason: "unavailable",
+    }),
     listCourses: async () => [],
     createCourse: async (input) => ({ id: 1, ...input }),
     updateCourse: async (id, input) => ({ id, ...input }),

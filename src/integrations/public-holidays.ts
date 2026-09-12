@@ -1,22 +1,22 @@
 /**
  * @module integrations/public-holidays
  *
- * HANDOFF — S2-M6-2 (Member 6 → Member 5 / Member 4)
+ * S2-M6-2 PRODUCTION CONTRACT
  *
- * ── Route (Member 5) ───────────────────────────────────────────────────
- * Suggested path:  GET /api/public-holidays?year=<YYYY>
+ * ── Backend route ───────────────────────────────────────────────────────
+ * Path:  GET /api/public-holidays?year=<YYYY>
  *   • Auth: authenticate + resolveProfileRole + requireTutorMxRole
  *     (all authenticated roles may read public-holiday data).
  *   • Parse `year` from query string (4-digit integer, 2000–2100).
- *   • Wire `getPublicHolidays: (year: number) => Promise<ExternalApiResult<PublicHoliday[]>>`
- *     into AppDependencies (createSouthAfricaPublicHolidayService().execute).
+ *   • The server delegates through `AppDependencies` to one cached service
+ *     instance created by `createSouthAfricaPublicHolidayService()`.
  *   • Response envelope:  { data: { source, holidays, retrievedAt, reason? } }
  *     where `source` is "external" | "fallback" so the browser knows
  *     whether the data is live or stale.
  *   • The external call is server-only; the browser never contacts
  *     Nager.Date directly.
  *
- * ── Safe fields for the UI (Member 4) ───────────────────────────────────
+ * ── Safe fields for the UI ──────────────────────────────────────────────
  * Each holiday object exposes only:
  *   • date           — ISO date string ("2026-01-01")
  *   • name           — "New Year's Day"

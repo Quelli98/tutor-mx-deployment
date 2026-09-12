@@ -77,6 +77,12 @@ function makeApp(
   const dependencies: AppDependencies = {
     findProfileByAuth0Id: async () => profile(role),
     onboardUser: async (_auth0Id, selectedRole) => profile(selectedRole),
+    getPublicHolidays: async () => ({
+      source: "fallback",
+      data: [],
+      retrievedAt: null,
+      reason: "unavailable",
+    }),
     listCourses: async () => [],
     createCourse: async (input) => ({ id: 1, ...input }),
     updateCourse: async (id, input) => ({ id, ...input }),

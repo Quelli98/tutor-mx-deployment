@@ -13,6 +13,8 @@ import {
   type AuthenticatedRequest,
 } from "./auth/middleware.js";
 import type { PasswordResetRequester } from "./auth/password-reset.js";
+import type { ExternalApiResult } from "./integrations/external-api.js";
+import type { PublicHoliday } from "./integrations/public-holidays.js";
 import type { CandidateReasonCode } from "./services/allocation-queries.js";
 
 type ReadinessCheck = () => Promise<void>;
@@ -264,6 +266,9 @@ export interface AppDependencies {
   findProfileByAuth0Id: (auth0Id: string) => Promise<ProfileSummary | null>;
   onboardUser: (auth0Id: string, role: TutorRole) => Promise<ProfileSummary>;
   allowSelfServiceOrganiser?: boolean;
+  getPublicHolidays: (
+    year: number,
+  ) => Promise<ExternalApiResult<PublicHoliday[]>>;
   listCourses: () => Promise<CourseSummary[]>;
   createCourse: (input: CourseWriteInput) => Promise<CourseSummary>;
   updateCourse: (
@@ -369,6 +374,9 @@ const unavailableDependencies: AppDependencies = {
   },
   async onboardUser() {
     throw new Error("Self-service onboarding is not configured");
+  },
+  async getPublicHolidays() {
+    throw new Error("Public-holiday integration is not configured");
   },
   async listCourses() {
     throw new Error("Backend course and tutor endpoints are not configured");
@@ -1041,6 +1049,19 @@ function parseNumericId(
   return { value: numeric } as const;
 }
 
+function parsePublicHolidayYear(value: unknown) {
+  if (
+    typeof value !== "string" ||
+    !/^\d{4}$/.test(value) ||
+    Number(value) < 2000 ||
+    Number(value) > 2100
+  ) {
+    return null;
+  }
+
+  return Number(value);
+}
+
 function currentProfileRoute(
   dependencies: AppDependencies,
   request: express.Request,
@@ -1228,6 +1249,39 @@ export function createApp(
     resolveProfileRole,
     requireTutorMxRole,
     (request, response) => currentProfileRoute(dependencies, request, response),
+  );
+
+  app.get(
+    "/api/public-holidays",
+    authenticate,
+    resolveProfileRole,
+    requireTutorMxRole,
+    async (request, response) => {
+      const year = parsePublicHolidayYear(request.query.year);
+      if (year === null) {
+        const result = error(
+          400,
+          "VALIDATION_ERROR",
+          "Enter a four-digit year from 2000 to 2100.",
+        );
+        response.status(result.status).json(result.body);
+        return;
+      }
+
+      try {
+        const result = await dependencies.getPublicHolidays(year);
+        response.status(200).json({
+          data: {
+            source: result.source,
+            holidays: result.data,
+            retrievedAt: result.retrievedAt,
+            ...(result.source === "fallback" ? { reason: result.reason } : {}),
+          },
+        });
+      } catch (value) {
+        sendRouteError(response, value);
+      }
+    },
   );
 
   app.get(

@@ -24,6 +24,12 @@ function makeApp(overrides: Partial<AppDependencies> = {}) {
       role: "TUTOR",
     }),
     onboardUser: async (_auth0Id, role) => ({ id: 7, email: "tutor@tutormx.example", fullName: "Current Tutor", role }),
+    getPublicHolidays: async () => ({
+      source: "fallback",
+      data: [],
+      retrievedAt: null,
+      reason: "unavailable",
+    }),
     listCourses: async () => [],
     createCourse: async (input) => ({ id: 1, ...input }),
     updateCourse: async (id, input) => ({ id, ...input }),
