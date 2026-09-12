@@ -99,174 +99,107 @@ jobs:
     name: Clean PostgreSQL migration and API smoke
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    # The shared Gitea runner does not expose `services:` container networking
+    # to this job. Run Node and an isolated PostgreSQL process inside the same
+    # disposable job container instead.
+    container: node:24-bookworm
     env:
+      DATABASE_URL: postgresql://tutor_mx@127.0.0.1:15432/tutor_mx
+      PGDATA: /tmp/tutor-mx-postgres-data
+      PGPORT: 15432
       PORT: 3000
-
-    services:
-      tutormxdb:
-        image: postgres:17-alpine
-        env:
-          POSTGRES_USER: tutor_mx
-          POSTGRES_DB: tutor_mx
-          # Disposable CI-only database. No production data or password is used.
-          POSTGRES_HOST_AUTH_METHOD: trust
-          PGDATA: /tmp/tutor-mx-postgres-data
-        # On the lecturer's shared runners, job steps appear to run outside the
-        # service container's Docker network. Publish the disposable database on
-        # a non-default host port and discover the Docker-host gateway at runtime.
-        ports:
-          - 15432:5432
-        options: --no-healthcheck
 
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
 
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 24
-          cache: npm
-
       - name: Install dependencies
         run: npm ci
 
-      - name: Find and verify the PostgreSQL service
-        timeout-minutes: 2
+      - name: Install PostgreSQL inside the job container
         run: |
+          export DEBIAN_FRONTEND=noninteractive
+          apt-get update
+          apt-get install --yes --no-install-recommends postgresql postgresql-client
+
+      - name: Run clean migrations, verification and API smoke
+        run: |
+          set -euo pipefail
+
+          pg_bin="$(find /usr/lib/postgresql -type f -name initdb -printf '%h\n' | sort -V | tail -n 1)"
+          if [ -z "$pg_bin" ]; then
+            echo "PostgreSQL binaries were not installed."
+            exit 1
+          fi
+
+          install -d -m 0700 -o postgres -g postgres "$PGDATA"
+          runuser -u postgres -- "$pg_bin/initdb" \
+            --pgdata="$PGDATA" \
+            --username=tutor_mx \
+            --auth-local=trust \
+            --auth-host=trust \
+            --encoding=UTF8 \
+            --no-locale
+
+          runuser -u postgres -- "$pg_bin/pg_ctl" \
+            --pgdata="$PGDATA" \
+            --log=/tmp/tutor-mx-postgres.log \
+            --options="-h 127.0.0.1 -p $PGPORT" \
+            --wait start
+
+          api_pid=""
+          cleanup() {
+            if [ -n "$api_pid" ]; then
+              kill "$api_pid" 2>/dev/null || true
+              wait "$api_pid" 2>/dev/null || true
+            fi
+            runuser -u postgres -- "$pg_bin/pg_ctl" \
+              --pgdata="$PGDATA" --mode=fast --wait stop 2>/dev/null || true
+          }
+          trap cleanup EXIT
+
+          runuser -u postgres -- "$pg_bin/createdb" \
+            --host=127.0.0.1 \
+            --port="$PGPORT" \
+            --username=tutor_mx \
+            tutor_mx
+
           node --input-type=module <<'NODE'
-          import fs from "node:fs";
           import pg from "pg";
 
-          const expectedDataDirectory = "/tmp/tutor-mx-postgres-data";
-          const outputFile = "/tmp/tutor-mx-ci-database-url";
+          const client = new pg.Client({
+            connectionString: process.env.DATABASE_URL,
+            connectionTimeoutMillis: 5_000,
+          });
 
-          function defaultGatewayFromProc() {
-            try {
-              const lines = fs.readFileSync("/proc/net/route", "utf8").trim().split(/\r?\n/).slice(1);
-              for (const line of lines) {
-                const fields = line.trim().split(/\s+/);
-                if (fields[1] !== "00000000" || !fields[2]) continue;
-                const hex = fields[2];
-                if (!/^[0-9A-Fa-f]{8}$/.test(hex)) continue;
-                return [6, 4, 2, 0]
-                  .map((index) => Number.parseInt(hex.slice(index, index + 2), 16))
-                  .join(".");
-              }
-            } catch {}
-            return null;
+          await client.connect();
+          const result = await client.query(`
+            SELECT
+              current_setting('data_directory') AS data_dir,
+              current_user AS db_user,
+              current_database() AS db_name
+          `);
+          await client.end();
+
+          const row = result.rows[0];
+          if (
+            row?.data_dir !== process.env.PGDATA ||
+            row?.db_user !== "tutor_mx" ||
+            row?.db_name !== "tutor_mx"
+          ) {
+            throw new Error("Connected to an unexpected PostgreSQL instance.");
           }
-
-          const candidates = [];
-          const seen = new Set();
-          const addCandidate = (label, host, port) => {
-            if (!host) return;
-            const url = `postgresql://tutor_mx@${host}:${port}/tutor_mx`;
-            if (!seen.has(url)) {
-              seen.add(url);
-              candidates.push({ label, url });
-            }
-          };
-
-          // Docker-container job mode: the service label should resolve directly.
-          addCandidate("service alias", "tutormxdb", 5432);
-
-          // Host-mode runner inside Docker: published service ports live on the
-          // Docker daemon host, not on the runner container's own loopback.
-          addCandidate("Docker default gateway", defaultGatewayFromProc(), 15432);
-          addCandidate("Docker host DNS", "host.docker.internal", 15432);
-
-          // Native host-mode runner: the published port is available on loopback.
-          addCandidate("runner loopback", "127.0.0.1", 15432);
-
-          const deadline = Date.now() + 90_000;
-          const lastErrors = new Map();
-
-          while (Date.now() < deadline) {
-            for (const candidate of candidates) {
-              const client = new pg.Client({
-                connectionString: candidate.url,
-                connectionTimeoutMillis: 2_000,
-                query_timeout: 2_000,
-              });
-
-              try {
-                await client.connect();
-                const result = await client.query(`
-                  SELECT
-                    current_setting('data_directory') AS data_dir,
-                    current_user AS db_user,
-                    current_database() AS db_name
-                `);
-                const row = result.rows[0];
-
-                if (
-                  row?.data_dir !== expectedDataDirectory ||
-                  row?.db_user !== "tutor_mx" ||
-                  row?.db_name !== "tutor_mx"
-                ) {
-                  throw new Error(
-                    `connected to the wrong PostgreSQL instance ` +
-                      `(data_dir=${row?.data_dir ?? "unknown"}, ` +
-                      `user=${row?.db_user ?? "unknown"}, ` +
-                      `db=${row?.db_name ?? "unknown"})`,
-                  );
-                }
-
-                await client.query("SELECT 1");
-                await client.end();
-                fs.writeFileSync(outputFile, candidate.url, { encoding: "utf8", mode: 0o600 });
-                console.log(`PostgreSQL CI service is ready via ${candidate.label}.`);
-                process.exit(0);
-              } catch (error) {
-                lastErrors.set(candidate.label, error instanceof Error ? error.message : String(error));
-                try {
-                  await client.end();
-                } catch {}
-              }
-            }
-
-            await new Promise((resolve) => setTimeout(resolve, 2_000));
-          }
-
-          console.error("Could not reach the intended PostgreSQL CI service within 90 seconds.");
-          for (const [label, message] of lastErrors) {
-            console.error(`${label}: ${message}`);
-          }
-          process.exit(1);
+          console.log("Isolated PostgreSQL CI database is ready.");
           NODE
 
-      - name: Generate Prisma Client
-        run: |
-          export DATABASE_URL="$(cat /tmp/tutor-mx-ci-database-url)"
           npm run generate
-
-      - name: Deploy clean migrations
-        run: |
-          export DATABASE_URL="$(cat /tmp/tutor-mx-ci-database-url)"
           npm run db:migrate
-
-      - name: Load safe demo data
-        run: |
-          export DATABASE_URL="$(cat /tmp/tutor-mx-ci-database-url)"
           npm run db:seed
-
-      - name: Verify constraints and allocation queries
-        run: |
-          export DATABASE_URL="$(cat /tmp/tutor-mx-ci-database-url)"
           npm run db:verify
-
-      - name: Build API
-        run: |
-          export DATABASE_URL="$(cat /tmp/tutor-mx-ci-database-url)"
           npm run build:backend
 
-      - name: Smoke local health and readiness
-        run: |
-          export DATABASE_URL="$(cat /tmp/tutor-mx-ci-database-url)"
-          npm start > /tmp/tutor-mx-api.log 2>&1 &
+          node dist/server.js > /tmp/tutor-mx-api.log 2>&1 &
           api_pid=$!
-          trap 'kill "$api_pid" 2>/dev/null || true' EXIT
           SMOKE_BASE_URL=http://127.0.0.1:3000 npm run smoke || {
             sed -n '1,120p' /tmp/tutor-mx-api.log
             exit 1
