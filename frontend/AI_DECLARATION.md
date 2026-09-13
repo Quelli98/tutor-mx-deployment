@@ -2,6 +2,8 @@
 
 The repository-level `AI_DECLARATION.md` is authoritative for this integrated project.
 
+Codex[GPT-5] was used on 13 September 2026 to reconcile Sprint 2 Member 4 with the current authenticated Student and public-holiday API contracts; complete persisted outcome, fallback, mobile and keyboard states; fix stable request wiring; and add frontend contract/component/integration regression tests.
+
 Codex[GPT-5] was used on 23 August 2026 to review and complete Member 2's Sprint 1 Organiser frontend: allocation-board states, written mark/clash/hour rule results, course/tutor management integration, tutor marks and busy times, responsive styling, API-contract validation and component tests.
 
 Codex[GPT-5] was used to integrate and review the Tutor dashboard, availability, draft work-log and excuse forms; replace simulated API functions with authenticated Express calls; add accessibility, responsive, contract and integration tests; and update the handoff documentation.

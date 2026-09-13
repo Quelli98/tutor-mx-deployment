@@ -185,6 +185,78 @@ describe("student open work", () => {
   );
 });
 
+describe("student volunteer request list", () => {
+  it("returns only the authenticated Student requests with safe work details", async () => {
+    const harness = makeHarness();
+    harness.volunteerClaimFindMany.mockResolvedValueOnce([
+      {
+        ...volunteerRequest("REJECTED", {
+          reviewReason: "Another student was selected.",
+        }),
+        studentId: 7,
+        student: { email: "private@example.test" },
+        overflowWork: {
+          startsAt: new Date("2030-09-04T14:00:00.000Z"),
+          endsAt: new Date("2030-09-04T16:00:00.000Z"),
+          hours: "2.50",
+          course: { code: "DEMO101", name: "Demo Course" },
+        },
+      },
+    ]);
+
+    await expect(
+      harness.service.listVolunteerRequests("auth0|student"),
+    ).resolves.toEqual([
+      {
+        id: 31,
+        overflowWorkId: 11,
+        status: "REJECTED",
+        reviewReason: "Another student was selected.",
+        createdAt: "2030-08-30T09:00:00.000Z",
+        updatedAt: "2030-08-30T09:05:00.000Z",
+        courseCode: "DEMO101",
+        courseName: "Demo Course",
+        startsAt: "2030-09-04T14:00:00.000Z",
+        endsAt: "2030-09-04T16:00:00.000Z",
+        hours: 2.5,
+      },
+    ]);
+    expect(harness.volunteerClaimFindMany).toHaveBeenCalledWith({
+      where: { studentId: 7 },
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+      select: {
+        id: true,
+        overflowWorkId: true,
+        status: true,
+        reviewReason: true,
+        createdAt: true,
+        updatedAt: true,
+        overflowWork: {
+          select: {
+            startsAt: true,
+            endsAt: true,
+            hours: true,
+            course: { select: { code: true, name: true } },
+          },
+        },
+      },
+    });
+  });
+
+  it("fails closed before listing when the trusted identity is not a Student", async () => {
+    const harness = makeHarness();
+    harness.profileFindUnique.mockResolvedValueOnce({ id: 8, role: "TUTOR" });
+
+    await expect(
+      harness.service.listVolunteerRequests("auth0|other-role"),
+    ).rejects.toMatchObject({
+      status: 404,
+      code: "STUDENT_PROFILE_NOT_FOUND",
+    });
+    expect(harness.volunteerClaimFindMany).not.toHaveBeenCalled();
+  });
+});
+
 describe("student volunteer request creation", () => {
   it("creates one pending request in a Serializable transaction using trusted ownership", async () => {
     const harness = makeHarness();

@@ -683,6 +683,8 @@ const app = createApp(
       }
     },
     listStudentOpenWork: studentWorkflowService.listOpenWork,
+    listStudentVolunteerRequests:
+      studentWorkflowService.listVolunteerRequests,
     createStudentVolunteerRequest:
       studentWorkflowService.createVolunteerRequest,
     getStudentVolunteerRequest: studentWorkflowService.getVolunteerRequest,

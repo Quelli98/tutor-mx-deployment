@@ -2,6 +2,8 @@
 
 ## Current integration
 
+- Codex[GPT-5] was used on 13 September 2026 to audit Sprint 2 Member 4 against the 11 September Sprint Handbook, reconcile the stale Member 4 routes with the integrated Member 5/6 API, add the signed-in Student volunteer-request list, fix authenticated frontend request stability, complete holiday fallback/source, responsive and keyboard behavior, add regression tests, and update handoff documentation.
+
 - Codex[GPT-5] was used on 23 August 2026 to audit the supplied Member 2 branch against Sprint Handbook pages 1-29, integrate it into the current main snapshot, complete the missing Organiser allocation board/rule messages/tutor mark and busy-time UI, add authenticated API contract wiring and tests, preserve the existing Auth0/Express/Prisma/Neon boundaries, and update integration evidence.
 
 - ChatGPT[GPT-5.6 Sol] was used on 17 August 2026 to integrate the supplied Member 4 Student overflow/shared UI work into the current Members 1, 3, 5 and 6 main snapshot, correct a case-sensitive frontend import/file-name mismatch, preserve role/security boundaries, update Sprint 1 integration documentation and perform static repository verification.

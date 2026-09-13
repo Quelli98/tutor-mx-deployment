@@ -35,8 +35,20 @@ export interface VolunteerRequestSummary {
   updatedAt: string;
 }
 
+export interface VolunteerRequestDetailsSummary
+  extends VolunteerRequestSummary {
+  courseCode: string;
+  courseName: string;
+  startsAt: string;
+  endsAt: string;
+  hours: number;
+}
+
 export interface StudentWorkflowService {
   listOpenWork(auth0Id: string): Promise<StudentOpenWorkSummary[]>;
+  listVolunteerRequests(
+    auth0Id: string,
+  ): Promise<VolunteerRequestDetailsSummary[]>;
   createVolunteerRequest(
     auth0Id: string,
     input: VolunteerRequestWriteInput,
@@ -60,6 +72,18 @@ const volunteerRequestSelection = {
   updatedAt: true,
 } as const;
 
+const volunteerRequestDetailsSelection = {
+  ...volunteerRequestSelection,
+  overflowWork: {
+    select: {
+      startsAt: true,
+      endsAt: true,
+      hours: true,
+      course: { select: { code: true, name: true } },
+    },
+  },
+} as const;
+
 interface VolunteerRequestRecord {
   id: number;
   overflowWorkId: number;
@@ -67,6 +91,15 @@ interface VolunteerRequestRecord {
   reviewReason: string | null;
   createdAt: Date;
   updatedAt: Date;
+}
+
+interface VolunteerRequestDetailsRecord extends VolunteerRequestRecord {
+  overflowWork: {
+    startsAt: Date;
+    endsAt: Date;
+    hours: unknown;
+    course: { code: string; name: string };
+  };
 }
 
 function isObject(value: unknown): value is Record<string, unknown> {
@@ -106,6 +139,19 @@ function toVolunteerRequestSummary(
     reviewReason: request.reviewReason,
     createdAt: request.createdAt.toISOString(),
     updatedAt: request.updatedAt.toISOString(),
+  };
+}
+
+function toVolunteerRequestDetailsSummary(
+  request: VolunteerRequestDetailsRecord,
+): VolunteerRequestDetailsSummary {
+  return {
+    ...toVolunteerRequestSummary(request),
+    courseCode: request.overflowWork.course.code,
+    courseName: request.overflowWork.course.name,
+    startsAt: request.overflowWork.startsAt.toISOString(),
+    endsAt: request.overflowWork.endsAt.toISOString(),
+    hours: Number(request.overflowWork.hours),
   };
 }
 
@@ -179,6 +225,19 @@ export function createStudentWorkflowService(
           endsAt: work.endsAt.toISOString(),
           closesAt: work.closesAt?.toISOString() ?? null,
         }));
+    },
+
+    async listVolunteerRequests(auth0Id) {
+      const studentId = await findStudentProfileId(auth0Id);
+      const requests = await prismaClient.volunteerClaim.findMany({
+        where: { studentId },
+        orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+        select: volunteerRequestDetailsSelection,
+      });
+
+      return requests.map((request) =>
+        toVolunteerRequestDetailsSummary(request),
+      );
     },
 
     async createVolunteerRequest(auth0Id, input) {

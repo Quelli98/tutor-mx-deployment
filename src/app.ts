@@ -135,6 +135,15 @@ export interface StudentVolunteerRequestSummary {
   updatedAt: string;
 }
 
+export interface StudentVolunteerRequestDetailsSummary
+  extends StudentVolunteerRequestSummary {
+  courseCode: string;
+  courseName: string;
+  startsAt: string;
+  endsAt: string;
+  hours: number;
+}
+
 export interface TutorTimesheetStatusSummary {
   id: number;
   weekStart: string;
@@ -298,6 +307,9 @@ export interface AppDependencies {
   listStudentOpenWork: (
     auth0Id: string,
   ) => Promise<StudentOpenWorkSummary[]>;
+  listStudentVolunteerRequests: (
+    auth0Id: string,
+  ) => Promise<StudentVolunteerRequestDetailsSummary[]>;
   createStudentVolunteerRequest: (
     auth0Id: string,
     input: { overflowWorkId: number },
@@ -412,6 +424,9 @@ const unavailableDependencies: AppDependencies = {
     throw new Error("Tutor workflow endpoints are not configured");
   },
   async listStudentOpenWork() {
+    throw new Error("Student workflow endpoints are not configured");
+  },
+  async listStudentVolunteerRequests() {
     throw new Error("Student workflow endpoints are not configured");
   },
   async createStudentVolunteerRequest() {
@@ -1958,6 +1973,23 @@ export function createApp(
       try {
         const workItems = await dependencies.listStudentOpenWork(auth.subject);
         response.status(200).json({ data: { workItems } });
+      } catch (value) {
+        sendRouteError(response, value);
+      }
+    },
+  );
+
+  app.get(
+    "/api/student/volunteer-requests",
+    authenticate,
+    resolveProfileRole,
+    requireRole("STUDENT"),
+    async (request, response) => {
+      const auth = (request as AuthenticatedRequest).auth!;
+      try {
+        const volunteerRequests =
+          await dependencies.listStudentVolunteerRequests(auth.subject);
+        response.status(200).json({ data: { volunteerRequests } });
       } catch (value) {
         sendRouteError(response, value);
       }

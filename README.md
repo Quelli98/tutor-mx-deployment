@@ -100,6 +100,11 @@ Authorization: Bearer <access-token>
 | `POST /api/tutor/time-slots` | Tutor; identity comes from token | `201 { data: { timeSlot } }` | `400`, `401`, `403`, `404`, `409` |
 | `POST /api/tutor/work-logs` | Tutor; identity comes from token | `201 { data: { workLog } }` | `400`, `401`, `403`, `404`, `409` |
 | `POST /api/tutor/excuses` | Tutor; identity comes from token | `201 { data: { excuse } }` | `400`, `401`, `403`, `404`, `409` |
+| `GET /api/student/open-work` | Student; identity comes from token | `200 { data: { workItems } }` containing only eligible open work not already requested by that Student | `401`, `403`, `404`, safe `500` |
+| `GET /api/student/volunteer-requests` | Student; identity comes from token | `200 { data: { volunteerRequests } }` containing only that Student's persisted outcomes | `401`, `403`, `404`, safe `500` |
+| `POST /api/student/volunteer-requests` | Student; identity comes from token | `201 { data: { volunteerRequest } }` | `400`, `401`, `403`, `404`, `409` |
+| `GET /api/student/volunteer-requests/:requestId` | Student owner only | `200 { data: { volunteerRequest } }` | `400`, `401`, `403`, non-revealing `404` |
+| `PATCH /api/student/volunteer-requests/:requestId/withdraw` | Student owner only | `200 { data: { volunteerRequest } }` | `400`, `401`, `403`, non-revealing `404`, `409` |
 | `DELETE /api/auth/delete-account` | Valid token and supported role | `204` after the server deletes the Auth0 identity and matching Tutor Mx profile data | `401`, `403`, safe `500` |
 
 The API verifies the RS256 signature against Auth0 JWKS, issuer, audience, subject, expiry and not-before values. The frontend token cache is explicitly in memory. Password entry, sign-up, sign-in and the actual new-password form stay on Auth0 Universal Login.
@@ -110,7 +115,7 @@ A newly self-onboarded Tutor may legitimately have no `TutorHourLimit` and no al
 
 The protected Organiser workspace now contains the Sprint 1 allocation board plus course and tutor management. Organisers can add/edit/remove courses, search registered tutor accounts, maintain tutor profile and weekly-hour data, record course marks and busy times, and view mark, timetable-clash and remaining-hour results together before selecting a tutor. Tutor accounts themselves are created by the self-service Auth0 onboarding flow, so organisers never need to copy Auth0 User IDs. Failed checks remain visible and every result includes written Pass/Fail wording so colour is never the only signal. The Sprint 1 **Save allocation** control is intentionally the handbook-approved action placeholder until the final allocation-write endpoint is agreed; it becomes available only after an eligible tutor is selected.
 
-Sprint 1 Student overflow remains behind the protected `STUDENT` route and uses the agreed mocked work/claim boundary from Member 4. It does not access Prisma/Neon from the browser. The production Student endpoint is a later backend-connection step; the current integration deliberately preserves the Sprint 1 mock contract rather than inventing an unfinished server API.
+Sprint 2 replaces the Student overflow mock with the protected handwritten API. The page loads real eligible open work, submits only the selected `overflowWorkId`, and reloads the signed-in Student's persisted pending/approved/rejected/withdrawn outcomes. Student ownership always comes from the verified token; browser-supplied Student IDs are ignored. Public holidays are supporting information loaded through the protected backend adapter, and its safe fallback never blocks the core overflow/volunteer flow. The browser never imports Prisma, connects to Neon or calls the external holiday provider directly.
 
 ## Automated checks
 
@@ -129,7 +134,7 @@ Sprint 1 Student overflow remains behind the protected `STUDENT` route and uses 
 
 The CI workflow uploads `coverage/lcov.info` with the `backend` Codecov flag and `frontend/coverage/lcov.info` with the `frontend` flag. Repository administrators must configure `CODECOV_TOKEN`, protect `main`, and require all checks. Member branches and integration PRs target `main`; this repository does not require a `develop` branch.
 
-See `docs/sprint1-members-1-2-3-4-5-6-integration.md`, the six `docs/member-*-handoff.md` files and `docs/github-required-checks.md` for completed evidence and repository-admin follow-ups.
+See `docs/sprint1-members-1-2-3-4-5-6-integration.md`, `docs/sprint2-m4-student-overflow.md`, the six `docs/member-*-handoff.md` files and `docs/github-required-checks.md` for completed evidence and repository-admin follow-ups.
 
 ## AI declaration
 
