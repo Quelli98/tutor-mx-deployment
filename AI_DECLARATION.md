@@ -1,5 +1,15 @@
 # AI Development Declaration
 
+## Sprint 2 Member 1
+
+- ChatGPT[GPT-5.6 Sol] was used on 13 September 2026 to integrate the supplied S2-M1-1, S2-M1-2 and S2-M1-3 snapshots on top of the already integrated Members 4/5/6 Basic API, audit them against the 11 September handbook, update the endpoint-role matrix from the obsolete Student-mock boundary to the current real Basic routes, expand the automated smoke suite to all 36 authenticated routes, expand the live smoke runner to 22 representative side-effect-safe probes, and update Member 1 handoff/runbook evidence.
+
+- Qoder[Auto tier; underlying model automatically routed] was used on 31 August 2026 to implement S2-M1-3 (cross-role security smoke suite and assigned fixes) on branch `s2/m1/security-smoke`: the original automated three-role smoke suite, live shared-environment smoke runner, smoke runbook/evidence document and handoff updates.
+
+- Qoder[Auto tier; underlying model automatically routed] was used on 31 August 2026 to implement S2-M1-2 (role and ownership protection across the completed Basic API) on branch `s2/m1/role-protection`: the endpoint-to-role/ownership matrix document, the Organiser-only and Tutor-only wrong-role/missing-token sweep tests, the query-level cross-user ownership assertions for work logs and excuses, and the handoff evidence updates.
+
+- Qoder[Auto tier; underlying model automatically routed] was used on 31 August 2026 to implement S2-M1-1 (auth lifecycle hardening and email-verification recovery) on branch `s2/m1/account-lifecycle`: the authenticated `POST /api/auth/resend-verification` endpoint backed by the server-only Auth0 Management API verification-email job, the frontend resend/recovery UI in the onboarding card, automatic recovery from a stale pending role (`409 ROLE_ALREADY_SET`) so a linked account never returns to role choice, automatic sign-out after successful account deletion, the accompanying failure/recovery tests, and the handoff evidence updates.
+
 ## Current integration
 
 - Codex[GPT-5] was used on 13 September 2026 to audit Sprint 2 Member 4 against the 11 September Sprint Handbook, reconcile the stale Member 4 routes with the integrated Member 5/6 API, add the signed-in Student volunteer-request list, fix authenticated frontend request stability, complete holiday fallback/source, responsive and keyboard behavior, add regression tests, and update handoff documentation.

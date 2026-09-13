@@ -709,6 +709,65 @@ describe("server-side API persistence", () => {
     ).rejects.toMatchObject({ status: 404, code: "ALLOCATION_NOT_FOUND" });
   });
 
+  it("scopes allocation lookups to the requesting tutor so identifiers cannot cross users", async () => {
+    await import("./server.js");
+    const dependencies = capturedDependencies();
+
+    mocks.profileFindUnique.mockResolvedValueOnce({ id: 7, role: "TUTOR" });
+    mocks.allocationFindFirst.mockResolvedValueOnce({
+      id: 4,
+      startsAt: new Date("2030-09-04T14:00:00.000Z"),
+      status: "CONFIRMED",
+    });
+    mocks.timesheetUpsert.mockResolvedValueOnce({ id: 3, status: "DRAFT" });
+    mocks.workLogCreate.mockResolvedValueOnce({
+      id: 9,
+      allocationId: 4,
+      timesheetId: 3,
+      workDate: new Date("2030-09-04T00:00:00.000Z"),
+      hours: "2.00",
+      description: "Tutorial session",
+    });
+
+    await dependencies.createTutorWorkLog("auth0|current-tutor", {
+      allocationId: 4,
+      workDate: "2030-09-04",
+      hours: 2,
+      description: "Tutorial session",
+    });
+
+    expect(mocks.allocationFindFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ id: 4, tutorId: 7 }),
+      }),
+    );
+
+    mocks.profileFindUnique.mockResolvedValueOnce({ id: 7, role: "TUTOR" });
+    mocks.allocationFindFirst.mockResolvedValueOnce({ id: 4 });
+    mocks.excuseCreate.mockResolvedValueOnce({
+      id: 11,
+      allocationId: 4,
+      reason: "Sick",
+      status: "PENDING",
+    });
+
+    await dependencies.createTutorExcuse("auth0|current-tutor", {
+      allocationId: 4,
+      reason: "Sick",
+    });
+
+    expect(mocks.allocationFindFirst).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          id: 4,
+          tutorId: 7,
+          status: "CONFIRMED",
+          startsAt: { gt: expect.any(Date) },
+        }),
+      }),
+    );
+  });
+
   it("maps expected Prisma conflicts to safe route errors", async () => {
     await import("./server.js");
     const dependencies = capturedDependencies();

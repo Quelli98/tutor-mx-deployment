@@ -71,6 +71,7 @@ function makeApp(
     listCourses: () => Promise<CourseSummary[]>;
     listTutors: () => Promise<TutorSummary[]>;
     requestPasswordReset: (email: string) => Promise<void>;
+    requestVerificationEmail: () => Promise<void>;
     updateCourse: (
       courseId: number,
       input: { code: string; name: string },
@@ -181,6 +182,8 @@ function makeApp(
 
     requestPasswordReset:
       overrides.requestPasswordReset ?? (async () => undefined),
+    requestVerificationEmail:
+      overrides.requestVerificationEmail ?? (async () => undefined),
 
     updateCourse:
       overrides.updateCourse ??
@@ -602,6 +605,47 @@ describe("authentication contract", () => {
       "auth0|tutor",
     );
   });
+
+  it("resends verification email for the authenticated user", async () => {
+    const requestVerificationEmail = vi.fn().mockResolvedValue(undefined);
+
+    const response = await request(
+      makeApp({ requestVerificationEmail }),
+    )
+      .post("/api/auth/resend-verification")
+      .set("Authorization", "Bearer valid-token");
+
+    expect(response.status).toBe(202);
+    expect(requestVerificationEmail).toHaveBeenCalledWith("auth0|tutor");
+    expect(response.body.data.message).toMatch(/auth0 will send an email/i);
+  });
+
+  it("returns 503 when verification email cannot be sent", async () => {
+    const response = await request(
+      makeApp({
+        requestVerificationEmail: async () => {
+          throw new Error("Auth0 unavailable");
+        },
+      }),
+    )
+      .post("/api/auth/resend-verification")
+      .set("Authorization", "Bearer valid-token");
+
+    expect(response.status).toBe(503);
+    expect(response.body.error.code).toBe("VERIFICATION_EMAIL_UNAVAILABLE");
+  });
+
+  it("requires a bearer token before resending a verification email", async () => {
+    const requestVerificationEmail = vi.fn();
+
+    const response = await request(
+      makeApp({ requestVerificationEmail }),
+    ).post("/api/auth/resend-verification");
+
+    expect(response.status).toBe(401);
+    expect(response.body.error.code).toBe("AUTHENTICATION_REQUIRED");
+    expect(requestVerificationEmail).not.toHaveBeenCalled();
+  });
 });
 
 describe("GET /api/public-holidays", () => {
@@ -925,6 +969,103 @@ describe("course and tutor endpoints", () => {
     expect(updateCourse).not.toHaveBeenCalled();
     expect(response.status).toBe(403);
     expect(response.body.error.code).toBe("FORBIDDEN");
+  });
+
+  it("returns 403 for every organiser-only endpoint when a Tutor or Student calls it", async () => {
+    const candidateQuery =
+      "courseId=3&startsAt=2030-09-04T14:00:00.000Z&endsAt=2030-09-04T16:00:00.000Z&minimumMark=50&requestedHours=2";
+
+    for (const callerRole of ["TUTOR", "STUDENT"] as const) {
+      const guards = {
+        createCourse: vi.fn(),
+        updateCourse: vi.fn(),
+        deleteCourse: vi.fn(),
+        listTutors: vi.fn(),
+        createTutor: vi.fn(),
+        updateTutor: vi.fn(),
+        listAllocationCandidates: vi.fn(),
+        listTutorMarks: vi.fn(),
+        upsertTutorMark: vi.fn(),
+        listTutorTimeSlots: vi.fn(),
+        createTutorTimeSlotForTutor: vi.fn(),
+      };
+
+      const app = makeApp({
+        ...guards,
+        findProfileByAuth0Id: async () => ({ ...profile, role: callerRole }),
+        verifyAccessToken: async () => auth(callerRole),
+      });
+
+      const organiserOnlyRequests = [
+        () =>
+          request(app)
+            .post("/api/courses")
+            .set("Authorization", "Bearer valid-token")
+            .send({ code: "CHG101", name: "Changed" }),
+        () =>
+          request(app)
+            .patch("/api/courses/1")
+            .set("Authorization", "Bearer valid-token")
+            .send({ code: "CHG101", name: "Changed" }),
+        () =>
+          request(app)
+            .delete("/api/courses/1")
+            .set("Authorization", "Bearer valid-token"),
+        () =>
+          request(app).get("/api/tutors").set("Authorization", "Bearer valid-token"),
+        () =>
+          request(app)
+            .post("/api/tutors")
+            .set("Authorization", "Bearer valid-token")
+            .send({
+              auth0Id: "auth0|new-tutor",
+              email: "new@tutormx.example",
+              fullName: "New Tutor",
+            }),
+        () =>
+          request(app)
+            .patch("/api/tutors/2")
+            .set("Authorization", "Bearer valid-token")
+            .send({ fullName: "Changed" }),
+        () =>
+          request(app)
+            .get(`/api/allocations/candidates?${candidateQuery}`)
+            .set("Authorization", "Bearer valid-token"),
+        () =>
+          request(app)
+            .get("/api/tutors/2/marks")
+            .set("Authorization", "Bearer valid-token"),
+        () =>
+          request(app)
+            .put("/api/tutors/2/marks")
+            .set("Authorization", "Bearer valid-token")
+            .send({ courseId: 3, mark: 75 }),
+        () =>
+          request(app)
+            .get("/api/tutors/2/time-slots")
+            .set("Authorization", "Bearer valid-token"),
+        () =>
+          request(app)
+            .post("/api/tutors/2/time-slots")
+            .set("Authorization", "Bearer valid-token")
+            .send({
+              type: "BUSY",
+              startsAt: "2030-09-04T14:00:00.000Z",
+              endsAt: "2030-09-04T16:00:00.000Z",
+            }),
+      ];
+
+      for (const makeRequest of organiserOnlyRequests) {
+        const response = await makeRequest();
+        expect(response.status).toBe(403);
+        expect(response.body.error.code).toBe("FORBIDDEN");
+        expect(response.text).not.toContain("tutor@tutormx.example");
+      }
+
+      for (const guard of Object.values(guards)) {
+        expect(guard).not.toHaveBeenCalled();
+      }
+    }
   });
 
   it("returns organiser tutor listings and accepts tutor updates", async () => {
