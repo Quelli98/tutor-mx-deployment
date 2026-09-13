@@ -1,20 +1,36 @@
 import { useState } from 'react'
 import { submitExcuse } from '../api/excuse'
+import ExcuseStatusSection from './ExcuseStatusSection'
 
 function sessionLabel(allocation) {
   return `${allocation.courseCode} - ${new Date(allocation.startsAt).toLocaleString()}`
 }
 
-export default function ExcuseForm({ allocations = [], tokenOrGetter }) {
+function submitErrorMessage(error) {
+  if (error?.code === 'EXCUSE_DUPLICATE') {
+    return 'An excuse has already been submitted for this session.'
+  }
+  if (error?.code === 'ALLOCATION_NOT_FOUND') {
+    return 'The session could not be excused. Choose one of your future confirmed sessions.'
+  }
+  return 'Excuse could not be submitted. Try again.'
+}
+
+export default function ExcuseForm({ allocations = [], tokenOrGetter, storageScope = null }) {
   const [allocationId, setAllocationId] = useState('')
   const [reason, setReason] = useState('')
   const [errors, setErrors] = useState({})
   const [status, setStatus] = useState('idle')
+  const [submitError, setSubmitError] = useState(null)
+  const [submitted, setSubmitted] = useState(null)
 
   function validate() {
     const nextErrors = {}
-    if (!allocations.some((allocation) => String(allocation.id) === allocationId)) {
+    const selected = allocations.find((allocation) => String(allocation.id) === allocationId)
+    if (!selected) {
       nextErrors.allocationId = 'Please select the session you are excusing.'
+    } else if (new Date(selected.startsAt) <= new Date()) {
+      nextErrors.allocationId = 'Only future sessions can be excused.'
     }
     if (!reason.trim()) nextErrors.reason = 'A reason is required.'
     setErrors(nextErrors)
@@ -27,14 +43,16 @@ export default function ExcuseForm({ allocations = [], tokenOrGetter }) {
 
     setStatus('submitting')
     try {
-      await submitExcuse(
+      const excuse = await submitExcuse(
         { allocationId: Number(allocationId), reason: reason.trim() },
         tokenOrGetter,
       )
+      setSubmitted(excuse)
       setStatus('success')
       setAllocationId('')
       setReason('')
-    } catch {
+    } catch (error) {
+      setSubmitError(submitErrorMessage(error))
       setStatus('error')
     }
   }
@@ -78,9 +96,16 @@ export default function ExcuseForm({ allocations = [], tokenOrGetter }) {
 
         {status === 'success' && <p className="status-note" role="status">Excuse submitted.</p>}
         {status === 'error' && (
-          <p className="status-note danger" role="alert">Excuse could not be submitted. Try again.</p>
+          <p className="status-note danger" role="alert">{submitError}</p>
         )}
       </form>
+
+      <ExcuseStatusSection
+        submitted={submitted}
+        allocations={allocations}
+        tokenOrGetter={tokenOrGetter}
+        storageScope={storageScope}
+      />
     </section>
   )
 }

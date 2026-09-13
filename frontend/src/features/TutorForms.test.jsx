@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import TutorForms from './TutorForms'
@@ -8,9 +8,15 @@ const tokenGetter = vi.fn()
 const submitTimeSlot = vi.fn().mockResolvedValue({})
 const submitWorkLog = vi.fn().mockResolvedValue({})
 const submitExcuse = vi.fn().mockResolvedValue({})
+const fetchExcuseStatus = vi.fn()
+const fetchTimesheetStatus = vi.fn()
+const submitTimesheet = vi.fn().mockResolvedValue({})
 
 vi.mock('@auth0/auth0-react', () => ({
-  useAuth0: () => ({ getAccessTokenSilently: tokenGetter }),
+  useAuth0: () => ({
+    getAccessTokenSilently: tokenGetter,
+    user: { sub: 'auth0|current-tutor' },
+  }),
 }))
 vi.mock('../api/tutorDashboard', () => ({
   fetchTutorDashboard: (...args) => fetchTutorDashboard(...args),
@@ -23,6 +29,11 @@ vi.mock('../api/workLog', () => ({
 }))
 vi.mock('../api/excuse', () => ({
   submitExcuse: (...args) => submitExcuse(...args),
+  fetchExcuseStatus: (...args) => fetchExcuseStatus(...args),
+}))
+vi.mock('../api/timesheet', () => ({
+  fetchTimesheetStatus: (...args) => fetchTimesheetStatus(...args),
+  submitTimesheet: (...args) => submitTimesheet(...args),
 }))
 
 const dashboard = {
@@ -45,6 +56,7 @@ const dashboard = {
 describe('TutorForms accessibility', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    window.sessionStorage.clear()
     fetchTutorDashboard.mockResolvedValue(dashboard)
   })
 
@@ -98,5 +110,88 @@ describe('TutorForms accessibility', () => {
       expect(screen.getByRole('heading', { name: /availability, work log and excuses/i }))
         .toBeInTheDocument()
     })
+  })
+
+  it('runs the tutor basic workflow from availability to the excuse decision together', async () => {
+    submitTimeSlot.mockResolvedValueOnce({ id: 1, type: 'BUSY' })
+    submitWorkLog.mockResolvedValueOnce({
+      id: 2,
+      allocationId: 1,
+      timesheetId: 3,
+      workDate: '2030-09-04',
+      hours: 2,
+      description: 'Regression tutorial',
+    })
+    submitTimesheet.mockResolvedValueOnce({
+      id: 3,
+      weekStart: '2030-09-02',
+      status: 'SUBMITTED',
+      submittedAt: '2030-09-06T12:00:00.000Z',
+      reviewedAt: null,
+      reviewReason: null,
+      totalHours: 2,
+    })
+    submitExcuse.mockResolvedValueOnce({
+      id: 7,
+      allocationId: 1,
+      reason: 'Sick',
+      status: 'PENDING',
+    })
+    fetchExcuseStatus.mockResolvedValueOnce({
+      id: 7,
+      allocationId: 1,
+      reason: 'Sick',
+      status: 'APPROVED',
+      reviewReason: null,
+      createdAt: '2030-09-03T08:00:00.000Z',
+      updatedAt: '2030-09-05T09:00:00.000Z',
+    })
+    render(<TutorForms />)
+
+    await screen.findByRole('heading', { name: /availability, work log and excuses/i })
+
+    fireEvent.change(screen.getByLabelText(/^start$/i), { target: { value: '2030-09-05T09:00' } })
+    fireEvent.change(screen.getByLabelText(/^end$/i), { target: { value: '2030-09-05T11:00' } })
+    fireEvent.click(screen.getByRole('button', { name: /save availability/i }))
+    await screen.findByText(/availability saved/i)
+
+    fireEvent.change(screen.getAllByLabelText(/^session$/i)[0], { target: { value: '1' } })
+    fireEvent.change(screen.getByLabelText(/^hours worked$/i), { target: { value: '2' } })
+    fireEvent.change(screen.getByLabelText(/^description$/i), {
+      target: { value: 'Regression tutorial' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: /add to draft/i }))
+
+    const timesheets = screen.getByRole('region', { name: /weekly timesheets/i })
+    await within(timesheets).findByText('Week of 2030-09-02')
+    fireEvent.click(within(timesheets).getByRole('button', { name: /submit for approval/i }))
+    await within(timesheets).findByText(/waiting for the organiser decision/i)
+
+    fireEvent.change(screen.getAllByLabelText(/^session$/i)[1], { target: { value: '1' } })
+    fireEvent.change(screen.getByLabelText(/^reason$/i), { target: { value: 'Sick' } })
+    fireEvent.click(screen.getByRole('button', { name: /submit excuse/i }))
+
+    const excuses = screen.getByRole('region', { name: /submitted excuses/i })
+    await within(excuses).findByText(/waiting for the organiser decision/i)
+
+    fireEvent.click(within(excuses).getByRole('button', { name: /check for decision/i }))
+    await within(excuses).findByText(/approved by the organiser/i)
+
+    expect(submitTimeSlot).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'BUSY', recurrence: null }),
+      tokenGetter,
+    )
+    expect(submitWorkLog).toHaveBeenCalledWith(
+      {
+        allocationId: 1,
+        workDate: '2030-09-04',
+        hours: 2,
+        description: 'Regression tutorial',
+      },
+      tokenGetter,
+    )
+    expect(submitTimesheet).toHaveBeenCalledWith(3, tokenGetter)
+    expect(submitExcuse).toHaveBeenCalledWith({ allocationId: 1, reason: 'Sick' }, tokenGetter)
+    expect(fetchExcuseStatus).toHaveBeenCalledWith(7, tokenGetter)
   })
 })

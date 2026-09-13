@@ -715,6 +715,19 @@ textarea[aria-invalid='true'] {
   padding-left: 22px;
 }
 
+.timesheet-card,
+.excuse-card {
+  display: grid;
+  gap: 6px;
+}
+
+.timesheet-actions,
+.excuse-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
 @media (max-width: 600px) {
   .auth-card {
     padding: 26px 20px;

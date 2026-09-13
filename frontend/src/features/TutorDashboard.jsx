@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useAuth0 } from '@auth0/auth0-react'
 import { fetchTutorDashboard } from '../api/tutorDashboard'
+import { ErrorState } from '../components/shared/StatusMessage'
 
 function formatSessionDate(startsAt, endsAt) {
   const start = new Date(startsAt)
@@ -15,36 +16,76 @@ export default function TutorDashboard() {
   const { getAccessTokenSilently } = useAuth0()
   const [status, setStatus] = useState('loading')
   const [data, setData] = useState(null)
+  const [isRefreshing, setIsRefreshing] = useState(false)
+  const [refreshFailed, setRefreshFailed] = useState(false)
+  const hasDataRef = useRef(false)
+  const isMountedRef = useRef(true)
+  const refreshInFlightRef = useRef(false)
 
+  // One load path serves the first load, the error retry and later refreshes.
+  // A refresh of already-loaded data keeps the last safe dashboard on screen;
+  // only a load that never produced data falls back to the full error state.
   const loadDashboard = useCallback(async () => {
-    setStatus('loading')
+    const isRefresh = hasDataRef.current
     try {
       const result = await fetchTutorDashboard(getAccessTokenSilently)
+      if (!isMountedRef.current) return
+      hasDataRef.current = true
       setData(result)
       setStatus('success')
+      setRefreshFailed(false)
     } catch {
-      setData(null)
-      setStatus('error')
+      if (!isMountedRef.current) return
+      if (isRefresh) {
+        setRefreshFailed(true)
+      } else {
+        setStatus('error')
+      }
+    } finally {
+      if (isMountedRef.current && isRefresh) {
+        setIsRefreshing(false)
+      }
     }
   }, [getAccessTokenSilently])
 
   useEffect(() => {
-    let active = true
-    fetchTutorDashboard(getAccessTokenSilently)
-      .then((result) => {
-        if (!active) return
-        setData(result)
-        setStatus('success')
-      })
-      .catch(() => {
-        if (!active) return
-        setData(null)
-        setStatus('error')
-      })
+    isMountedRef.current = true
     return () => {
-      active = false
+      isMountedRef.current = false
     }
-  }, [getAccessTokenSilently])
+  }, [])
+
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    loadDashboard()
+  }, [loadDashboard])
+
+  // Manual and focus-driven refresh entry point. The guard keeps overlapping
+  // refreshes (double clicks, focus while refreshing) from stacking requests.
+  const refreshDashboard = useCallback(() => {
+    if (!hasDataRef.current || refreshInFlightRef.current) return
+    refreshInFlightRef.current = true
+    setIsRefreshing(true)
+    setRefreshFailed(false)
+    loadDashboard().finally(() => {
+      refreshInFlightRef.current = false
+    })
+  }, [loadDashboard])
+
+  useEffect(() => {
+    // Allocation changes made by an organiser surface without a manual
+    // reload: refetch quietly whenever the tutor returns to the Tutor Mx tab.
+    const handleWindowFocus = () => refreshDashboard()
+    window.addEventListener('focus', handleWindowFocus)
+    return () => {
+      window.removeEventListener('focus', handleWindowFocus)
+    }
+  }, [refreshDashboard])
+
+  function handleInitialRetry() {
+    setStatus('loading')
+    loadDashboard()
+  }
 
   if (status === 'loading') {
     return <p className="status-message loading" role="status">Loading your dashboard...</p>
@@ -56,7 +97,7 @@ export default function TutorDashboard() {
         <section className="role-card" role="alert">
           <h1>Dashboard unavailable</h1>
           <p>We could not load your dashboard right now.</p>
-          <button className="primary-button" type="button" onClick={loadDashboard}>
+          <button className="primary-button" type="button" onClick={handleInitialRetry}>
             Retry
           </button>
         </section>
@@ -73,7 +114,29 @@ export default function TutorDashboard() {
           <p className="eyebrow">Tutor Mx</p>
           <h1>Your Tutor Dashboard</h1>
         </div>
+        <button
+          type="button"
+          className="secondary-button"
+          onClick={refreshDashboard}
+          disabled={isRefreshing}
+        >
+          {isRefreshing ? 'Refreshing...' : 'Refresh'}
+        </button>
       </header>
+
+      {refreshFailed && (
+        <ErrorState
+          title="Refresh failed"
+          message="Showing your last loaded dashboard. Retry to load your latest assignments and hours."
+          onRetry={refreshDashboard}
+        />
+      )}
+
+      {isRefreshing && (
+        <p className="status-message loading" role="status">
+          Refreshing your assignments...
+        </p>
+      )}
 
       <section className="role-card hours-summary" aria-labelledby="weekly-hours-heading">
         <h2 id="weekly-hours-heading">Weekly hours</h2>

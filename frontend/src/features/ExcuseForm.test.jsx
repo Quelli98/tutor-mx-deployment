@@ -1,8 +1,9 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, within, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import ExcuseForm from './ExcuseForm'
 
 const mockSubmitExcuse = vi.fn()
+const mockFetchExcuseStatus = vi.fn()
 const tokenGetter = vi.fn()
 const allocations = [
   {
@@ -15,11 +16,20 @@ const allocations = [
 
 vi.mock('../api/excuse', () => ({
   submitExcuse: (...args) => mockSubmitExcuse(...args),
+  fetchExcuseStatus: (...args) => mockFetchExcuseStatus(...args),
 }))
+
+function apiError(code, message) {
+  const error = new Error(message)
+  error.code = code
+  return error
+}
 
 describe('ExcuseForm', () => {
   beforeEach(() => {
+    window.sessionStorage.clear()
     mockSubmitExcuse.mockReset()
+    mockFetchExcuseStatus.mockReset()
   })
 
   it('does not submit without an assigned session and reason', () => {
@@ -50,5 +60,61 @@ describe('ExcuseForm', () => {
       )
     })
     expect(await screen.findByText(/excuse submitted/i)).toBeInTheDocument()
+  })
+
+  it('blocks a session that is no longer future', () => {
+    const pastAllocations = [
+      {
+        id: 2,
+        courseCode: 'DEMO101',
+        startsAt: '2020-09-04T14:00:00.000Z',
+        status: 'CONFIRMED',
+      },
+    ]
+    render(<ExcuseForm allocations={pastAllocations} tokenOrGetter={tokenGetter} />)
+    fireEvent.change(screen.getByLabelText(/^session$/i), { target: { value: '2' } })
+    fireEvent.change(screen.getByLabelText(/^reason$/i), { target: { value: 'Sick' } })
+    fireEvent.click(screen.getByRole('button', { name: /submit excuse/i }))
+
+    expect(screen.getByLabelText(/^session$/i)).toHaveAccessibleDescription(
+      /only future sessions can be excused/i,
+    )
+    expect(mockSubmitExcuse).not.toHaveBeenCalled()
+  })
+
+  it('explains when the session was already excused', async () => {
+    mockSubmitExcuse.mockRejectedValueOnce(
+      apiError('EXCUSE_DUPLICATE', 'An excuse has already been submitted for this session.'),
+    )
+    render(<ExcuseForm allocations={allocations} tokenOrGetter={tokenGetter} />)
+    fireEvent.change(screen.getByLabelText(/^session$/i), { target: { value: '1' } })
+    fireEvent.change(screen.getByLabelText(/^reason$/i), { target: { value: 'Sick' } })
+    fireEvent.click(screen.getByRole('button', { name: /submit excuse/i }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      /an excuse has already been submitted for this session/i,
+    )
+    expect(mockFetchExcuseStatus).not.toHaveBeenCalled()
+  })
+
+  it('hands the submitted excuse to the status section', async () => {
+    mockSubmitExcuse.mockResolvedValueOnce({
+      id: 3,
+      allocationId: 1,
+      reason: 'Sick',
+      status: 'PENDING',
+    })
+    render(<ExcuseForm allocations={allocations} tokenOrGetter={tokenGetter} />)
+    fireEvent.change(screen.getByLabelText(/^session$/i), { target: { value: '1' } })
+    fireEvent.change(screen.getByLabelText(/^reason$/i), { target: { value: 'Sick' } })
+    fireEvent.click(screen.getByRole('button', { name: /submit excuse/i }))
+
+    expect(await screen.findByText(/excuse submitted/i)).toBeInTheDocument()
+    const statusSection = screen.getByRole('region', { name: /submitted excuses/i })
+    expect(await within(statusSection).findByText(/DEMO101/)).toBeInTheDocument()
+    expect(
+      within(statusSection).getByText(/waiting for the organiser decision/i),
+    ).toBeInTheDocument()
+    expect(mockFetchExcuseStatus).not.toHaveBeenCalled()
   })
 })

@@ -6,7 +6,7 @@ import WorkLogForm from './WorkLogForm'
 import ExcuseForm from './ExcuseForm'
 
 export default function TutorForms() {
-  const { getAccessTokenSilently } = useAuth0()
+  const { getAccessTokenSilently, user } = useAuth0()
   const [status, setStatus] = useState('loading')
   const [allocations, setAllocations] = useState([])
 
@@ -48,6 +48,7 @@ export default function TutorForms() {
     () => confirmedAllocations.filter((allocation) => new Date(allocation.startsAt) > new Date()),
     [confirmedAllocations],
   )
+  const storageScope = user?.sub ?? null
 
   if (status === 'loading') {
     return <p className="status-message loading" role="status">Loading your assigned sessions...</p>
@@ -74,12 +75,16 @@ export default function TutorForms() {
       <div className="tutor-form-grid">
         <AvailabilityForm tokenOrGetter={getAccessTokenSilently} />
         <WorkLogForm
+          key={`work-log-${storageScope ?? 'unknown'}`}
           allocations={confirmedAllocations}
           tokenOrGetter={getAccessTokenSilently}
+          storageScope={storageScope}
         />
         <ExcuseForm
+          key={`excuse-${storageScope ?? 'unknown'}`}
           allocations={futureConfirmedAllocations}
           tokenOrGetter={getAccessTokenSilently}
+          storageScope={storageScope}
         />
       </div>
     </main>
