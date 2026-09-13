@@ -30,6 +30,7 @@
     "db:verify": "tsx scripts/verify-database.ts",
     "spike:holidays": "tsx scripts/spike-public-holidays.ts",
     "smoke": "tsx scripts/smoke-health.ts",
+    "security:smoke": "tsx scripts/security-smoke.ts",
     "security:check": "node scripts/check-repository.mjs",
     "check": "npm run generate && npm run lint && npm run typecheck && npm test && npm run build && npm run security:check"
   },

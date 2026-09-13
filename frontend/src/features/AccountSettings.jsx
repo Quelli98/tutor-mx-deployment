@@ -1,10 +1,12 @@
 import { useState } from 'react'
+import { useAuth0 } from '@auth0/auth0-react'
 import { requestPasswordReset, useApiClient } from '../api/client'
 
 const DELETE_ACCOUNT_PATH = '/api/auth/delete-account'
 
 export function AccountSettings() {
   const request = useApiClient()
+  const { logout } = useAuth0()
   const [email, setEmail] = useState('')
   const [resetStatus, setResetStatus] = useState({ type: 'idle', message: '' })
   const [resetSubmitting, setResetSubmitting] = useState(false)
@@ -51,6 +53,15 @@ export function AccountSettings() {
     try {
       await request(DELETE_ACCOUNT_PATH, { method: 'DELETE' })
       setDeleteState({ step: 2, confirm: '', error: '', submitting: false })
+      // The account no longer exists, so the in-memory session must not linger.
+      try {
+        logout({ logoutParams: { returnTo: window.location.origin } })
+      } catch {
+        setDeleteState((previous) => ({
+          ...previous,
+          error: 'Account deleted, but automatic sign-out failed. Use Sign out in the navigation bar.',
+        }))
+      }
     } catch (error) {
       setDeleteState((previous) => ({
         ...previous,
@@ -142,9 +153,9 @@ export function AccountSettings() {
             </>
           )}
 
-          {deleteState.step === 2 && (
+          {deleteState.step === 2 && !deleteState.error && (
             <p className="status-note" role="status">
-              Account deleted. Sign out to clear the in-memory browser session.
+              Account deleted. Signing you out of Tutor Mx...
             </p>
           )}
           {deleteState.error && (

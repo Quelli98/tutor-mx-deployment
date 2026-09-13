@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - main
+      - "integration/**"
   pull_request:
     branches:
       - main
@@ -13,6 +14,9 @@ jobs:
     name: Backend quality and coverage
     runs-on: ubuntu-latest
     timeout-minutes: 15
+
+    env:
+      CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
 
     steps:
       - name: Check out repository
@@ -46,18 +50,29 @@ jobs:
         run: npm run security:check
 
       - name: Upload backend coverage to Codecov
+        if: ${{ env.CODECOV_TOKEN != '' }}
         uses: codecov/codecov-action@v5
         with:
           files: ./coverage/lcov.info
           flags: backend
           name: tutor-mx-backend
           fail_ci_if_error: true
-          token: ${{ secrets.CODECOV_TOKEN }}
+          token: ${{ env.CODECOV_TOKEN }}
+
+      - name: Codecov token unavailable for this event
+        if: ${{ env.CODECOV_TOKEN == '' }}
+        run: |
+          echo "CODECOV_TOKEN is not available to this workflow event."
+          echo "Coverage tests completed successfully, but the Codecov upload is skipped."
+          echo "The push workflow will perform the authenticated Codecov upload."
 
   frontend-quality:
     name: Frontend quality and coverage
     runs-on: ubuntu-latest
     timeout-minutes: 15
+
+    env:
+      CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
 
     defaults:
       run:
@@ -87,13 +102,21 @@ jobs:
         run: npm run build
 
       - name: Upload frontend coverage to Codecov
+        if: ${{ env.CODECOV_TOKEN != '' }}
         uses: codecov/codecov-action@v5
         with:
           files: ./frontend/coverage/lcov.info
           flags: frontend
           name: tutor-mx-frontend
           fail_ci_if_error: true
-          token: ${{ secrets.CODECOV_TOKEN }}
+          token: ${{ env.CODECOV_TOKEN }}
+
+      - name: Codecov token unavailable for this event
+        if: ${{ env.CODECOV_TOKEN == '' }}
+        run: |
+          echo "CODECOV_TOKEN is not available to this workflow event."
+          echo "Coverage tests completed successfully, but the Codecov upload is skipped."
+          echo "The push workflow will perform the authenticated Codecov upload."
 
   postgres-integration:
     name: Clean PostgreSQL migration and API smoke

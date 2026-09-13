@@ -4,10 +4,17 @@ import { AccountSettings } from './AccountSettings'
 
 const mockRequest = vi.fn()
 const mockPasswordReset = vi.fn()
+const mockLogout = vi.fn()
 
 vi.mock('../api/client', () => ({
   requestPasswordReset: (...arguments_) => mockPasswordReset(...arguments_),
   useApiClient: () => mockRequest,
+}))
+
+vi.mock('@auth0/auth0-react', () => ({
+  useAuth0: () => ({
+    logout: mockLogout,
+  }),
 }))
 
 describe('AccountSettings', () => {
@@ -18,6 +25,7 @@ describe('AccountSettings', () => {
     mockPasswordReset.mockResolvedValue({
       data: { message: 'If the account can be reset, Auth0 will send instructions.' },
     })
+    mockLogout.mockReset()
   })
 
   it('requests a non-enumerating Auth0 password reset', async () => {
@@ -63,5 +71,37 @@ describe('AccountSettings', () => {
       expect(mockRequest).toHaveBeenCalledWith('/api/auth/delete-account', { method: 'DELETE' })
     })
     expect(screen.getByText(/account deleted/i)).toBeInTheDocument()
+  })
+
+  it('signs the user out automatically once deletion succeeds', async () => {
+    render(<AccountSettings />)
+
+    fireEvent.click(screen.getByRole('button', { name: /delete my account/i }))
+    fireEvent.change(screen.getByLabelText(/type delete to confirm/i), {
+      target: { value: 'DELETE' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: /confirm deletion/i }))
+
+    await waitFor(() => {
+      expect(mockLogout).toHaveBeenCalledWith({
+        logoutParams: { returnTo: window.location.origin },
+      })
+    })
+  })
+
+  it('stays usable with a clear error when deletion fails', async () => {
+    mockRequest.mockRejectedValueOnce(new Error('Auth0 unavailable'))
+
+    render(<AccountSettings />)
+
+    fireEvent.click(screen.getByRole('button', { name: /delete my account/i }))
+    fireEvent.change(screen.getByLabelText(/type delete to confirm/i), {
+      target: { value: 'DELETE' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: /confirm deletion/i }))
+
+    expect(await screen.findByText(/auth0 unavailable/i)).toBeInTheDocument()
+    expect(mockLogout).not.toHaveBeenCalled()
+    expect(screen.getByRole('button', { name: /confirm deletion/i })).toBeEnabled()
   })
 })

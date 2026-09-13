@@ -12,6 +12,8 @@ export interface Auth0ManagedUser {
   emailVerified: boolean;
 }
 
+export type VerificationEmailSender = (auth0Id: string) => Promise<void>;
+
 function cleanDomain(domain: string) {
   const value = domain.trim().replace(/^https?:\/\//, "").replace(/\/$/, "");
   if (!/^[a-z0-9.-]+$/i.test(value)) throw new Error("AUTH0_DOMAIN must be a hostname");
@@ -116,5 +118,20 @@ export function createAuth0RoleProvisioner(config: Auth0ManagementConfig, fetchI
       if (!response.ok) throw new Error("Auth0 Tutor Mx role could not be assigned");
     }
     return { email, fullName, emailVerified: true };
+  };
+}
+
+/** Resend the Auth0 database-connection verification email. Requires Management API client credentials. */
+export function createAuth0VerificationEmailSender(config: Auth0ManagementConfig, fetchImplementation: typeof fetch = fetch): VerificationEmailSender {
+  const domain = cleanDomain(config.domain);
+  return async (auth0Id: string) => {
+    const token = await getManagementToken(config, domain, fetchImplementation);
+    const response = await fetchImplementation(`https://${domain}/api/v2/jobs/verification-email`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ user_id: auth0Id }),
+      signal: AbortSignal.timeout(5_000),
+    });
+    if (!response.ok) throw new Error("Auth0 verification email could not be sent");
   };
 }

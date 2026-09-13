@@ -6,6 +6,8 @@ import App from './App'
 const loginMock = vi.fn()
 const logoutMock = vi.fn()
 const tokenMock = vi.fn()
+const completeOnboardingMock = vi.fn()
+const resendVerificationMock = vi.fn()
 let authState
 let currentUserState
 
@@ -21,6 +23,12 @@ vi.mock('@auth0/auth0-react', () => ({
 
 vi.mock('./auth/useCurrentUser', () => ({
   useCurrentUser: () => currentUserState,
+}))
+
+vi.mock('./api/onboarding', () => ({
+  TUTOR_MX_ROLES: Object.freeze(['STUDENT', 'TUTOR', 'ORGANISER']),
+  completeOnboarding: (...arguments_) => completeOnboardingMock(...arguments_),
+  resendVerificationEmail: (...arguments_) => resendVerificationMock(...arguments_),
 }))
 
 vi.mock('./api/tutorDashboard', () => ({
@@ -39,6 +47,11 @@ describe('Auth entry flow', () => {
     loginMock.mockReset()
     logoutMock.mockReset()
     tokenMock.mockReset()
+    tokenMock.mockResolvedValue('token-1')
+    completeOnboardingMock.mockReset()
+    completeOnboardingMock.mockResolvedValue({ data: { profile: { role: 'TUTOR' } } })
+    resendVerificationMock.mockReset()
+    resendVerificationMock.mockResolvedValue({ data: { message: 'sent' } })
     authState = { isAuthenticated: false, isLoading: false, user: null }
     currentUserState = { role: null, loading: false, error: '', errorCode: '' }
   })
@@ -121,5 +134,39 @@ describe('Auth entry flow', () => {
     expect(logoutMock).toHaveBeenCalledWith({
       logoutParams: { returnTo: window.location.origin },
     })
+  })
+
+  it('recovers into the existing workspace when a stale pending role conflicts with a linked account', async () => {
+    authState = { isAuthenticated: true, isLoading: false, user: { sub: 'auth0|123' } }
+    currentUserState = { role: 'TUTOR', loading: false, error: '', errorCode: '' }
+    window.sessionStorage.setItem('tutormx.pendingRole', 'STUDENT')
+    const conflict = new Error('This Tutor Mx account already has a different role.')
+    conflict.code = 'ROLE_ALREADY_SET'
+    completeOnboardingMock.mockRejectedValueOnce(conflict)
+
+    render(<MemoryRouter initialEntries={['/']}><App /></MemoryRouter>)
+
+    expect(await screen.findByRole('heading', { name: /your tutor dashboard/i })).toBeInTheDocument()
+    expect(window.sessionStorage.getItem('tutormx.pendingRole')).toBeNull()
+    expect(screen.queryByRole('button', { name: /choose your role/i })).not.toBeInTheDocument()
+  })
+
+  it('offers verification-email recovery when onboarding is blocked by an unverified email', async () => {
+    authState = { isAuthenticated: true, isLoading: false, user: { sub: 'auth0|456' } }
+    window.sessionStorage.setItem('tutormx.pendingRole', 'TUTOR')
+    const unverified = new Error('Verify your email address, then try again.')
+    unverified.code = 'EMAIL_NOT_VERIFIED'
+    completeOnboardingMock.mockRejectedValueOnce(unverified)
+
+    render(<MemoryRouter initialEntries={['/']}><App /></MemoryRouter>)
+
+    expect(await screen.findByText(/verify your email using the auth0 verification email/i)).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: /resend verification email/i }))
+
+    await waitFor(() => {
+      expect(resendVerificationMock).toHaveBeenCalledWith(tokenMock)
+    })
+    expect(await screen.findByText(/verification email sent/i)).toBeInTheDocument()
   })
 })

@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { Link, Route, Routes } from 'react-router-dom'
 import { useAuth0 } from '@auth0/auth0-react'
 import { useCurrentUser } from './auth/useCurrentUser'
-import { completeOnboarding, TUTOR_MX_ROLES } from './api/onboarding'
+import { completeOnboarding, resendVerificationEmail, TUTOR_MX_ROLES } from './api/onboarding'
 import { PasswordResetPage, NewPasswordPage } from './features/PasswordReset'
 import { RoleRouter } from './routes/RoleRouter'
 import './App.css'
@@ -143,23 +143,34 @@ function AuthEntry({ handleAuthRedirect, isSubmitting, status, selectedRole, onS
 function OnboardingCard({ role, onComplete, onSignOut }) {
   const { getAccessTokenSilently } = useAuth0()
   const [attempt, setAttempt] = useState(0)
-  const [state, setState] = useState({ status: 'loading', message: '' })
+  const [state, setState] = useState({ status: 'loading', message: '', code: '' })
+  const [resendState, setResendState] = useState({ status: 'idle', message: '' })
 
   useEffect(() => {
     let ignore = false
 
     async function provision() {
-      setState({ status: 'loading', message: `Setting up your ${ROLE_DETAILS[role].title} account...` })
+      setState({ status: 'loading', message: `Setting up your ${ROLE_DETAILS[role].title} account...`, code: '' })
       try {
         await completeOnboarding(role, getAccessTokenSilently)
         if (ignore) return
         window.sessionStorage.removeItem(PENDING_ROLE_KEY)
-        setState({ status: 'success', message: 'Your Tutor Mx account is ready.' })
+        setState({ status: 'success', message: 'Your Tutor Mx account is ready.', code: '' })
         onComplete()
       } catch (error) {
         if (ignore) return
+        if (error?.code === 'ROLE_ALREADY_SET') {
+          // The account is already linked to a different role. Drop the stale
+          // selection and continue straight into the existing workspace so a
+          // linked account never returns to role choice.
+          window.sessionStorage.removeItem(PENDING_ROLE_KEY)
+          setState({ status: 'success', message: 'Your existing Tutor Mx account is ready.', code: '' })
+          onComplete()
+          return
+        }
         setState({
           status: 'error',
+          code: error?.code || '',
           message: error?.code === 'EMAIL_NOT_VERIFIED'
             ? 'Verify your email using the Auth0 verification email, then click Try again.'
             : error?.message || 'Your Tutor Mx account could not be set up. Please try again.',
@@ -170,6 +181,17 @@ function OnboardingCard({ role, onComplete, onSignOut }) {
     provision()
     return () => { ignore = true }
   }, [role, attempt, getAccessTokenSilently, onComplete])
+
+  const handleResendVerification = async () => {
+    if (resendState.status === 'loading') return
+    setResendState({ status: 'loading', message: 'Sending verification email...' })
+    try {
+      await resendVerificationEmail(getAccessTokenSilently)
+      setResendState({ status: 'success', message: 'Verification email sent. Check your inbox, then click Try again.' })
+    } catch {
+      setResendState({ status: 'error', message: 'Verification email could not be sent. Please try again later.' })
+    }
+  }
 
   return (
     <main className="auth-shell">
@@ -182,6 +204,21 @@ function OnboardingCard({ role, onComplete, onSignOut }) {
             <button type="button" className="primary-button" onClick={() => setAttempt((v) => v + 1)}>Try again</button>
             <button type="button" className="secondary-button" onClick={onSignOut}>Sign out</button>
           </div>
+        )}
+        {state.status === 'error' && state.code === 'EMAIL_NOT_VERIFIED' && (
+          <div className="auth-actions">
+            <button
+              type="button"
+              className="secondary-button"
+              onClick={handleResendVerification}
+              disabled={resendState.status === 'loading'}
+            >
+              {resendState.status === 'loading' ? 'Sending...' : 'Resend verification email'}
+            </button>
+          </div>
+        )}
+        {resendState.message && (
+          <p className={`status-message ${resendState.status}`} aria-live="polite">{resendState.message}</p>
         )}
       </section>
     </main>

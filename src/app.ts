@@ -13,6 +13,7 @@ import {
   type AuthenticatedRequest,
 } from "./auth/middleware.js";
 import type { PasswordResetRequester } from "./auth/password-reset.js";
+import type { VerificationEmailSender } from "./auth/management-api.js";
 import type { ExternalApiResult } from "./integrations/external-api.js";
 import type { PublicHoliday } from "./integrations/public-holidays.js";
 import type { CandidateReasonCode } from "./services/allocation-queries.js";
@@ -375,6 +376,7 @@ export interface AppDependencies {
     input: TutorTimeSlotWriteInput,
   ) => Promise<TutorTimeSlotSummary>;
   requestPasswordReset: PasswordResetRequester;
+  requestVerificationEmail?: VerificationEmailSender;
   deleteAccount?: (auth0Id: string) => Promise<void>;
   verifyAccessToken: AccessTokenVerifier;
 }
@@ -485,6 +487,9 @@ const unavailableDependencies: AppDependencies = {
   },
   async requestPasswordReset() {
     throw new Error("Authentication is not configured");
+  },
+  async requestVerificationEmail() {
+    throw new Error("Verification email is not configured");
   },
   async verifyAccessToken() {
     throw new Error("Authentication is not configured");
@@ -1251,6 +1256,31 @@ export function createApp(
         const profile = await dependencies.onboardUser(auth.subject, role);
         response.status(200).json({ data: { profile } });
       } catch (value) { sendRouteError(response, value); }
+    },
+  );
+
+  app.post(
+    "/api/auth/resend-verification",
+    sensitiveAuthLimiter,
+    authenticate,
+    async (request, response) => {
+      const auth = (request as AuthenticatedRequest).auth!;
+      try {
+        if (!dependencies.requestVerificationEmail) {
+          throw new Error("Verification email is not configured");
+        }
+        await dependencies.requestVerificationEmail(auth.subject);
+        response.status(202).json({
+          data: { message: "If your account needs verification, Auth0 will send an email." },
+        });
+      } catch {
+        const result = error(
+          503,
+          "VERIFICATION_EMAIL_UNAVAILABLE",
+          "Verification email could not be sent. Please try again later.",
+        );
+        response.status(result.status).json(result.body);
+      }
     },
   );
 
