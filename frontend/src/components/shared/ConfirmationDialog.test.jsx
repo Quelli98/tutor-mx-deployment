@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
@@ -142,5 +143,38 @@ describe('ConfirmationDialog', () => {
     await user.keyboard('{Escape}')
 
     expect(onCancel).toHaveBeenCalledTimes(1)
+  })
+
+  it('returns focus to the control that opened the dialog', async () => {
+    const user = userEvent.setup()
+
+    function Harness() {
+      const [open, setOpen] = useState(false)
+
+      return (
+        <>
+          <button type="button" onClick={() => setOpen(true)}>
+            Volunteer
+          </button>
+          <ConfirmationDialog
+            open={open}
+            title="Confirm volunteer"
+            onConfirm={vi.fn()}
+            onCancel={() => setOpen(false)}
+          >
+            Confirmation details
+          </ConfirmationDialog>
+        </>
+      )
+    }
+
+    render(<Harness />)
+
+    const opener = screen.getByRole('button', { name: 'Volunteer' })
+    await user.click(opener)
+    expect(screen.getByRole('button', { name: 'Cancel' })).toHaveFocus()
+
+    await user.click(screen.getByRole('button', { name: 'Cancel' }))
+    expect(opener).toHaveFocus()
   })
 })

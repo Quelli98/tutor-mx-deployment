@@ -126,6 +126,7 @@ function makeApp(
       ...input,
     }),
     listStudentOpenWork: async () => [],
+    listStudentVolunteerRequests: async () => [],
     createStudentVolunteerRequest: async (_auth0Id, input) => ({
       id: 1,
       overflowWorkId: input.overflowWorkId,

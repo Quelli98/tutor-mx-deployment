@@ -12,13 +12,27 @@ export function ConfirmationDialog({
 }) {
   const dialogRef = useRef(null)
   const cancelButtonRef = useRef(null)
+  const previouslyFocusedRef = useRef(null)
 
   useEffect(() => {
     if (!open) {
       return undefined
     }
 
+    previouslyFocusedRef.current = document.activeElement
     cancelButtonRef.current?.focus()
+
+    return () => {
+      if (previouslyFocusedRef.current?.isConnected) {
+        previouslyFocusedRef.current.focus()
+      }
+    }
+  }, [open])
+
+  useEffect(() => {
+    if (!open) {
+      return undefined
+    }
 
     const handleKeyDown = (event) => {
       if (event.key === 'Escape' && !isPending) {

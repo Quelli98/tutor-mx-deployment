@@ -865,6 +865,127 @@ textarea[aria-invalid='true'] {
   color: #b3253a;
 }
 
+.work-status.request-pending {
+  background: #fff6e0;
+  color: #8a6116;
+}
+
+.work-status.request-accepted {
+  background: #ebfff4;
+  color: #126b46;
+}
+
+.work-status.request-rejected {
+  background: #fff1f3;
+  color: #b3253a;
+}
+
+.work-status.request-withdrawn {
+  background: #eef0f8;
+  color: #55607f;
+}
+
+.my-requests {
+  margin-top: 24px;
+}
+
+.my-requests h2 {
+  margin-bottom: 12px;
+}
+
+.inline-status-action {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+}
+
+.inline-status-action .status-note {
+  margin: 0;
+}
+
+.public-holidays-section {
+  margin-top: 32px;
+  padding: 20px 22px;
+  border-radius: 14px;
+  background: #f7f8fc;
+  border: 1px solid #e4e7f2;
+}
+
+.public-holidays-section h2 {
+  margin: 0 0 4px;
+  font-size: 1.05rem;
+}
+
+.public-holidays-section .helper-text {
+  margin: 0 0 16px;
+  font-size: 0.88rem;
+  color: #6a718b;
+}
+
+.holiday-source-note {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: -6px 0 14px;
+  color: #55607f;
+  font-size: 0.8rem;
+}
+
+.holiday-source-badge {
+  display: inline-block;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: #eaf0ff;
+  color: #2746bd;
+  font-weight: 800;
+}
+
+.public-holidays-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: grid;
+  gap: 10px;
+}
+
+.public-holiday-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  background: #ffffff;
+  border-radius: 10px;
+  border: 1px solid #e4e7f2;
+  font-size: 0.92rem;
+}
+
+.holiday-date {
+  min-width: 90px;
+  flex-shrink: 0;
+  color: #252b46;
+  font-weight: 700;
+}
+
+.holiday-name {
+  flex: 1;
+  color: #3b4266;
+}
+
+.holiday-badge {
+  display: inline-block;
+  flex-shrink: 0;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: #eaf0ff;
+  color: #2b4acb;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
 .work-details {
   display: grid;
   gap: 12px;
@@ -906,6 +1027,26 @@ textarea[aria-invalid='true'] {
 
   .work-status {
     font-size: 0.72rem;
+  }
+
+  .public-holidays-section {
+    margin-top: 24px;
+    padding: 16px;
+  }
+
+  .public-holiday-item {
+    flex-wrap: wrap;
+    gap: 6px;
+    padding: 10px 12px;
+  }
+
+  .holiday-date {
+    min-width: 80px;
+    font-size: 0.84rem;
+  }
+
+  .holiday-name {
+    font-size: 0.88rem;
   }
 }
 

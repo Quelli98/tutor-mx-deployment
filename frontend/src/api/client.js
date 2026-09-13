@@ -1,3 +1,4 @@
+import { useCallback } from 'react'
 import { useAuth0 } from '@auth0/auth0-react'
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000'
@@ -59,7 +60,9 @@ export async function requestPasswordReset(email) {
 export function useApiClient() {
   const { getAccessTokenSilently } = useAuth0()
 
-  return async function apiRequest(path, options = {}) {
-    return fetchWithBearerToken(path, options, getAccessTokenSilently)
-  }
+  return useCallback(
+    (path, options = {}) =>
+      fetchWithBearerToken(path, options, getAccessTokenSilently),
+    [getAccessTokenSilently],
+  )
 }

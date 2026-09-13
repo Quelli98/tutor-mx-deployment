@@ -1,46 +1,73 @@
-import { beforeEach, describe, expect, it, } from 'vitest'
-import { resetVolunteerMock, volunteerForWork, } from './studentVolunteer'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { getVolunteerRequests, volunteerForWork } from './studentVolunteer'
+import { fetchWithBearerToken } from './client'
 
-describe('volunteerForWork', () => {
+vi.mock('./client', () => ({
+  fetchWithBearerToken: vi.fn(),
+}))
+
+describe('student volunteer API', () => {
   beforeEach(() => {
-    resetVolunteerMock()
+    vi.clearAllMocks()
   })
 
-  it('claims an open work item', async () => {
-    const result = await volunteerForWork(5)
-
-    expect(result).toMatchObject({
-      id: 5,
-      courseCode: 'COMS3011',
-      courseName: 'SDP',
-      hours: 3,
-      status: 'CLAIMED',
+  it('loads the signed-in student persisted requests and outcomes', async () => {
+    const requests = [
+      {
+        id: 21,
+        overflowWorkId: 4,
+        courseCode: 'DEMO101',
+        courseName: 'Demo Course',
+        startsAt: '2030-09-06T10:00:00.000Z',
+        endsAt: '2030-09-06T12:00:00.000Z',
+        hours: 2,
+        status: 'PENDING',
+        reviewReason: null,
+      },
+    ]
+    fetchWithBearerToken.mockResolvedValue({
+      data: { volunteerRequests: requests },
     })
-  })
 
-  it('rejects a closed work item', async () => {
-    await expect(
-      volunteerForWork(6),
-    ).rejects.toMatchObject({
-      code: 'WORK_NOT_AVAILABLE',
-    })
-  })
-
-  it('rejects an unknown work item', async () => {
-    await expect(
-      volunteerForWork(999),
-    ).rejects.toThrow(
-      'Work item could not be found.',
+    await expect(getVolunteerRequests(vi.fn())).resolves.toEqual(requests)
+    expect(fetchWithBearerToken).toHaveBeenCalledWith(
+      '/api/student/volunteer-requests',
+      {},
+      expect.any(Function),
     )
   })
 
-  it('does not allow the same work item to be claimed twice', async () => {
-    await volunteerForWork(5)
-
-    await expect(
-      volunteerForWork(5),
-    ).rejects.toMatchObject({
-      code: 'WORK_NOT_AVAILABLE',
+  it('posts the selected work ID without a browser-supplied student ID', async () => {
+    const request = {
+      id: 21,
+      overflowWorkId: 4,
+      status: 'PENDING',
+      reviewReason: null,
+      createdAt: '2030-09-01T08:00:00.000Z',
+      updatedAt: '2030-09-01T08:00:00.000Z',
+    }
+    fetchWithBearerToken.mockResolvedValue({
+      data: { volunteerRequest: request },
     })
+
+    await expect(volunteerForWork(4, vi.fn())).resolves.toEqual(request)
+    expect(fetchWithBearerToken).toHaveBeenCalledWith(
+      '/api/student/volunteer-requests',
+      {
+        method: 'POST',
+        body: JSON.stringify({ overflowWorkId: 4 }),
+      },
+      expect.any(Function),
+    )
+  })
+
+  it.each([
+    [{ data: {} }, getVolunteerRequests],
+    [{ data: { volunteerRequest: { id: 21, overflowWorkId: 99 } } },
+      (token) => volunteerForWork(4, token)],
+  ])('rejects an invalid backend contract', async (body, action) => {
+    fetchWithBearerToken.mockResolvedValue(body)
+
+    await expect(action(vi.fn())).rejects.toThrow(/agreed contract/i)
   })
 })

@@ -3,16 +3,31 @@ import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { describe, expect, it, vi } from 'vitest'
 import { RoleRouter } from './RoleRouter'
 
+const getAccessTokenSilently = vi.fn()
+
 vi.mock('@auth0/auth0-react', () => ({
   useAuth0: () => ({
     isAuthenticated: true,
     isLoading: false,
-    getAccessTokenSilently: vi.fn(),
+    getAccessTokenSilently,
   }),
 }))
 
 vi.mock('../api/studentOverflow', () => ({
   getStudentOverflowWork: vi.fn().mockResolvedValue([]),
+}))
+
+vi.mock('../api/studentVolunteer', () => ({
+  getVolunteerRequests: vi.fn().mockResolvedValue([]),
+  volunteerForWork: vi.fn(),
+}))
+
+vi.mock('../api/publicHolidays', () => ({
+  getPublicHolidays: vi.fn().mockResolvedValue({
+    source: 'fallback',
+    holidays: [],
+    retrievedAt: null,
+  }),
 }))
 
 vi.mock('../api/organiser', () => ({

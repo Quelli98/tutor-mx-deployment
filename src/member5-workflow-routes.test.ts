@@ -82,6 +82,7 @@ function dependenciesFor(
       ...input,
     }),
     listStudentOpenWork: async () => [],
+    listStudentVolunteerRequests: async () => [],
     createStudentVolunteerRequest: async (_auth0Id, input) => ({
       id: 20,
       overflowWorkId: input.overflowWorkId,
@@ -253,6 +254,15 @@ const volunteerRequest = {
   updatedAt: "2030-09-01T08:00:00.000Z",
 };
 
+const volunteerRequestDetails = {
+  ...volunteerRequest,
+  courseCode: "DEMO101",
+  courseName: "Demo Course",
+  startsAt: openWork.startsAt,
+  endsAt: openWork.endsAt,
+  hours: openWork.hours,
+};
+
 describe("Sprint 2 Member 5 workflow routes", () => {
   it.each([
     { row: null, status: 404, code: "TIMESHEET_NOT_FOUND", message: "The requested timesheet could not be found." },
@@ -271,6 +281,9 @@ describe("Sprint 2 Member 5 workflow routes", () => {
 
   it("serves Student open work and own volunteer actions using the token subject", async () => {
     const listStudentOpenWork = vi.fn().mockResolvedValue([openWork]);
+    const listStudentVolunteerRequests = vi
+      .fn()
+      .mockResolvedValue([volunteerRequestDetails]);
     const createStudentVolunteerRequest = vi
       .fn()
       .mockResolvedValue(volunteerRequest);
@@ -283,12 +296,18 @@ describe("Sprint 2 Member 5 workflow routes", () => {
       .mockResolvedValue(withdrawn);
     const app = makeApp("STUDENT", studentSubject, {
       listStudentOpenWork,
+      listStudentVolunteerRequests,
       createStudentVolunteerRequest,
       getStudentVolunteerRequest,
       withdrawStudentVolunteerRequest,
     });
 
     const listed = await apiRequest(app, "GET", "/api/student/open-work");
+    const requests = await apiRequest(
+      app,
+      "GET",
+      "/api/student/volunteer-requests?studentId=999",
+    );
     const created = await apiRequest(
       app,
       "POST",
@@ -308,11 +327,16 @@ describe("Sprint 2 Member 5 workflow routes", () => {
 
     expect(listed.status).toBe(200);
     expect(listed.body).toEqual({ data: { workItems: [openWork] } });
+    expect(requests.status).toBe(200);
+    expect(requests.body).toEqual({
+      data: { volunteerRequests: [volunteerRequestDetails] },
+    });
     expect(created.status).toBe(201);
     expect(fetched.status).toBe(200);
     expect(removed.status).toBe(200);
     expect(removed.body).toEqual({ data: { volunteerRequest: withdrawn } });
     expect(listStudentOpenWork).toHaveBeenCalledWith(studentSubject);
+    expect(listStudentVolunteerRequests).toHaveBeenCalledWith(studentSubject);
     expect(createStudentVolunteerRequest).toHaveBeenCalledWith(studentSubject, {
       overflowWorkId: 3,
     });
@@ -442,6 +466,12 @@ describe("Sprint 2 Member 5 workflow routes", () => {
       wrongRole: "TUTOR",
     },
     {
+      method: "GET",
+      path: "/api/student/volunteer-requests",
+      allowedRole: "STUDENT",
+      wrongRole: "TUTOR",
+    },
+    {
       method: "POST",
       path: "/api/student/volunteer-requests",
       body: { overflowWorkId: 3 },
@@ -510,7 +540,8 @@ describe("Sprint 2 Member 5 workflow routes", () => {
       ]) {
         const fail = vi.fn().mockRejectedValue(failure);
         const response = await apiRequest(makeApp(allowedRole, "auth0|member5", {
-          listStudentOpenWork: fail, createStudentVolunteerRequest: fail,
+          listStudentOpenWork: fail, listStudentVolunteerRequests: fail,
+          createStudentVolunteerRequest: fail,
           getStudentVolunteerRequest: fail, withdrawStudentVolunteerRequest: fail,
           getTutorTimesheetStatus: fail, submitTutorTimesheet: fail,
           getTutorExcuseStatus: fail, decideExcuse: fail,
