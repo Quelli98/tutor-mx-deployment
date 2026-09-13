@@ -23,7 +23,7 @@ if (forbiddenEnvironmentFiles.length > 0) {
 const secretPatterns = [
   /-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----/,
   /\bsk-[A-Za-z0-9_-]{20,}\b/,
-  /\b(?:AUTH0_MANAGEMENT_TOKEN|CODECOV_TOKEN)\s*=\s*[^\s${][^\s]*/,
+  /\b(?:AUTH0_MANAGEMENT_TOKEN|CODECOV_TOKEN)\s*=(?!=)\s*(?!["']?\$)[^\s${][^\s]*/,
   /postgres(?:ql)?:\/\/[^:\s]+:[^@\s]+@/,
 ];
 

@@ -285,8 +285,8 @@ jobs:
                     accept: "application/json",
                   },
 
-                  # Prevent Node 24 from sending this local request through
-                  # the shared runner's configured HTTP proxy.
+                  // Prevent Node 24 from sending this local request through
+                  // the shared runner's configured HTTP proxy.
                   agent: false,
                 },
                 (response) => {
