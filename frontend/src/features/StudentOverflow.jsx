@@ -4,7 +4,7 @@ import { EmptyState, ErrorState, LoadingState, SuccessState } from '../component
 import { getVolunteerRequests, volunteerForWork } from '../api/studentVolunteer'
 import { getPublicHolidays } from '../api/publicHolidays'
 import { ConfirmationDialog } from '../components/shared/ConfirmationDialog'
-import { useApiClient } from '../api/client'
+import { useApiToken } from '../api/client'
 
 function formatDateTime(value) {
     return new Intl.DateTimeFormat( 'en-ZA', {
@@ -121,26 +121,26 @@ function RequestCard({ request }) {
 }
 
 export function StudentOverflow({ loadWorkItems, claimWork, loadRequests, loadHolidays }) {
-    const apiRequest = useApiClient()
+    const tokenOrGetter = useApiToken()
 
     const defaultLoadWorkItems = useCallback(
-        () => getStudentOverflowWork(apiRequest),
-        [apiRequest],
+        () => getStudentOverflowWork(tokenOrGetter),
+        [tokenOrGetter],
     )
 
     const defaultClaimWork = useCallback(
-        (workId) => volunteerForWork(workId, apiRequest),
-        [apiRequest],
+        (workId) => volunteerForWork(workId, tokenOrGetter),
+        [tokenOrGetter],
     )
 
     const defaultLoadRequests = useCallback(
-        () => getVolunteerRequests(apiRequest),
-        [apiRequest],
+        () => getVolunteerRequests(tokenOrGetter),
+        [tokenOrGetter],
     )
 
     const defaultLoadHolidays = useCallback(
-        () => getPublicHolidays(apiRequest),
-        [apiRequest],
+        () => getPublicHolidays(tokenOrGetter),
+        [tokenOrGetter],
     )
 
     const resolvedLoadWorkItems = loadWorkItems ?? defaultLoadWorkItems

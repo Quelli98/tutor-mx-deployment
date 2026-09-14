@@ -57,6 +57,11 @@ export async function requestPasswordReset(email) {
   return body
 }
 
+export function useApiToken() {
+  const { getAccessTokenSilently } = useAuth0()
+  return getAccessTokenSilently
+}
+
 export function useApiClient() {
   const { getAccessTokenSilently } = useAuth0()
 

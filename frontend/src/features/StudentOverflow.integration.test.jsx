@@ -3,8 +3,12 @@ import { MemoryRouter } from 'react-router-dom'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { StudentOverflow } from './StudentOverflow'
 
+const studentAccessTokenGetter = vi.hoisted(() =>
+  vi.fn().mockResolvedValue('test-token'),
+)
 vi.mock('../api/client', () => ({
   useApiClient: () => vi.fn(),
+  useApiToken: () => studentAccessTokenGetter,
   fetchWithBearerToken: vi.fn(),
 }))
 
