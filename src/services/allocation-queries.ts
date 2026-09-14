@@ -40,6 +40,7 @@ export interface CandidateQuery {
   endsAt: Date;
   minimumMark: number;
   requestedHours: number;
+  excludeAllocationId?: number;
 }
 
 export interface TutorHourSummary {
@@ -114,6 +115,10 @@ export function hasEnoughRemainingHours(
   return remainingHours! >= requestedHours!;
 }
 
+export function toNaiveUtcText(value: Date): string {
+  return value.toISOString().replace("T", " ").replace("Z", "");
+}
+
 export const candidateQuerySql = `
 WITH tutor_hours AS (
   SELECT
@@ -123,6 +128,7 @@ WITH tutor_hours AS (
       WHERE a."status" = 'CONFIRMED'
         AND a."startsAt" >= date_trunc('week', $2::timestamp)
         AND a."startsAt" < date_trunc('week', $2::timestamp) + interval '7 days'
+        AND ($6::integer IS NULL OR a."id" <> $6)
     ), 0)::double precision AS "usedHours"
   FROM "Profile" p
   LEFT JOIN "TutorHourLimit" thl ON thl."tutorId" = p."id"
@@ -149,6 +155,7 @@ WITH tutor_hours AS (
         SELECT 1 FROM "Allocation" clash
         WHERE clash."tutorId" = p."id"
           AND clash."status" = 'CONFIRMED'
+          AND ($6::integer IS NULL OR clash."id" <> $6)
           AND clash."startsAt" < $3::timestamp
           AND clash."endsAt" > $2::timestamp
       )
@@ -220,6 +227,13 @@ function assertCandidateQuery(input: CandidateQuery): void {
   if (input.requestedHours <= 0 || input.requestedHours > 24) {
     throw new RangeError("requestedHours must be between 0 and 24");
   }
+  if (
+    input.excludeAllocationId !== undefined &&
+    (!Number.isInteger(input.excludeAllocationId) ||
+      input.excludeAllocationId <= 0)
+  ) {
+    throw new RangeError("excludeAllocationId must be a positive integer");
+  }
 }
 
 export function allocationReasonCodesFor(
@@ -249,10 +263,11 @@ export async function findAllocationCandidates(
   assertCandidateQuery(input);
   const result = await client.query<CandidateRow>(candidateQuerySql, [
     input.courseId,
-    input.startsAt,
-    input.endsAt,
+    toNaiveUtcText(input.startsAt),
+    toNaiveUtcText(input.endsAt),
     input.minimumMark,
     input.requestedHours,
+    input.excludeAllocationId ?? null,
   ]);
 
   return result.rows.map((row) => ({
@@ -281,7 +296,7 @@ export async function getTutorHourSummary(
 
   const result = await client.query<TutorHourSummary>(tutorHourSummarySql, [
     tutorId,
-    weekStart,
+    toNaiveUtcText(weekStart),
   ]);
   return result.rows[0] ?? null;
 }
@@ -290,6 +305,8 @@ export async function listOpenWork(
   client: QueryClient,
   now = new Date(),
 ): Promise<OpenWorkItem[]> {
-  const result = await client.query<OpenWorkItem>(openWorkQuerySql, [now]);
+  const result = await client.query<OpenWorkItem>(openWorkQuerySql, [
+    toNaiveUtcText(now),
+  ]);
   return result.rows;
 }

@@ -75,8 +75,9 @@ export function AccountSettings() {
     <main id="main-content" className="dashboard-shell">
       <header className="dashboard-header">
         <div>
-          <p className="eyebrow">Tutor Mx</p>
+          <p className="eyebrow">Your account</p>
           <h1>Account settings</h1>
+          <p className="helper-text">Manage password recovery and account access.</p>
         </div>
       </header>
 

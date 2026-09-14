@@ -37,7 +37,9 @@ function safeErrorMessage(error, fallback) {
 }
 
 function weeklyHoursText(weeklyHours) {
-  return weeklyHours === null || weeklyHours === undefined ? 'Not set' : String(weeklyHours)
+  return weeklyHours === null || weeklyHours === undefined
+    ? 'Not set - cannot be allocated'
+    : String(weeklyHours)
 }
 
 function originalWeeklyHours(tutor) {
@@ -70,9 +72,12 @@ function validateFields(form, fields) {
   }
 
   if (fields.includes('weeklyHours')) {
-    const weeklyHours = Number(form.weeklyHours.trim())
-    if (!Number.isFinite(weeklyHours) || weeklyHours <= 0 || weeklyHours > MAX_WEEKLY_HOURS) {
-      errors.weeklyHours = `Enter weekly hours above 0 and no more than ${MAX_WEEKLY_HOURS}.`
+    const entered = form.weeklyHours.trim()
+    if (entered !== '') {
+      const weeklyHours = Number(entered)
+      if (!Number.isFinite(weeklyHours) || weeklyHours <= 0 || weeklyHours > MAX_WEEKLY_HOURS) {
+        errors.weeklyHours = `Enter weekly hours above 0 and no more than ${MAX_WEEKLY_HOURS}.`
+      }
     }
   }
 
@@ -85,8 +90,7 @@ function changedFields(form, tutor) {
   if (form.email.trim() !== tutor.email) fields.push('email')
   if (form.fullName.trim() !== tutor.fullName) fields.push('fullName')
 
-  const weeklyHours = form.weeklyHours.trim()
-  if (weeklyHours && weeklyHours !== originalWeeklyHours(tutor)) fields.push('weeklyHours')
+  if (form.weeklyHours.trim() !== originalWeeklyHours(tutor)) fields.push('weeklyHours')
 
   return fields
 }
@@ -190,7 +194,10 @@ export default function TutorManagement() {
     const payload = {}
     if (fields.includes('email')) payload.email = form.email.trim()
     if (fields.includes('fullName')) payload.fullName = form.fullName.trim()
-    if (fields.includes('weeklyHours')) payload.weeklyHours = Number(form.weeklyHours.trim())
+    if (fields.includes('weeklyHours')) {
+      const entered = form.weeklyHours.trim()
+      payload.weeklyHours = entered === '' ? null : Number(entered)
+    }
 
     setFormStatus('saving')
 
@@ -215,6 +222,7 @@ export default function TutorManagement() {
     <main id="main-content" className="dashboard-shell">
       <header className="dashboard-header tutor-management-header">
         <div>
+          <p className="eyebrow">Organiser workspace</p>
           <h1>Tutor management</h1>
           <p className="helper-text">
             Search for a tutor by name or email below. Select Edit to manage their details and
@@ -279,8 +287,8 @@ export default function TutorManagement() {
               />
               <p id="tutor-weekly-hours-help" className="helper-text">
                 {limitAlreadySet
-                  ? 'Enter a new weekly-hour limit.'
-                  : 'Leave blank if no weekly-hour limit has been set.'}
+                  ? 'Enter a new weekly-hour limit, or clear this field to remove it. A tutor with no limit cannot be allocated or log worked hours.'
+                  : 'This tutor has no weekly-hour limit, so they cannot be allocated or log worked hours. Enter a limit to enable both.'}
               </p>
               {fieldErrors.weeklyHours && (
                 <p id="tutor-weekly-hours-error" className="error-text">

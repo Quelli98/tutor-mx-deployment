@@ -36,7 +36,8 @@ function isTutorMark(value) {
     typeof value.courseCode === 'string' &&
     typeof value.courseName === 'string' &&
     typeof value.mark === 'number' &&
-    Number.isFinite(value.mark)
+    Number.isFinite(value.mark) &&
+    Number.isInteger(value.activeAllocationCount)
   )
 }
 
@@ -68,6 +69,84 @@ function isAllocationCandidate(value) {
   )
 }
 
+const ALLOCATION_STATUSES = new Set(['PROPOSED', 'CONFIRMED', 'CANCELLED'])
+
+function isAllocation(value) {
+  return (
+    !!value &&
+    typeof value === 'object' &&
+    Number.isInteger(value.id) &&
+    Number.isInteger(value.tutorId) &&
+    Number.isInteger(value.courseId) &&
+    typeof value.startsAt === 'string' &&
+    typeof value.endsAt === 'string' &&
+    typeof value.allocatedHours === 'number' &&
+    Number.isFinite(value.allocatedHours) &&
+    ALLOCATION_STATUSES.has(value.status)
+  )
+}
+
+function isOrganiserAllocation(value) {
+  return (
+    isAllocation(value) &&
+    typeof value.tutorName === 'string' &&
+    typeof value.tutorEmail === 'string' &&
+    typeof value.courseCode === 'string' &&
+    typeof value.courseName === 'string'
+  )
+}
+
+function isTimesheetWorkLog(value) {
+  return (
+    !!value &&
+    typeof value === 'object' &&
+    Number.isInteger(value.id) &&
+    Number.isInteger(value.allocationId) &&
+    typeof value.courseCode === 'string' &&
+    typeof value.courseName === 'string' &&
+    typeof value.workDate === 'string' &&
+    typeof value.hours === 'number' &&
+    Number.isFinite(value.hours) &&
+    typeof value.description === 'string'
+  )
+}
+
+function isTimesheetApproval(value) {
+  return (
+    !!value &&
+    typeof value === 'object' &&
+    Number.isInteger(value.id) &&
+    Number.isInteger(value.tutorId) &&
+    typeof value.tutorName === 'string' &&
+    typeof value.tutorEmail === 'string' &&
+    typeof value.weekStart === 'string' &&
+    (value.submittedAt === null || typeof value.submittedAt === 'string') &&
+    typeof value.totalHours === 'number' &&
+    Number.isFinite(value.totalHours) &&
+    Array.isArray(value.workLogs) &&
+    value.workLogs.every(isTimesheetWorkLog)
+  )
+}
+
+function isVolunteerClaimApproval(value) {
+  return (
+    !!value &&
+    typeof value === 'object' &&
+    Number.isInteger(value.id) &&
+    Number.isInteger(value.overflowWorkId) &&
+    Number.isInteger(value.studentId) &&
+    typeof value.studentName === 'string' &&
+    typeof value.studentEmail === 'string' &&
+    typeof value.courseCode === 'string' &&
+    typeof value.courseName === 'string' &&
+    typeof value.startsAt === 'string' &&
+    typeof value.endsAt === 'string' &&
+    typeof value.hours === 'number' &&
+    Number.isFinite(value.hours) &&
+    typeof value.createdAt === 'string'
+  )
+}
+
 function courseFrom(body) {
   const course = body?.data?.course
   if (!isCourse(course)) {
@@ -82,6 +161,14 @@ function tutorFrom(body) {
     throw new Error('The tutor response did not match the agreed contract.')
   }
   return tutor
+}
+
+function allocationFrom(body) {
+  const allocation = body?.data?.allocation
+  if (!isAllocation(allocation)) {
+    throw new Error('The allocation response did not match the agreed contract.')
+  }
+  return allocation
 }
 
 export async function listCourses(tokenOrGetter) {
@@ -177,6 +264,9 @@ export async function listAllocationCandidates(input, tokenOrGetter) {
     minimumMark: String(input.minimumMark),
     requestedHours: String(input.requestedHours),
   })
+  if (input.excludeAllocationId) {
+    query.set('excludeAllocationId', String(input.excludeAllocationId))
+  }
   const body = await fetchWithBearerToken(
     `/api/allocations/candidates?${query.toString()}`,
     {},
@@ -187,6 +277,98 @@ export async function listAllocationCandidates(input, tokenOrGetter) {
     throw new Error('The allocation-candidate response did not match the agreed contract.')
   }
   return candidates
+}
+
+export async function listAllocations(tokenOrGetter) {
+  const body = await fetchWithBearerToken('/api/allocations', {}, tokenOrGetter)
+  const allocations = body?.data?.allocations
+  if (!Array.isArray(allocations) || !allocations.every(isOrganiserAllocation)) {
+    throw new Error('The allocation-list response did not match the agreed contract.')
+  }
+  return allocations
+}
+
+function allocationPayload(input) {
+  return {
+    tutorId: input.tutorId,
+    courseId: input.courseId,
+    startsAt: input.startsAt,
+    endsAt: input.endsAt,
+    minimumMark: input.minimumMark,
+    requestedHours: input.requestedHours,
+    status: input.status,
+  }
+}
+
+export async function createAllocation(input, tokenOrGetter) {
+  const body = await fetchWithBearerToken(
+    '/api/allocations',
+    { method: 'POST', body: JSON.stringify(allocationPayload(input)) },
+    tokenOrGetter,
+  )
+  return allocationFrom(body)
+}
+
+export async function updateAllocation(input, tokenOrGetter) {
+  const body = await fetchWithBearerToken(
+    `/api/allocations/${input.allocationId}`,
+    { method: 'PATCH', body: JSON.stringify(allocationPayload(input)) },
+    tokenOrGetter,
+  )
+  return allocationFrom(body)
+}
+
+export async function removeAllocation(allocationId, tokenOrGetter) {
+  await fetchWithBearerToken(
+    `/api/allocations/${allocationId}`,
+    { method: 'DELETE' },
+    tokenOrGetter,
+  )
+}
+
+export async function listOrganiserApprovals(tokenOrGetter) {
+  const body = await fetchWithBearerToken('/api/organiser/approvals', {}, tokenOrGetter)
+  const timesheets = body?.data?.timesheets
+  const volunteerClaims = body?.data?.volunteerClaims
+  if (
+    !Array.isArray(timesheets) ||
+    !timesheets.every(isTimesheetApproval) ||
+    !Array.isArray(volunteerClaims) ||
+    !volunteerClaims.every(isVolunteerClaimApproval)
+  ) {
+    throw new Error('The organiser-approval response did not match the agreed contract.')
+  }
+  return { timesheets, volunteerClaims }
+}
+
+export async function decideTimesheet(input, tokenOrGetter) {
+  const body = await fetchWithBearerToken(
+    `/api/timesheets/${input.timesheetId}/decision`,
+    {
+      method: 'PATCH',
+      body: JSON.stringify({
+        decision: input.decision,
+        ...(input.reason ? { reason: input.reason } : {}),
+      }),
+    },
+    tokenOrGetter,
+  )
+  return body?.data?.timesheet
+}
+
+export async function decideVolunteerClaim(input, tokenOrGetter) {
+  const body = await fetchWithBearerToken(
+    `/api/volunteer-claims/${input.claimId}/decision`,
+    {
+      method: 'PATCH',
+      body: JSON.stringify({
+        decision: input.decision,
+        ...(input.reason ? { reason: input.reason } : {}),
+      }),
+    },
+    tokenOrGetter,
+  )
+  return body?.data?.volunteerClaim
 }
 
 export async function listTutorMarks(tutorId, tokenOrGetter) {
@@ -212,6 +394,14 @@ export async function saveTutorMark(input, tokenOrGetter) {
     throw new Error('The tutor-mark response did not match the agreed contract.')
   }
   return mark
+}
+
+export async function deleteTutorMark(input, tokenOrGetter) {
+  await fetchWithBearerToken(
+    `/api/tutors/${input.tutorId}/marks/${input.courseId}`,
+    { method: 'DELETE' },
+    tokenOrGetter,
+  )
 }
 
 export async function listTutorTimeSlots(tutorId, tokenOrGetter) {
@@ -245,4 +435,12 @@ export async function createTutorTimeSlot(input, tokenOrGetter) {
     throw new Error('The tutor-time-slot response did not match the agreed contract.')
   }
   return timeSlot
+}
+
+export async function deleteTutorTimeSlot(input, tokenOrGetter) {
+  await fetchWithBearerToken(
+    `/api/tutors/${input.tutorId}/time-slots/${input.timeSlotId}`,
+    { method: 'DELETE' },
+    tokenOrGetter,
+  )
 }

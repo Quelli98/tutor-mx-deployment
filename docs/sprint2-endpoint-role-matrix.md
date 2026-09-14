@@ -1,6 +1,6 @@
 # Sprint 2 endpoint-to-role/ownership matrix (S2-M1-2)
 
-Branch: `s2/m1/role-protection` (reviewer: Member 3). Integration audit updated 13 September 2026 after Members 4, 5 and 6 were integrated.
+Branch: `integration/s2-m2-final-polish`. Integration audit updated 14 September 2026 after the final Member 2 workflows were integrated.
 
 This matrix covers the **current real Sprint 2 Basic API**, including Student overflow/volunteering, allocation writes, organiser approvals, Tutor status routes and the public-holiday adapter. Protected application routes use the backend middleware in `src/auth/middleware.ts`; React visibility is never treated as the security boundary.
 
@@ -9,7 +9,7 @@ This matrix covers the **current real Sprint 2 Basic API**, including Student ov
 3. `requireRole(...)` -> `403 FORBIDDEN` for a valid linked user with the wrong Tutor Mx role.
 4. Own-data services receive the verified `auth.subject`; browser-supplied `tutorId`/`studentId` values are not accepted as ownership proof.
 
-The integrated cross-role sweep in `src/security-smoke.test.ts` covers **all 36 authenticated routes below** for missing/expired tokens and every meaningful wrong-role combination. Existing route suites provide the deeper validation/state/conflict evidence referenced below.
+The integrated cross-role sweep in `src/security-smoke.test.ts` covers **all 40 authenticated routes below** for missing/expired tokens and every meaningful wrong-role combination. Existing route suites provide the deeper validation/state/conflict evidence referenced below.
 
 ## Public and authentication/account routes
 
@@ -44,6 +44,8 @@ All rows require `ORGANISER`. Tutor/Student callers must receive `403 FORBIDDEN`
 | `POST /api/tutors` | Legacy integration route; not normal self-service UI | `src/auth/auth-routes.test.ts`, security smoke |
 | `PATCH /api/tutors/:tutorId` | Edits internal Tutor record | `src/auth/auth-routes.test.ts`, security smoke |
 | `GET /api/allocations/candidates` | Rule-checked candidate data | `src/auth/auth-routes.test.ts`, security smoke |
+| `GET /api/allocations` | Lists active allocations with Tutor/course details | `src/organiser-routes.test.ts`, security smoke |
+| `GET /api/organiser/approvals` | Lists submitted timesheets and pending volunteer claims | `src/organiser-routes.test.ts`, security smoke |
 | `POST /api/allocations` | Rechecks mark/clash/hour rules server-side | `src/organiser-routes.test.ts`, security smoke |
 | `PATCH /api/allocations/:allocationId` | Rechecks rules and stale state | `src/organiser-routes.test.ts`, security smoke |
 | `DELETE /api/allocations/:allocationId` | Safe remove/cancel path | `src/organiser-routes.test.ts`, security smoke |
@@ -52,8 +54,10 @@ All rows require `ORGANISER`. Tutor/Student callers must receive `403 FORBIDDEN`
 | `PATCH /api/excuses/:excuseId/decision` | Organiser approve/reject excuse | `src/member5-workflow-routes.test.ts`, security smoke |
 | `GET /api/tutors/:tutorId/marks` | Organiser manages selected Tutor record | `src/auth/auth-routes.test.ts`, security smoke |
 | `PUT /api/tutors/:tutorId/marks` | Organiser manages selected Tutor record | `src/auth/auth-routes.test.ts`, security smoke |
+| `DELETE /api/tutors/:tutorId/marks/:courseId` | Removes only the selected Tutor's mark; existing allocations remain intact | `src/organiser-routes.test.ts`, `src/server.test.ts`, security smoke |
 | `GET /api/tutors/:tutorId/time-slots` | Organiser manages selected Tutor record | `src/auth/auth-routes.test.ts`, security smoke |
 | `POST /api/tutors/:tutorId/time-slots` | Organiser manages selected Tutor record | `src/auth/auth-routes.test.ts`, security smoke |
+| `DELETE /api/tutors/:tutorId/time-slots/:timeSlotId` | Removes only the selected Tutor's busy slot | `src/organiser-routes.test.ts`, `src/server.test.ts`, security smoke |
 
 ## Tutor-only own-data routes
 

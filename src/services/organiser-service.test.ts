@@ -69,15 +69,18 @@ function createHarness() {
       updateMany: vi.fn(),
     },
     timesheet: {
+      findMany: vi.fn(),
       findUnique: vi.fn(),
       updateMany: vi.fn(),
     },
     volunteerClaim: {
+      findMany: vi.fn(),
       findUnique: vi.fn(),
       updateMany: vi.fn(),
     },
   };
   const client = {
+    ...transaction,
     $transaction: vi.fn(
       async (operation: (value: typeof transaction) => Promise<unknown>) =>
         operation(transaction),
@@ -136,6 +139,83 @@ describe("organiser allocation service", () => {
 
   beforeEach(() => {
     harness = createHarness();
+  });
+
+  it("lists active allocations with safe tutor and course details", async () => {
+    harness.transaction.allocation.findMany.mockResolvedValue([
+      {
+        ...allocationRow({ status: "CONFIRMED" }),
+        tutor: { fullName: "Sam Tutor", email: "sam@tutormx.example" },
+        course: { code: "COMS3011", name: "Software Design Project" },
+      },
+    ]);
+
+    await expect(harness.service.listAllocations()).resolves.toEqual([
+      {
+        id: 11,
+        tutorId: 7,
+        courseId: 9,
+        startsAt: startsAt.toISOString(),
+        endsAt: endsAt.toISOString(),
+        allocatedHours: 2,
+        status: "CONFIRMED",
+        tutorName: "Sam Tutor",
+        tutorEmail: "sam@tutormx.example",
+        courseCode: "COMS3011",
+        courseName: "Software Design Project",
+      },
+    ]);
+  });
+
+  it("lists submitted timesheets and pending overflow claims with review details", async () => {
+    harness.transaction.timesheet.findMany.mockResolvedValue([
+      {
+        id: 31,
+        tutorId: 7,
+        tutor: { fullName: "Sam Tutor", email: "sam@tutormx.example" },
+        weekStart: new Date("2030-09-02T00:00:00.000Z"),
+        submittedAt: new Date("2030-09-07T10:00:00.000Z"),
+        workLogs: [
+          {
+            id: 41,
+            allocationId: 11,
+            workDate: new Date("2030-09-04T00:00:00.000Z"),
+            hours: "2.00",
+            description: "Tutorial",
+            allocation: { course: { code: "COMS3011", name: "Software Design Project" } },
+          },
+        ],
+      },
+    ]);
+    harness.transaction.volunteerClaim.findMany.mockResolvedValue([
+      {
+        id: 51,
+        overflowWorkId: 61,
+        studentId: 9,
+        createdAt: new Date("2030-09-08T10:00:00.000Z"),
+        student: { fullName: "Ada Student", email: "ada@tutormx.example" },
+        overflowWork: {
+          startsAt: new Date("2030-09-10T14:00:00.000Z"),
+          endsAt: new Date("2030-09-10T16:00:00.000Z"),
+          hours: "2.00",
+          course: { code: "COMS3011", name: "Software Design Project" },
+        },
+      },
+    ]);
+
+    const result = await harness.service.listApprovals();
+    expect(result.timesheets[0]).toMatchObject({
+      id: 31,
+      tutorName: "Sam Tutor",
+      totalHours: 2,
+      workLogs: [{ courseCode: "COMS3011", hours: 2 }],
+    });
+    expect(result.volunteerClaims[0]).toMatchObject({
+      id: 51,
+      studentName: "Ada Student",
+      courseCode: "COMS3011",
+      hours: 2,
+    });
   });
 
   it("creates a proposed allocation at exact mark/hour thresholds with touching ranges", async () => {
@@ -436,42 +516,43 @@ describe("organiser allocation service", () => {
     ).rejects.toMatchObject({ status: 409, code: "ALLOCATION_CONFLICT" });
   });
 
-  it("soft-removes an allocation after rechecking its rules and excluding itself", async () => {
-    arrangePassingAllocationRules(harness);
+  it("soft-removes an allocation and releases its hours without an eligibility recheck", async () => {
+    harness.transaction.profile.findUnique.mockResolvedValue({
+      id: 21,
+      role: "ORGANISER",
+    });
     harness.transaction.allocation.findUnique.mockResolvedValue(
       allocationRow({ status: "CONFIRMED" }),
     );
     harness.transaction.allocation.updateMany.mockResolvedValue({ count: 1 });
 
     await expect(
-      harness.service.removeAllocation("auth0|organiser", 11, { minimumMark: 65 }),
+      harness.service.removeAllocation("auth0|organiser", 11),
     ).resolves.toBeUndefined();
-    expect(harness.transaction.allocation.aggregate).toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: expect.objectContaining({ id: { not: 11 } }),
-      }),
-    );
+    expect(harness.transaction.tutorMark.findUnique).not.toHaveBeenCalled();
+    expect(harness.transaction.allocation.aggregate).not.toHaveBeenCalled();
     expect(harness.transaction.allocation.updateMany).toHaveBeenCalledWith({
       where: { id: 11, status: "CONFIRMED" },
       data: { status: "CANCELLED", reviewedById: 21, reviewedAt: expect.any(Date) },
     });
   });
 
-  it("does not remove an allocation that now fails a server-side rule", async () => {
+  it("still removes an allocation when the tutor's eligibility later changes", async () => {
     arrangePassingAllocationRules(harness, { mark: 64 });
     harness.transaction.allocation.findUnique.mockResolvedValue(allocationRow());
+    harness.transaction.allocation.updateMany.mockResolvedValue({ count: 1 });
 
     await expect(
-      harness.service.removeAllocation("auth0|organiser", 11, { minimumMark: 65 }),
-    ).rejects.toMatchObject({ status: 409, code: "insufficient-mark" });
-    expect(harness.transaction.allocation.updateMany).not.toHaveBeenCalled();
+      harness.service.removeAllocation("auth0|organiser", 11),
+    ).resolves.toBeUndefined();
+    expect(harness.transaction.allocation.updateMany).toHaveBeenCalledTimes(1);
   });
 
   it("returns not found when removing a missing allocation", async () => {
     harness.transaction.allocation.findUnique.mockResolvedValue(null);
 
     await expect(
-      harness.service.removeAllocation("auth0|organiser", 404, { minimumMark: 65 }),
+      harness.service.removeAllocation("auth0|organiser", 404),
     ).rejects.toMatchObject({ status: 404, code: "ALLOCATION_NOT_FOUND" });
   });
 
@@ -481,7 +562,7 @@ describe("organiser allocation service", () => {
     );
 
     await expect(
-      harness.service.removeAllocation("auth0|organiser", 11, { minimumMark: 65 }),
+      harness.service.removeAllocation("auth0|organiser", 11),
     ).rejects.toMatchObject({ status: 409, code: "ALLOCATION_CONFLICT" });
   });
 
@@ -491,7 +572,7 @@ describe("organiser allocation service", () => {
     harness.transaction.allocation.updateMany.mockResolvedValue({ count: 0 });
 
     await expect(
-      harness.service.removeAllocation("auth0|organiser", 11, { minimumMark: 65 }),
+      harness.service.removeAllocation("auth0|organiser", 11),
     ).rejects.toMatchObject({ status: 409, code: "ALLOCATION_CONFLICT" });
   });
 });
@@ -705,6 +786,7 @@ describe("organiser volunteer-claim decisions", () => {
     harness.transaction.volunteerClaim.findUnique
       .mockResolvedValueOnce({
         status: "PENDING",
+        overflowWorkId: 51,
         overflowWork: {
           status: "OPEN",
           startsAt: new Date("2030-09-04T14:00:00.000Z"),
@@ -736,6 +818,17 @@ describe("organiser volunteer-claim decisions", () => {
     expect(harness.transaction.volunteerClaim.updateMany).toHaveBeenCalledWith({
       where: { id: 41, status: "PENDING" },
       data: { status: "ACCEPTED", reviewReason: null },
+    });
+    expect(harness.transaction.volunteerClaim.updateMany).toHaveBeenCalledWith({
+      where: {
+        overflowWorkId: 51,
+        id: { not: 41 },
+        status: "PENDING",
+      },
+      data: {
+        status: "REJECTED",
+        reviewReason: "Another volunteer was selected.",
+      },
     });
   });
 

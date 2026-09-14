@@ -111,8 +111,9 @@ export default function TutorDashboard() {
     <main id="main-content" className="dashboard-shell tutor-workspace">
       <header className="dashboard-header">
         <div>
-          <p className="eyebrow">Tutor Mx</p>
-          <h1>Your Tutor Dashboard</h1>
+          <p className="eyebrow">Tutor workspace</p>
+          <h1>Tutor dashboard</h1>
+          <p className="helper-text">Track your assigned sessions and weekly workload.</p>
         </div>
         <button
           type="button"
@@ -181,7 +182,11 @@ export default function TutorDashboard() {
                     <td>{allocation.courseCode} - {allocation.courseName}</td>
                     <td>{formatSessionDate(allocation.startsAt, allocation.endsAt)}</td>
                     <td>{allocation.allocatedHours}h</td>
-                    <td>{allocation.status}</td>
+                    <td>
+                      <span className={`status-badge status-${allocation.status.toLowerCase()}`}>
+                        {allocation.status.toLowerCase()}
+                      </span>
+                    </td>
                   </tr>
                 ))}
               </tbody>

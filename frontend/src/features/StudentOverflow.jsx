@@ -315,10 +315,10 @@ export function StudentOverflow({ loadWorkItems, claimWork, loadRequests, loadHo
         <main id="main-content" className="dashboard-shell student-overflow-page">
             <header className="dashboard-header">
                 <div>
-                    <p className="eyebrow">Tutor Mx</p>
+                    <p className="eyebrow">Student workspace</p>
                     <h1>Available volunteer work</h1>
                     <p className="helper-text">
-                        Find open work to volunteer for.
+                        Find open tutoring work, volunteer and follow each request outcome.
                     </p>
                 </div>
             </header>

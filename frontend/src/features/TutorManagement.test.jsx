@@ -71,7 +71,7 @@ describe('TutorManagement', () => {
     expect(within(table).getByText('sam@tutormx.example')).toBeInTheDocument()
     expect(within(table).getByText('10')).toBeInTheDocument()
     expect(within(table).getByText('Ash Tutor')).toBeInTheDocument()
-    expect(within(table).getByText('Not set')).toBeInTheDocument()
+    expect(within(table).getByText(/not set - cannot be allocated/i)).toBeInTheDocument()
   })
 
   it('never asks the organiser for an Auth0 subject', async () => {
@@ -167,6 +167,24 @@ describe('TutorManagement', () => {
     expect(updateTutor.mock.calls[0][0]).not.toHaveProperty('email')
     expect(updateTutor.mock.calls[0][0]).not.toHaveProperty('weeklyHours')
     expect(updateTutor.mock.calls[0][0]).not.toHaveProperty('auth0Id')
+  })
+
+  it('clears a weekly-hour limit without changing the registered tutor profile', async () => {
+    listTutors.mockResolvedValue(tutors)
+    updateTutor.mockResolvedValue({ ...tutorWithHours, weeklyHours: null })
+
+    renderPage()
+    await screen.findByRole('table')
+    fireEvent.click(screen.getByRole('button', { name: /edit Sam Tutor/i }))
+    fireEvent.change(screen.getByLabelText(/weekly hours/i), { target: { value: '' } })
+    fireEvent.click(screen.getByRole('button', { name: /save changes/i }))
+
+    await waitFor(() => {
+      expect(updateTutor).toHaveBeenCalledWith(
+        { tutorId: 7, weeklyHours: null },
+        getAccessTokenSilently,
+      )
+    })
   })
 
   it('blocks an invalid email and sends no request', async () => {

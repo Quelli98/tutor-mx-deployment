@@ -188,6 +188,8 @@ function makeApp(
       updatedAt: "2026-09-07T10:01:00.000Z",
     }),
     listAllocationCandidates: async () => [],
+    listOrganiserAllocations: async () => [],
+    listOrganiserApprovals: async () => ({ timesheets: [], volunteerClaims: [] }),
     createAllocation: async () => allocationSummary,
     updateAllocation: async () => allocationSummary,
     removeAllocation: async () => undefined,
@@ -199,9 +201,12 @@ function makeApp(
       courseCode: "DEMO101",
       courseName: "Demo Course",
       mark: input.mark,
+      activeAllocationCount: 0,
     }),
     listTutorMarks: async () => [],
+    deleteTutorMark: async () => undefined,
     listTutorTimeSlots: async () => [],
+    deleteTutorBusyTimeSlot: async () => undefined,
     createTutorTimeSlotForTutor: async (_tutorId, input) => ({
       id: 1,
       type: input.type,
@@ -236,6 +241,109 @@ function organiserMutationRequests(app: Express, withToken = false) {
       )
     : requests;
 }
+
+describe("organiser live-board query routes", () => {
+  it("lists active allocations and both pending approval queues for an organiser", async () => {
+    const allocation = {
+      ...allocationSummary,
+      tutorName: "Demo Tutor",
+      tutorEmail: "tutor@tutormx.example",
+      courseCode: "DEMO101",
+      courseName: "Demo Course",
+    };
+    const approvals = {
+      timesheets: [
+        {
+          id: 12,
+          tutorId: 7,
+          tutorName: "Demo Tutor",
+          tutorEmail: "tutor@tutormx.example",
+          weekStart: "2030-09-02",
+          submittedAt: "2030-09-06T12:00:00.000Z",
+          totalHours: 2,
+          workLogs: [
+            {
+              id: 21,
+              allocationId: 11,
+              courseCode: "DEMO101",
+              courseName: "Demo Course",
+              workDate: "2030-09-04",
+              hours: 2,
+              description: "Tutorial",
+            },
+          ],
+        },
+      ],
+      volunteerClaims: [],
+    };
+    const listOrganiserAllocations = vi.fn().mockResolvedValue([allocation]);
+    const listOrganiserApprovals = vi.fn().mockResolvedValue(approvals);
+    const app = makeApp({ listOrganiserAllocations, listOrganiserApprovals });
+
+    const allocationsResponse = await request(app)
+      .get("/api/allocations")
+      .set("Authorization", "Bearer valid-token");
+    const approvalsResponse = await request(app)
+      .get("/api/organiser/approvals")
+      .set("Authorization", "Bearer valid-token");
+
+    expect(allocationsResponse.status).toBe(200);
+    expect(allocationsResponse.body).toEqual({ data: { allocations: [allocation] } });
+    expect(approvalsResponse.status).toBe(200);
+    expect(approvalsResponse.body).toEqual({ data: approvals });
+  });
+
+  it("keeps organiser allocation and approval data away from other roles", async () => {
+    const app = makeApp({}, "TUTOR");
+    const allocationsResponse = await request(app)
+      .get("/api/allocations")
+      .set("Authorization", "Bearer valid-token");
+    const approvalsResponse = await request(app)
+      .get("/api/organiser/approvals")
+      .set("Authorization", "Bearer valid-token");
+
+    expect(allocationsResponse.status).toBe(403);
+    expect(approvalsResponse.status).toBe(403);
+  });
+});
+
+describe("organiser tutor-rule deletion routes", () => {
+  it("removes a tutor mark and busy time by database identifiers", async () => {
+    const deleteTutorMark = vi.fn().mockResolvedValue(undefined);
+    const deleteTutorBusyTimeSlot = vi.fn().mockResolvedValue(undefined);
+    const app = makeApp({ deleteTutorMark, deleteTutorBusyTimeSlot });
+
+    const markResponse = await request(app)
+      .delete("/api/tutors/7/marks/3")
+      .set("Authorization", "Bearer valid-token");
+    const slotResponse = await request(app)
+      .delete("/api/tutors/7/time-slots/9")
+      .set("Authorization", "Bearer valid-token");
+
+    expect(markResponse.status).toBe(204);
+    expect(slotResponse.status).toBe(204);
+    expect(deleteTutorMark).toHaveBeenCalledWith(7, 3);
+    expect(deleteTutorBusyTimeSlot).toHaveBeenCalledWith(7, 9);
+  });
+
+  it("rejects invalid tutor-rule identifiers before deletion", async () => {
+    const deleteTutorMark = vi.fn();
+    const deleteTutorBusyTimeSlot = vi.fn();
+    const app = makeApp({ deleteTutorMark, deleteTutorBusyTimeSlot });
+
+    const markResponse = await request(app)
+      .delete("/api/tutors/0/marks/3")
+      .set("Authorization", "Bearer valid-token");
+    const slotResponse = await request(app)
+      .delete("/api/tutors/7/time-slots/no")
+      .set("Authorization", "Bearer valid-token");
+
+    expect(markResponse.status).toBe(400);
+    expect(slotResponse.status).toBe(400);
+    expect(deleteTutorMark).not.toHaveBeenCalled();
+    expect(deleteTutorBusyTimeSlot).not.toHaveBeenCalled();
+  });
+});
 
 describe("organiser mutation authorization", () => {
   it.each([
@@ -317,11 +425,11 @@ describe("allocation mutation routes", () => {
     });
 
     const removed = await request(app)
-      .delete("/api/allocations/11?minimumMark=50")
+      .delete("/api/allocations/11")
       .set("Authorization", "Bearer valid-token");
 
     expect(removed.status).toBe(204);
-    expect(removeAllocation).toHaveBeenCalledWith("auth0|organiser", 11, { minimumMark: 50 });
+    expect(removeAllocation).toHaveBeenCalledWith("auth0|organiser", 11);
   });
 
   it("rejects malformed allocation input before delegation", async () => {
@@ -348,7 +456,7 @@ describe("allocation mutation routes", () => {
     expect(createAllocation).not.toHaveBeenCalled();
   });
 
-  it("validates allocation path IDs and the remove-time minimum mark", async () => {
+  it("validates allocation path IDs and removes without requiring stale eligibility input", async () => {
     const updateAllocation = vi.fn();
     const removeAllocation = vi.fn();
     const app = makeApp({ updateAllocation, removeAllocation });
@@ -358,17 +466,17 @@ describe("allocation mutation routes", () => {
       .set("Authorization", "Bearer valid-token")
       .send(validAllocation);
     const invalidRemoveId = await request(app)
-      .delete("/api/allocations/not-a-number?minimumMark=50")
+      .delete("/api/allocations/not-a-number")
       .set("Authorization", "Bearer valid-token");
-    const missingMinimumMark = await request(app)
+    const validRemove = await request(app)
       .delete("/api/allocations/11")
       .set("Authorization", "Bearer valid-token");
 
     expect(invalidUpdateId.status).toBe(400);
     expect(invalidRemoveId.status).toBe(400);
-    expect(missingMinimumMark.status).toBe(400);
+    expect(validRemove.status).toBe(204);
     expect(updateAllocation).not.toHaveBeenCalled();
-    expect(removeAllocation).not.toHaveBeenCalled();
+    expect(removeAllocation).toHaveBeenCalledWith("auth0|organiser", 11);
   });
 
   it("preserves safe missing-resource and conflict errors", async () => {

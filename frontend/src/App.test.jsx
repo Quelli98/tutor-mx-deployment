@@ -104,7 +104,7 @@ describe('Auth entry flow', () => {
 
     render(<MemoryRouter initialEntries={['/']}><App /></MemoryRouter>)
 
-    expect(await screen.findByRole('heading', { name: /your tutor dashboard/i })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: /tutor dashboard/i })).toBeInTheDocument()
   })
 
   it('offers role setup to an authenticated legacy user with no Neon profile', () => {
@@ -146,7 +146,7 @@ describe('Auth entry flow', () => {
 
     render(<MemoryRouter initialEntries={['/']}><App /></MemoryRouter>)
 
-    expect(await screen.findByRole('heading', { name: /your tutor dashboard/i })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: /tutor dashboard/i })).toBeInTheDocument()
     expect(window.sessionStorage.getItem('tutormx.pendingRole')).toBeNull()
     expect(screen.queryByRole('button', { name: /choose your role/i })).not.toBeInTheDocument()
   })

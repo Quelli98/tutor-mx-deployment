@@ -178,13 +178,44 @@ describe("allocation queries", () => {
     });
 
     expect(query).toHaveBeenCalledOnce();
-    expect(query.mock.calls[0]?.[1]).toEqual([10, startsAt, endsAt, 50, 2]);
+    expect(query.mock.calls[0]?.[1]).toEqual([
+      10,
+      "2030-09-04 14:00:00.000",
+      "2030-09-04 16:00:00.000",
+      50,
+      2,
+      null,
+    ]);
     expect(candidates[0]?.reasonCodes).toEqual([]);
     expect(candidates[1]?.reasonCodes).toEqual([
       "insufficient-mark",
       "schedule-clash",
       "hour-limit-exceeded",
     ]);
+  });
+
+  it("excludes the edited allocation from hour and clash checks", async () => {
+    const { client, query } = queryClientWith([]);
+
+    await findAllocationCandidates(client, {
+      courseId: 10,
+      startsAt,
+      endsAt,
+      minimumMark: 50,
+      requestedHours: 2,
+      excludeAllocationId: 11,
+    });
+
+    expect(query.mock.calls[0]?.[1]).toEqual([
+      10,
+      "2030-09-04 14:00:00.000",
+      "2030-09-04 16:00:00.000",
+      50,
+      2,
+      11,
+    ]);
+    expect(query.mock.calls[0]?.[0]).toContain('a."id" <> $6');
+    expect(query.mock.calls[0]?.[0]).toContain('clash."id" <> $6');
   });
 
   it("keeps an exactly qualified candidate eligible", async () => {
@@ -308,6 +339,6 @@ describe("allocation queries", () => {
     const now = new Date("2030-09-01T00:00:00.000Z");
 
     await expect(listOpenWork(client, now)).resolves.toEqual([row]);
-    expect(query.mock.calls[0]?.[1]).toEqual([now]);
+    expect(query.mock.calls[0]?.[1]).toEqual(["2030-09-01 00:00:00.000"]);
   });
 });

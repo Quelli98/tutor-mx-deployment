@@ -1,17 +1,26 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import {
+  createAllocation,
   createTutor,
   createTutorTimeSlot,
   createCourse,
   deleteCourse,
+  deleteTutorMark,
+  deleteTutorTimeSlot,
+  decideTimesheet,
+  decideVolunteerClaim,
   listAllocationCandidates,
+  listAllocations,
   listCourses,
+  listOrganiserApprovals,
   listTutorMarks,
   listTutorTimeSlots,
   listTutors,
   saveTutorMark,
   updateCourse,
+  updateAllocation,
   updateTutor,
+  removeAllocation,
 } from './organiser'
 
 const fetchWithBearerToken = vi.fn()
@@ -230,6 +239,79 @@ describe('organiser allocation and tutor-detail API contracts', () => {
     )
   })
 
+  it('excludes the allocation being edited from candidate checks', async () => {
+    fetchWithBearerToken.mockResolvedValue({ data: { candidates: [] } })
+    await listAllocationCandidates(
+      {
+        courseId: 3,
+        startsAt: '2030-09-04T14:00:00.000Z',
+        endsAt: '2030-09-04T16:00:00.000Z',
+        minimumMark: 65,
+        requestedHours: 2,
+        excludeAllocationId: 11,
+      },
+      tokenGetter,
+    )
+
+    expect(fetchWithBearerToken.mock.calls[0][0]).toContain('excludeAllocationId=11')
+  })
+
+  it('lists, creates, updates and removes live allocations', async () => {
+    const allocation = {
+      id: 11,
+      tutorId: 7,
+      courseId: 3,
+      startsAt: '2030-09-04T14:00:00.000Z',
+      endsAt: '2030-09-04T16:00:00.000Z',
+      allocatedHours: 2,
+      status: 'CONFIRMED',
+    }
+    const organiserAllocation = {
+      ...allocation,
+      tutorName: 'Sam Tutor',
+      tutorEmail: 'sam@tutormx.example',
+      courseCode: 'COMS3011',
+      courseName: 'Software Design Project',
+    }
+    const input = {
+      tutorId: 7,
+      courseId: 3,
+      startsAt: allocation.startsAt,
+      endsAt: allocation.endsAt,
+      minimumMark: 65,
+      requestedHours: 2,
+      status: 'CONFIRMED',
+    }
+
+    fetchWithBearerToken.mockResolvedValueOnce({ data: { allocations: [organiserAllocation] } })
+    await expect(listAllocations(tokenGetter)).resolves.toEqual([organiserAllocation])
+    expect(fetchWithBearerToken).toHaveBeenLastCalledWith('/api/allocations', {}, tokenGetter)
+
+    fetchWithBearerToken.mockResolvedValueOnce({ data: { allocation } })
+    await expect(createAllocation(input, tokenGetter)).resolves.toEqual(allocation)
+    expect(fetchWithBearerToken).toHaveBeenLastCalledWith(
+      '/api/allocations',
+      { method: 'POST', body: JSON.stringify(input) },
+      tokenGetter,
+    )
+
+    fetchWithBearerToken.mockResolvedValueOnce({ data: { allocation } })
+    await expect(updateAllocation({ allocationId: 11, ...input }, tokenGetter)).resolves.toEqual(allocation)
+    expect(fetchWithBearerToken).toHaveBeenLastCalledWith(
+      '/api/allocations/11',
+      { method: 'PATCH', body: JSON.stringify(input) },
+      tokenGetter,
+    )
+
+    fetchWithBearerToken.mockResolvedValueOnce({})
+    await expect(removeAllocation(11, tokenGetter)).resolves.toBeUndefined()
+    expect(fetchWithBearerToken).toHaveBeenLastCalledWith(
+      '/api/allocations/11',
+      { method: 'DELETE' },
+      tokenGetter,
+    )
+  })
+
   it('rejects unknown allocation reason codes', async () => {
     fetchWithBearerToken.mockResolvedValue({
       data: {
@@ -270,6 +352,7 @@ describe('organiser allocation and tutor-detail API contracts', () => {
       courseCode: 'COMS3011',
       courseName: 'Software Design Project',
       mark: 75,
+      activeAllocationCount: 1,
     }
     fetchWithBearerToken.mockResolvedValueOnce({ data: { marks: [mark] } })
     await expect(listTutorMarks(7, tokenGetter)).resolves.toEqual([mark])
@@ -282,6 +365,73 @@ describe('organiser allocation and tutor-detail API contracts', () => {
     expect(fetchWithBearerToken).toHaveBeenLastCalledWith(
       '/api/tutors/7/marks',
       { method: 'PUT', body: JSON.stringify({ courseId: 3, mark: 75 }) },
+      tokenGetter,
+    )
+  })
+
+  it('loads approval queues, saves decisions and removes tutor rule inputs', async () => {
+    const timesheet = {
+      id: 31,
+      tutorId: 7,
+      tutorName: 'Sam Tutor',
+      tutorEmail: 'sam@tutormx.example',
+      weekStart: '2030-09-02',
+      submittedAt: '2030-09-07T10:00:00.000Z',
+      totalHours: 2,
+      workLogs: [{
+        id: 41,
+        allocationId: 11,
+        courseCode: 'COMS3011',
+        courseName: 'Software Design Project',
+        workDate: '2030-09-04',
+        hours: 2,
+        description: 'Tutorial',
+      }],
+    }
+    const claim = {
+      id: 51,
+      overflowWorkId: 61,
+      studentId: 9,
+      studentName: 'Ada Student',
+      studentEmail: 'ada@tutormx.example',
+      courseCode: 'COMS3011',
+      courseName: 'Software Design Project',
+      startsAt: '2030-09-10T14:00:00.000Z',
+      endsAt: '2030-09-10T16:00:00.000Z',
+      hours: 2,
+      createdAt: '2030-09-08T10:00:00.000Z',
+    }
+    fetchWithBearerToken.mockResolvedValueOnce({ data: { timesheets: [timesheet], volunteerClaims: [claim] } })
+    await expect(listOrganiserApprovals(tokenGetter)).resolves.toEqual({ timesheets: [timesheet], volunteerClaims: [claim] })
+
+    fetchWithBearerToken.mockResolvedValueOnce({ data: { timesheet: { id: 31 } } })
+    await decideTimesheet({ timesheetId: 31, decision: 'RETURN', reason: 'Add notes' }, tokenGetter)
+    expect(fetchWithBearerToken).toHaveBeenLastCalledWith(
+      '/api/timesheets/31/decision',
+      { method: 'PATCH', body: JSON.stringify({ decision: 'RETURN', reason: 'Add notes' }) },
+      tokenGetter,
+    )
+
+    fetchWithBearerToken.mockResolvedValueOnce({ data: { volunteerClaim: { id: 51 } } })
+    await decideVolunteerClaim({ claimId: 51, decision: 'APPROVE' }, tokenGetter)
+    expect(fetchWithBearerToken).toHaveBeenLastCalledWith(
+      '/api/volunteer-claims/51/decision',
+      { method: 'PATCH', body: JSON.stringify({ decision: 'APPROVE' }) },
+      tokenGetter,
+    )
+
+    fetchWithBearerToken.mockResolvedValue({})
+    await deleteTutorMark({ tutorId: 7, courseId: 3 }, tokenGetter)
+    await deleteTutorTimeSlot({ tutorId: 7, timeSlotId: 9 }, tokenGetter)
+    expect(fetchWithBearerToken).toHaveBeenNthCalledWith(
+      fetchWithBearerToken.mock.calls.length - 1,
+      '/api/tutors/7/marks/3',
+      { method: 'DELETE' },
+      tokenGetter,
+    )
+    expect(fetchWithBearerToken).toHaveBeenLastCalledWith(
+      '/api/tutors/7/time-slots/9',
+      { method: 'DELETE' },
       tokenGetter,
     )
   })

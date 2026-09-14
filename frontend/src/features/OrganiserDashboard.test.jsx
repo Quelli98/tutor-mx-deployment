@@ -5,11 +5,19 @@ import OrganiserDashboard from './OrganiserDashboard'
 
 const listCourses = vi.fn()
 const listAllocationCandidates = vi.fn()
+const listAllocations = vi.fn()
+const createAllocation = vi.fn()
+const updateAllocation = vi.fn()
+const removeAllocation = vi.fn()
 const getAccessTokenSilently = vi.fn()
 
 vi.mock('../api/organiser', () => ({
   listCourses: (...args) => listCourses(...args),
   listAllocationCandidates: (...args) => listAllocationCandidates(...args),
+  listAllocations: (...args) => listAllocations(...args),
+  createAllocation: (...args) => createAllocation(...args),
+  updateAllocation: (...args) => updateAllocation(...args),
+  removeAllocation: (...args) => removeAllocation(...args),
 }))
 
 vi.mock('@auth0/auth0-react', () => ({
@@ -39,6 +47,19 @@ const ineligibleCandidate = {
   isEligible: false,
   reasonCodes: ['insufficient-mark', 'schedule-clash', 'hour-limit-exceeded'],
 }
+const allocation = {
+  id: 11,
+  tutorId: 7,
+  tutorName: 'Boundary Tutor',
+  tutorEmail: 'boundary@tutormx.example',
+  courseId: 3,
+  courseCode: 'COMS3011',
+  courseName: 'Software Design Project',
+  startsAt: '2030-09-04T14:00:00.000Z',
+  endsAt: '2030-09-04T16:00:00.000Z',
+  allocatedHours: 2,
+  status: 'CONFIRMED',
+}
 
 function fillBoard() {
   fireEvent.change(screen.getByLabelText(/^course$/i), { target: { value: '3' } })
@@ -54,6 +75,10 @@ describe('OrganiserDashboard', () => {
   beforeEach(() => {
     listCourses.mockReset()
     listAllocationCandidates.mockReset()
+    listAllocations.mockReset().mockResolvedValue([])
+    createAllocation.mockReset().mockResolvedValue({ id: 11 })
+    updateAllocation.mockReset().mockResolvedValue({ id: 11 })
+    removeAllocation.mockReset().mockResolvedValue(undefined)
     getAccessTokenSilently.mockReset()
   })
 
@@ -106,7 +131,27 @@ describe('OrganiserDashboard', () => {
     )
   })
 
-  it('enables save only after an eligible tutor is selected', async () => {
+  it('explains a missing hour limit instead of showing an unexplained zero', async () => {
+    listCourses.mockResolvedValue(courses)
+    listAllocationCandidates.mockResolvedValue([
+      {
+        ...ineligibleCandidate,
+        weeklyLimit: 0,
+        remainingHours: 0,
+        reasonCodes: ['hour-limit-exceeded'],
+      },
+    ])
+
+    render(<OrganiserDashboard />)
+    await screen.findByRole('option', { name: /COMS3011/i })
+    fillBoard()
+    fireEvent.click(screen.getByRole('button', { name: /check candidates/i }))
+
+    expect(await screen.findByText(/set a weekly hour limit before allocating 2 hours/i)).toBeInTheDocument()
+    expect(screen.queryByText(/0 hours remain/i)).not.toBeInTheDocument()
+  })
+
+  it('creates an allocation only after an eligible tutor is selected and refreshes the board', async () => {
     listCourses.mockResolvedValue(courses)
     listAllocationCandidates.mockResolvedValue([eligibleCandidate, ineligibleCandidate])
 
@@ -122,7 +167,23 @@ describe('OrganiserDashboard', () => {
     fireEvent.click(screen.getByRole('button', { name: /select Boundary Tutor/i }))
     expect(saveButton).toBeEnabled()
     fireEvent.click(saveButton)
-    expect(screen.getByRole('status')).toHaveTextContent(/passed all three checks/i)
+    await waitFor(() => {
+      expect(createAllocation).toHaveBeenCalledWith(
+        {
+          tutorId: 7,
+          courseId: 3,
+          startsAt: new Date('2030-09-04T14:00').toISOString(),
+          endsAt: new Date('2030-09-04T16:00').toISOString(),
+          minimumMark: 65,
+          requestedHours: 2,
+          status: 'CONFIRMED',
+        },
+        getAccessTokenSilently,
+      )
+    })
+    expect(await screen.findByText(/was allocated and weekly hours were refreshed/i)).toBeInTheDocument()
+    expect(listAllocations).toHaveBeenCalledTimes(2)
+    expect(listAllocationCandidates).toHaveBeenCalledTimes(2)
   })
 
   it('shows field-level validation and sends no invalid request', async () => {
@@ -138,7 +199,7 @@ describe('OrganiserDashboard', () => {
     expect(listAllocationCandidates).not.toHaveBeenCalled()
   })
 
-  it('provides a logical keyboard focus order beginning with the labelled course selector', async () => {
+  it('provides a logical keyboard focus order from refresh into the labelled course selector', async () => {
     const user = userEvent.setup()
     listCourses.mockResolvedValue(courses)
 
@@ -146,7 +207,8 @@ describe('OrganiserDashboard', () => {
     const courseSelect = await screen.findByLabelText(/^course$/i)
     await waitFor(() => expect(courseSelect).not.toBeDisabled())
     await user.tab()
-
+    expect(screen.getByRole('button', { name: /^refresh$/i })).toHaveFocus()
+    await user.tab()
     expect(courseSelect).toHaveFocus()
   })
 
@@ -167,5 +229,70 @@ describe('OrganiserDashboard', () => {
 
     await waitFor(() => expect(listAllocationCandidates).toHaveBeenCalledTimes(2))
     expect(await screen.findByRole('heading', { name: /no candidates found/i })).toBeInTheDocument()
+  })
+
+  it('edits an allocation with the current row excluded from server checks', async () => {
+    listCourses.mockResolvedValue(courses)
+    listAllocations.mockResolvedValue([allocation])
+    listAllocationCandidates.mockResolvedValue([eligibleCandidate])
+
+    render(<OrganiserDashboard />)
+    fireEvent.click(await screen.findByRole('button', { name: /edit allocation/i }))
+    fireEvent.click(screen.getByRole('button', { name: /check candidates/i }))
+
+    await waitFor(() => {
+      expect(listAllocationCandidates).toHaveBeenCalledWith(
+        expect.objectContaining({ excludeAllocationId: 11, courseId: 3, requestedHours: 2 }),
+        getAccessTokenSilently,
+      )
+    })
+    const updateButton = await screen.findByRole('button', { name: /update allocation/i })
+    expect(updateButton).toBeEnabled()
+    fireEvent.click(updateButton)
+    await waitFor(() => {
+      expect(updateAllocation).toHaveBeenCalledWith(
+        expect.objectContaining({ allocationId: 11, tutorId: 7, status: 'CONFIRMED' }),
+        getAccessTokenSilently,
+      )
+    })
+  })
+
+  it('removes an allocation after confirmation and refreshes the list', async () => {
+    listCourses.mockResolvedValue(courses)
+    listAllocations.mockResolvedValueOnce([allocation]).mockResolvedValueOnce([])
+
+    render(<OrganiserDashboard />)
+    fireEvent.click(await screen.findByRole('button', { name: /^remove$/i }))
+    expect(screen.getByRole('dialog')).toHaveTextContent(/weekly hours will be released/i)
+    fireEvent.click(screen.getByRole('button', { name: /remove allocation/i }))
+
+    await waitFor(() => {
+      expect(removeAllocation).toHaveBeenCalledWith(11, getAccessTokenSilently)
+    })
+    expect(await screen.findByText(/allocation was removed/i)).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: /no active allocations/i })).toBeInTheDocument()
+  })
+
+  it('shows a server-side rule refusal and refreshes candidate state', async () => {
+    listCourses.mockResolvedValue(courses)
+    listAllocationCandidates
+      .mockResolvedValueOnce([eligibleCandidate])
+      .mockResolvedValueOnce([{ ...eligibleCandidate, isEligible: false, reasonCodes: ['insufficient-mark'] }])
+    createAllocation.mockRejectedValue(
+      Object.assign(new Error('The tutor no longer meets the required mark.'), {
+        code: 'insufficient-mark',
+      }),
+    )
+
+    render(<OrganiserDashboard />)
+    await screen.findByRole('option', { name: /COMS3011/i })
+    fillBoard()
+    fireEvent.click(screen.getByRole('button', { name: /check candidates/i }))
+    fireEvent.click(await screen.findByRole('button', { name: /select Boundary Tutor/i }))
+    fireEvent.click(screen.getByRole('button', { name: /save allocation/i }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(/no longer meets the required mark/i)
+    expect(listAllocationCandidates).toHaveBeenCalledTimes(2)
+    expect(screen.getByRole('button', { name: /select Boundary Tutor/i })).toBeDisabled()
   })
 })

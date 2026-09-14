@@ -63,7 +63,7 @@ describe('TutorForms accessibility', () => {
   it('reaches every labelled control and action in keyboard order', async () => {
     const user = userEvent.setup()
     render(<TutorForms />)
-    await screen.findByRole('heading', { name: /availability, work log and excuses/i })
+    await screen.findByRole('heading', { name: /forms and submissions/i })
 
     const expectedControls = [
       screen.getByLabelText(/^type$/i),
@@ -107,7 +107,7 @@ describe('TutorForms accessibility', () => {
     fetchTutorDashboard.mockResolvedValueOnce(dashboard)
     fireEvent.click(screen.getByRole('button', { name: /retry/i }))
     await waitFor(() => {
-      expect(screen.getByRole('heading', { name: /availability, work log and excuses/i }))
+      expect(screen.getByRole('heading', { name: /forms and submissions/i }))
         .toBeInTheDocument()
     })
   })
@@ -148,7 +148,7 @@ describe('TutorForms accessibility', () => {
     })
     render(<TutorForms />)
 
-    await screen.findByRole('heading', { name: /availability, work log and excuses/i })
+    await screen.findByRole('heading', { name: /forms and submissions/i })
 
     fireEvent.change(screen.getByLabelText(/^start$/i), { target: { value: '2030-09-05T09:00' } })
     fireEvent.change(screen.getByLabelText(/^end$/i), { target: { value: '2030-09-05T11:00' } })

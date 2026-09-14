@@ -1,8 +1,9 @@
 import {
   createRouteError,
-  type AllocationRemoveInput,
   type AllocationSummary,
   type AllocationWriteInput,
+  type OrganiserAllocationSummary,
+  type OrganiserApprovalQueuesSummary,
   type RouteError,
   type TimesheetDecisionInput,
   type TimesheetDecisionSummary,
@@ -36,6 +37,49 @@ const allocationSelection = {
   endsAt: true,
   allocatedHours: true,
   status: true,
+} as const;
+
+const organiserAllocationSelection = {
+  ...allocationSelection,
+  tutor: { select: { fullName: true, email: true } },
+  course: { select: { code: true, name: true } },
+} as const;
+
+const pendingTimesheetSelection = {
+  id: true,
+  tutorId: true,
+  weekStart: true,
+  submittedAt: true,
+  tutor: { select: { fullName: true, email: true } },
+  workLogs: {
+    orderBy: [{ workDate: "asc" as const }, { id: "asc" as const }],
+    select: {
+      id: true,
+      allocationId: true,
+      workDate: true,
+      hours: true,
+      description: true,
+      allocation: {
+        select: { course: { select: { code: true, name: true } } },
+      },
+    },
+  },
+} satisfies Prisma.TimesheetSelect;
+
+const pendingVolunteerClaimSelection = {
+  id: true,
+  overflowWorkId: true,
+  studentId: true,
+  createdAt: true,
+  student: { select: { fullName: true, email: true } },
+  overflowWork: {
+    select: {
+      startsAt: true,
+      endsAt: true,
+      hours: true,
+      course: { select: { code: true, name: true } },
+    },
+  },
 } as const;
 
 const timesheetDecisionSelection = {
@@ -135,6 +179,12 @@ function toAllocationSummary(row: AllocationRow): AllocationSummary {
   };
 }
 
+function totalHours(
+  workLogs: Array<{ hours: unknown }>,
+): number {
+  return workLogs.reduce((total, workLog) => total + Number(workLog.hours), 0);
+}
+
 function throwFirstAllocationRuleViolation(
   reasonCodes: CandidateReasonCode[],
 ): void {
@@ -180,50 +230,47 @@ async function validateAllocationRules(
       ? {}
       : { id: { not: excludeAllocationId } };
 
-  const [mark, hourLimit, busySlots, confirmedAllocations, usedHours] =
-    await Promise.all([
-      transaction.tutorMark.findUnique({
-        where: {
-          tutorId_courseId: {
-            tutorId: input.tutorId,
-            courseId: input.courseId,
-          },
-        },
-        select: { mark: true },
-      }),
-      transaction.tutorHourLimit.findUnique({
-        where: { tutorId: input.tutorId },
-        select: { weeklyHours: true },
-      }),
-      transaction.timeSlot.findMany({
-        where: {
-          tutorId: input.tutorId,
-          type: "BUSY",
-          startsAt: { lt: input.endsAt },
-          endsAt: { gt: input.startsAt },
-        },
-        select: { startsAt: true, endsAt: true },
-      }),
-      transaction.allocation.findMany({
-        where: {
-          tutorId: input.tutorId,
-          status: "CONFIRMED",
-          startsAt: { lt: input.endsAt },
-          endsAt: { gt: input.startsAt },
-          ...withoutCurrentAllocation,
-        },
-        select: { startsAt: true, endsAt: true },
-      }),
-      transaction.allocation.aggregate({
-        where: {
-          tutorId: input.tutorId,
-          status: "CONFIRMED",
-          startsAt: { gte: weekStart, lt: nextWeekStart },
-          ...withoutCurrentAllocation,
-        },
-        _sum: { allocatedHours: true },
-      }),
-    ]);
+  const mark = await transaction.tutorMark.findUnique({
+    where: {
+      tutorId_courseId: {
+        tutorId: input.tutorId,
+        courseId: input.courseId,
+      },
+    },
+    select: { mark: true },
+  });
+  const hourLimit = await transaction.tutorHourLimit.findUnique({
+    where: { tutorId: input.tutorId },
+    select: { weeklyHours: true },
+  });
+  const busySlots = await transaction.timeSlot.findMany({
+    where: {
+      tutorId: input.tutorId,
+      type: "BUSY",
+      startsAt: { lt: input.endsAt },
+      endsAt: { gt: input.startsAt },
+    },
+    select: { startsAt: true, endsAt: true },
+  });
+  const confirmedAllocations = await transaction.allocation.findMany({
+    where: {
+      tutorId: input.tutorId,
+      status: "CONFIRMED",
+      startsAt: { lt: input.endsAt },
+      endsAt: { gt: input.startsAt },
+      ...withoutCurrentAllocation,
+    },
+    select: { startsAt: true, endsAt: true },
+  });
+  const usedHours = await transaction.allocation.aggregate({
+    where: {
+      tutorId: input.tutorId,
+      status: "CONFIRMED",
+      startsAt: { gte: weekStart, lt: nextWeekStart },
+      ...withoutCurrentAllocation,
+    },
+    _sum: { allocatedHours: true },
+  });
 
   const hasClash = [...busySlots, ...confirmedAllocations].some(
     (range) =>
@@ -306,6 +353,71 @@ async function allocationAudit(transaction: TransactionClient, auth0Id: string) 
 
 export function createOrganiserService(client: PrismaClient) {
   return {
+    async listAllocations(): Promise<OrganiserAllocationSummary[]> {
+      const allocations = await client.allocation.findMany({
+        where: { status: { in: ["PROPOSED", "CONFIRMED"] } },
+        orderBy: [{ startsAt: "asc" }, { id: "asc" }],
+        select: organiserAllocationSelection,
+      });
+
+      return allocations.map((allocation) => ({
+        ...toAllocationSummary(allocation),
+        tutorName: allocation.tutor.fullName,
+        tutorEmail: allocation.tutor.email,
+        courseCode: allocation.course.code,
+        courseName: allocation.course.name,
+      }));
+    },
+
+    async listApprovals(): Promise<OrganiserApprovalQueuesSummary> {
+      const [timesheets, volunteerClaims] = await Promise.all([
+        client.timesheet.findMany({
+          where: { status: "SUBMITTED" },
+          orderBy: [{ submittedAt: "asc" }, { id: "asc" }],
+          select: pendingTimesheetSelection,
+        }),
+        client.volunteerClaim.findMany({
+          where: { status: "PENDING" },
+          orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+          select: pendingVolunteerClaimSelection,
+        }),
+      ]);
+
+      return {
+        timesheets: timesheets.map((timesheet) => ({
+          id: timesheet.id,
+          tutorId: timesheet.tutorId,
+          tutorName: timesheet.tutor.fullName,
+          tutorEmail: timesheet.tutor.email,
+          weekStart: timesheet.weekStart.toISOString().slice(0, 10),
+          submittedAt: timesheet.submittedAt?.toISOString() ?? null,
+          totalHours: totalHours(timesheet.workLogs),
+          workLogs: timesheet.workLogs.map((workLog) => ({
+            id: workLog.id,
+            allocationId: workLog.allocationId,
+            courseCode: workLog.allocation.course.code,
+            courseName: workLog.allocation.course.name,
+            workDate: workLog.workDate.toISOString().slice(0, 10),
+            hours: Number(workLog.hours),
+            description: workLog.description,
+          })),
+        })),
+        volunteerClaims: volunteerClaims.map((claim) => ({
+          id: claim.id,
+          overflowWorkId: claim.overflowWorkId,
+          studentId: claim.studentId,
+          studentName: claim.student.fullName,
+          studentEmail: claim.student.email,
+          courseCode: claim.overflowWork.course.code,
+          courseName: claim.overflowWork.course.name,
+          startsAt: claim.overflowWork.startsAt.toISOString(),
+          endsAt: claim.overflowWork.endsAt.toISOString(),
+          hours: Number(claim.overflowWork.hours),
+          createdAt: claim.createdAt.toISOString(),
+        })),
+      };
+    },
+
     async createAllocation(
       organiserAuth0Id: string,
       input: AllocationWriteInput,
@@ -421,7 +533,6 @@ export function createOrganiserService(client: PrismaClient) {
     async removeAllocation(
       organiserAuth0Id: string,
       allocationId: number,
-      input: AllocationRemoveInput,
     ): Promise<void> {
       try {
         await client.$transaction(
@@ -445,19 +556,6 @@ export function createOrganiserService(client: PrismaClient) {
               );
             }
 
-            await validateAllocationRules(
-              transaction,
-              {
-                tutorId: current.tutorId,
-                courseId: current.courseId,
-                startsAt: current.startsAt,
-                endsAt: current.endsAt,
-                requestedHours: Number(current.allocatedHours),
-                minimumMark: input.minimumMark,
-                status: current.status,
-              },
-              allocationId,
-            );
             const changed = await transaction.allocation.updateMany({
               where: { id: allocationId, status: current.status },
               data: {
@@ -584,6 +682,7 @@ export function createOrganiserService(client: PrismaClient) {
               where: { id: claimId },
               select: {
                 status: true,
+                overflowWorkId: true,
                 overflowWork: {
                   select: { status: true, startsAt: true, closesAt: true },
                 },
@@ -634,6 +733,20 @@ export function createOrganiserService(client: PrismaClient) {
                 "VOLUNTEER_CLAIM_DECISION_CONFLICT",
                 "The volunteer claim changed before this decision could be applied.",
               );
+            }
+
+            if (input.decision === "APPROVE") {
+              await transaction.volunteerClaim.updateMany({
+                where: {
+                  overflowWorkId: current.overflowWorkId,
+                  id: { not: claimId },
+                  status: "PENDING",
+                },
+                data: {
+                  status: "REJECTED",
+                  reviewReason: "Another volunteer was selected.",
+                },
+              });
             }
 
             const decided = await transaction.volunteerClaim.findUnique({

@@ -7,6 +7,8 @@ const listTutorMarks = vi.fn()
 const listTutorTimeSlots = vi.fn()
 const saveTutorMark = vi.fn()
 const createTutorTimeSlot = vi.fn()
+const deleteTutorMark = vi.fn()
+const deleteTutorTimeSlot = vi.fn()
 const getAccessTokenSilently = vi.fn()
 
 vi.mock('../api/organiser', () => ({
@@ -15,6 +17,8 @@ vi.mock('../api/organiser', () => ({
   listTutorTimeSlots: (...args) => listTutorTimeSlots(...args),
   saveTutorMark: (...args) => saveTutorMark(...args),
   createTutorTimeSlot: (...args) => createTutorTimeSlot(...args),
+  deleteTutorMark: (...args) => deleteTutorMark(...args),
+  deleteTutorTimeSlot: (...args) => deleteTutorTimeSlot(...args),
 }))
 
 vi.mock('@auth0/auth0-react', () => ({
@@ -34,6 +38,8 @@ describe('TutorAllocationDetails', () => {
     listTutorTimeSlots.mockReset().mockResolvedValue([])
     saveTutorMark.mockReset()
     createTutorTimeSlot.mockReset()
+    deleteTutorMark.mockReset().mockResolvedValue(undefined)
+    deleteTutorTimeSlot.mockReset().mockResolvedValue(undefined)
     getAccessTokenSilently.mockReset()
   })
 
@@ -45,6 +51,7 @@ describe('TutorAllocationDetails', () => {
         courseCode: 'COMS3011',
         courseName: 'Software Design Project',
         mark: 72,
+        activeAllocationCount: 1,
       },
     ])
     listTutorTimeSlots.mockResolvedValue([
@@ -77,6 +84,7 @@ describe('TutorAllocationDetails', () => {
         courseCode: 'COMS3011',
         courseName: 'Software Design Project',
         mark: 60,
+        activeAllocationCount: 0,
       },
     ])
     saveTutorMark.mockResolvedValue({
@@ -85,6 +93,7 @@ describe('TutorAllocationDetails', () => {
       courseCode: 'COMS3011',
       courseName: 'Software Design Project',
       mark: 75,
+      activeAllocationCount: 0,
     })
 
     render(<TutorAllocationDetails tutor={tutor} />)
@@ -158,5 +167,51 @@ describe('TutorAllocationDetails', () => {
       )
     })
     expect(await screen.findByText(/busy time was added for Sam Tutor/i)).toBeInTheDocument()
+  })
+
+  it('confirms and removes a mark while warning about active allocations', async () => {
+    listTutorMarks.mockResolvedValue([{
+      id: 11,
+      courseId: 3,
+      courseCode: 'COMS3011',
+      courseName: 'Software Design Project',
+      mark: 72,
+      activeAllocationCount: 2,
+    }])
+
+    render(<TutorAllocationDetails tutor={tutor} />)
+    fireEvent.click(await screen.findByRole('button', { name: /remove COMS3011 mark/i }))
+    expect(screen.getByRole('dialog')).toHaveTextContent(/has 2 allocations/i)
+    fireEvent.click(screen.getByRole('button', { name: /^remove mark$/i }))
+
+    await waitFor(() => {
+      expect(deleteTutorMark).toHaveBeenCalledWith(
+        { tutorId: 7, courseId: 3 },
+        getAccessTokenSilently,
+      )
+    })
+    expect(await screen.findByText(/COMS3011 mark was removed/i)).toBeInTheDocument()
+  })
+
+  it('confirms and removes a busy time', async () => {
+    listTutorTimeSlots.mockResolvedValue([{
+      id: 9,
+      type: 'BUSY',
+      startsAt: '2030-09-04T14:00:00.000Z',
+      endsAt: '2030-09-04T16:00:00.000Z',
+      recurrence: null,
+    }])
+
+    render(<TutorAllocationDetails tutor={tutor} />)
+    fireEvent.click(await screen.findByRole('button', { name: /remove busy time from/i }))
+    fireEvent.click(screen.getByRole('button', { name: /^remove busy time$/i }))
+
+    await waitFor(() => {
+      expect(deleteTutorTimeSlot).toHaveBeenCalledWith(
+        { tutorId: 7, timeSlotId: 9 },
+        getAccessTokenSilently,
+      )
+    })
+    expect(await screen.findByText(/busy time was removed/i)).toBeInTheDocument()
   })
 })

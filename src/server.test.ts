@@ -3,6 +3,8 @@ import type { AppDependencies, RequestLogger } from "./app.js";
 
 const mocks = vi.hoisted(() => ({
   allocationFindFirst: vi.fn(),
+  allocationCount: vi.fn(),
+  allocationGroupBy: vi.fn(),
   courseCreate: vi.fn(),
   courseDelete: vi.fn(),
   courseFindMany: vi.fn(),
@@ -19,11 +21,14 @@ const mocks = vi.hoisted(() => ({
   profileUpdate: vi.fn(),
   queryRaw: vi.fn(),
   timeSlotCreate: vi.fn(),
+  timeSlotDeleteMany: vi.fn(),
   timeSlotFindMany: vi.fn(),
   timesheetUpsert: vi.fn(),
   transaction: vi.fn(),
   tutorMarkFindMany: vi.fn(),
+  tutorMarkDeleteMany: vi.fn(),
   tutorMarkUpsert: vi.fn(),
+  tutorHourLimitDeleteMany: vi.fn(),
   workLogCreate: vi.fn(),
 }));
 
@@ -41,7 +46,9 @@ vi.mock("./database.js", () => ({
     $transaction: mocks.transaction,
     $queryRaw: mocks.queryRaw,
     allocation: {
+      count: mocks.allocationCount,
       findFirst: mocks.allocationFindFirst,
+      groupBy: mocks.allocationGroupBy,
     },
     course: {
       create: mocks.courseCreate,
@@ -60,11 +67,16 @@ vi.mock("./database.js", () => ({
     },
     timeSlot: {
       create: mocks.timeSlotCreate,
+      deleteMany: mocks.timeSlotDeleteMany,
       findMany: mocks.timeSlotFindMany,
     },
     tutorMark: {
       upsert: mocks.tutorMarkUpsert,
+      deleteMany: mocks.tutorMarkDeleteMany,
       findMany: mocks.tutorMarkFindMany,
+    },
+    tutorHourLimit: {
+      deleteMany: mocks.tutorHourLimitDeleteMany,
     },
   },
   queryClient: {},
@@ -444,6 +456,15 @@ describe("server-side API persistence", () => {
         update: { weeklyHours: 10 },
       },
     });
+
+    mocks.profileFindUnique.mockResolvedValueOnce({ role: "TUTOR" });
+    mocks.profileUpdate.mockResolvedValueOnce({ ...tutor, hourLimit: { weeklyHours: 10 } });
+    mocks.tutorHourLimitDeleteMany.mockResolvedValueOnce({ count: 1 });
+    await expect(dependencies.updateTutor(7, { weeklyHours: null })).resolves.toMatchObject({
+      id: 7,
+      weeklyHours: null,
+    });
+    expect(mocks.tutorHourLimitDeleteMany).toHaveBeenCalledWith({ where: { tutorId: 7 } });
   });
 
   it("builds the own-tutor dashboard from Prisma and the Member 6 hour query", async () => {
@@ -862,6 +883,7 @@ describe("server-side API persistence", () => {
       course: { code: "DEMO101", name: "Demo Course" },
       mark: "75.00",
     });
+    mocks.allocationCount.mockResolvedValueOnce(2);
     await expect(
       dependencies.upsertTutorMark(7, { courseId: 3, mark: 75 }),
     ).resolves.toEqual({
@@ -870,6 +892,7 @@ describe("server-side API persistence", () => {
       courseCode: "DEMO101",
       courseName: "Demo Course",
       mark: 75,
+      activeAllocationCount: 2,
     });
     expect(mocks.tutorMarkUpsert.mock.calls[0]![0]).toMatchObject({
       where: { tutorId_courseId: { tutorId: 7, courseId: 3 } },
@@ -912,6 +935,9 @@ describe("server-side API persistence", () => {
         mark: "60.50",
       },
     ]);
+    mocks.allocationGroupBy.mockResolvedValueOnce([
+      { courseId: 3, _count: { _all: 2 } },
+    ]);
 
     await expect(dependencies.listTutorMarks(7)).resolves.toEqual([
       {
@@ -920,6 +946,7 @@ describe("server-side API persistence", () => {
         courseCode: "DEMO101",
         courseName: "Demo Course",
         mark: 75,
+        activeAllocationCount: 2,
       },
       {
         id: 12,
@@ -927,6 +954,7 @@ describe("server-side API persistence", () => {
         courseCode: "DEMO102",
         courseName: "Other Course",
         mark: 60.5,
+        activeAllocationCount: 0,
       },
     ]);
     expect(mocks.tutorMarkFindMany).toHaveBeenCalledWith(
@@ -985,6 +1013,33 @@ describe("server-side API persistence", () => {
         endsAt: new Date("2030-09-04T16:00:00.000Z"),
       }),
     ).rejects.toMatchObject({ status: 404, code: "TUTOR_NOT_FOUND" });
+  });
+
+  it("removes organiser-managed marks and busy times with tutor scoping", async () => {
+    await import("./server.js");
+    const dependencies = capturedDependencies();
+    mocks.tutorMarkDeleteMany.mockResolvedValueOnce({ count: 1 });
+    mocks.timeSlotDeleteMany.mockResolvedValueOnce({ count: 1 });
+
+    await expect(dependencies.deleteTutorMark(7, 3)).resolves.toBeUndefined();
+    await expect(dependencies.deleteTutorBusyTimeSlot(7, 9)).resolves.toBeUndefined();
+    expect(mocks.tutorMarkDeleteMany).toHaveBeenCalledWith({
+      where: { tutorId: 7, courseId: 3 },
+    });
+    expect(mocks.timeSlotDeleteMany).toHaveBeenCalledWith({
+      where: { id: 9, tutorId: 7, type: "BUSY" },
+    });
+
+    mocks.tutorMarkDeleteMany.mockResolvedValueOnce({ count: 0 });
+    mocks.timeSlotDeleteMany.mockResolvedValueOnce({ count: 0 });
+    await expect(dependencies.deleteTutorMark(7, 404)).rejects.toMatchObject({
+      status: 404,
+      code: "TUTOR_MARK_NOT_FOUND",
+    });
+    await expect(dependencies.deleteTutorBusyTimeSlot(7, 404)).rejects.toMatchObject({
+      status: 404,
+      code: "TIME_SLOT_NOT_FOUND",
+    });
   });
 
   it("maps organiser busy-time persistence conflicts and preserves unexpected errors", async () => {

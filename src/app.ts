@@ -59,7 +59,7 @@ export interface TutorWriteInput {
 export interface TutorUpdateInput {
   email?: string;
   fullName?: string;
-  weeklyHours?: number;
+  weeklyHours?: number | null;
 }
 
 export interface TutorAllocationSummary {
@@ -190,6 +190,7 @@ export interface AllocationCandidateQuery {
   endsAt: Date;
   minimumMark: number;
   requestedHours: number;
+  excludeAllocationId?: number;
 }
 
 export type AllocationWriteStatus = "PROPOSED" | "CONFIRMED";
@@ -214,8 +215,51 @@ export interface AllocationSummary {
   status: AllocationWriteStatus | "CANCELLED";
 }
 
-export interface AllocationRemoveInput {
-  minimumMark: number;
+export interface OrganiserAllocationSummary extends AllocationSummary {
+  tutorName: string;
+  tutorEmail: string;
+  courseCode: string;
+  courseName: string;
+}
+
+export interface OrganiserTimesheetEntrySummary {
+  id: number;
+  allocationId: number;
+  courseCode: string;
+  courseName: string;
+  workDate: string;
+  hours: number;
+  description: string;
+}
+
+export interface OrganiserTimesheetApprovalSummary {
+  id: number;
+  tutorId: number;
+  tutorName: string;
+  tutorEmail: string;
+  weekStart: string;
+  submittedAt: string | null;
+  totalHours: number;
+  workLogs: OrganiserTimesheetEntrySummary[];
+}
+
+export interface OrganiserVolunteerClaimApprovalSummary {
+  id: number;
+  overflowWorkId: number;
+  studentId: number;
+  studentName: string;
+  studentEmail: string;
+  courseCode: string;
+  courseName: string;
+  startsAt: string;
+  endsAt: string;
+  hours: number;
+  createdAt: string;
+}
+
+export interface OrganiserApprovalQueuesSummary {
+  timesheets: OrganiserTimesheetApprovalSummary[];
+  volunteerClaims: OrganiserVolunteerClaimApprovalSummary[];
 }
 
 export interface TimesheetDecisionInput {
@@ -257,6 +301,7 @@ export interface TutorMarkSummary {
   courseCode: string;
   courseName: string;
   mark: number;
+  activeAllocationCount: number;
 }
 
 export interface ProfileSummary {
@@ -342,6 +387,8 @@ export interface AppDependencies {
   listAllocationCandidates: (
     input: AllocationCandidateQuery,
   ) => Promise<AllocationCandidateSummary[]>;
+  listOrganiserAllocations: () => Promise<OrganiserAllocationSummary[]>;
+  listOrganiserApprovals: () => Promise<OrganiserApprovalQueuesSummary>;
   createAllocation: (
     auth0Id: string,
     input: AllocationWriteInput,
@@ -354,7 +401,6 @@ export interface AppDependencies {
   removeAllocation: (
     auth0Id: string,
     allocationId: number,
-    input: AllocationRemoveInput,
   ) => Promise<void>;
   decideTimesheet: (
     auth0Id: string,
@@ -370,11 +416,16 @@ export interface AppDependencies {
     input: TutorMarkWriteInput,
   ) => Promise<TutorMarkSummary>;
   listTutorMarks: (tutorId: number) => Promise<TutorMarkSummary[]>;
+  deleteTutorMark: (tutorId: number, courseId: number) => Promise<void>;
   listTutorTimeSlots: (tutorId: number) => Promise<TutorTimeSlotSummary[]>;
   createTutorTimeSlotForTutor: (
     tutorId: number,
     input: TutorTimeSlotWriteInput,
   ) => Promise<TutorTimeSlotSummary>;
+  deleteTutorBusyTimeSlot: (
+    tutorId: number,
+    timeSlotId: number,
+  ) => Promise<void>;
   requestPasswordReset: PasswordResetRequester;
   requestVerificationEmail?: VerificationEmailSender;
   deleteAccount?: (auth0Id: string) => Promise<void>;
@@ -455,6 +506,12 @@ const unavailableDependencies: AppDependencies = {
   async listAllocationCandidates() {
     throw new Error("Allocation candidate endpoint is not configured");
   },
+  async listOrganiserAllocations() {
+    throw new Error("Organiser allocation endpoint is not configured");
+  },
+  async listOrganiserApprovals() {
+    throw new Error("Organiser approval endpoint is not configured");
+  },
   async createAllocation() {
     throw new Error("Allocation mutation endpoints are not configured");
   },
@@ -476,10 +533,16 @@ const unavailableDependencies: AppDependencies = {
   async listTutorMarks() {
     throw new Error("Tutor mark endpoint is not configured");
   },
+  async deleteTutorMark() {
+    throw new Error("Tutor mark endpoint is not configured");
+  },
   async listTutorTimeSlots() {
     throw new Error("Tutor workflow endpoints are not configured");
   },
   async createTutorTimeSlotForTutor() {
+    throw new Error("Tutor workflow endpoints are not configured");
+  },
+  async deleteTutorBusyTimeSlot() {
     throw new Error("Tutor workflow endpoints are not configured");
   },
   async deleteAccount() {
@@ -573,17 +636,26 @@ function parseRequiredText(
   return trimmed;
 }
 
-function parseOptionalWeeklyHours(value: unknown) {
-  if (value === undefined || value === null || value === "") {
-    return undefined;
+type WeeklyHoursField =
+  | { kind: "absent" }
+  | { kind: "clear" }
+  | { kind: "value"; value: number }
+  | { kind: "invalid" };
+
+function parseOptionalWeeklyHours(value: unknown): WeeklyHoursField {
+  if (value === undefined || value === "") {
+    return { kind: "absent" };
+  }
+  if (value === null) {
+    return { kind: "clear" };
   }
 
   const numeric = Number(value);
   if (!Number.isFinite(numeric) || numeric <= 0 || numeric > 168) {
-    return null;
+    return { kind: "invalid" };
   }
 
-  return numeric;
+  return { kind: "value", value: numeric };
 }
 
 function parseCourseInput(body: unknown) {
@@ -615,7 +687,7 @@ function parseTutorCreateInput(body: unknown) {
     !email ||
     !isValidEmail(email) ||
     !fullName ||
-    weeklyHours === null
+    weeklyHours.kind === "invalid"
   ) {
     return {
       error:
@@ -629,8 +701,8 @@ function parseTutorCreateInput(body: unknown) {
     fullName,
   };
 
-  if (weeklyHours !== undefined) {
-    value.weeklyHours = weeklyHours;
+  if (weeklyHours.kind === "value") {
+    value.weeklyHours = weeklyHours.value;
   }
 
   return { value } as const;
@@ -656,7 +728,7 @@ function parseTutorUpdateInput(body: unknown) {
     (payload?.email !== undefined &&
       (email === null || !isValidEmail(email))) ||
     (payload?.fullName !== undefined && fullName === null) ||
-    weeklyHours === null ||
+    weeklyHours.kind === "invalid" ||
     (payload?.email === undefined &&
       payload?.fullName === undefined &&
       payload?.weeklyHours === undefined)
@@ -674,8 +746,11 @@ function parseTutorUpdateInput(body: unknown) {
   if (fullName !== undefined && fullName !== null) {
     value.fullName = fullName;
   }
-  if (weeklyHours !== undefined) {
-    value.weeklyHours = weeklyHours;
+  if (weeklyHours.kind === "value") {
+    value.weeklyHours = weeklyHours.value;
+  }
+  if (weeklyHours.kind === "clear") {
+    value.weeklyHours = null;
   }
 
   return { value } as const;
@@ -914,12 +989,18 @@ function parseAllocationCandidateQuery(query: unknown) {
     endsAt?: unknown;
     minimumMark?: unknown;
     requestedHours?: unknown;
+    excludeAllocationId?: unknown;
   };
   const courseId = parsePositiveInteger(firstQueryParam(params.courseId));
   const startsAt = parseIsoDateTime(firstQueryParam(params.startsAt));
   const endsAt = parseIsoDateTime(firstQueryParam(params.endsAt));
   const minimumMark = parseMarkValue(params.minimumMark);
   const requestedHours = parseRequestedHours(params.requestedHours);
+  const rawExcludeAllocationId = firstQueryParam(params.excludeAllocationId);
+  const excludeAllocationId =
+    rawExcludeAllocationId === undefined
+      ? undefined
+      : parsePositiveInteger(rawExcludeAllocationId);
 
   if (
     !courseId ||
@@ -927,7 +1008,8 @@ function parseAllocationCandidateQuery(query: unknown) {
     !endsAt ||
     endsAt <= startsAt ||
     minimumMark === null ||
-    requestedHours === null
+    requestedHours === null ||
+    (rawExcludeAllocationId !== undefined && !excludeAllocationId)
   ) {
     return {
       error:
@@ -936,7 +1018,14 @@ function parseAllocationCandidateQuery(query: unknown) {
   }
 
   return {
-    value: { courseId, startsAt, endsAt, minimumMark, requestedHours },
+    value: {
+      courseId,
+      startsAt,
+      endsAt,
+      minimumMark,
+      requestedHours,
+      ...(excludeAllocationId ? { excludeAllocationId } : {}),
+    },
   } as const;
 }
 
@@ -1176,7 +1265,7 @@ export function createApp(
         );
         response.setHeader(
           "Access-Control-Allow-Methods",
-          "GET, POST, PATCH, DELETE, OPTIONS",
+          "GET, POST, PUT, PATCH, DELETE, OPTIONS",
         );
       }
       if (request.method === "OPTIONS") {
@@ -1521,6 +1610,21 @@ export function createApp(
   );
 
   app.get(
+    "/api/allocations",
+    authenticate,
+    resolveProfileRole,
+    requireRole("ORGANISER"),
+    async (_request, response) => {
+      try {
+        const allocations = await dependencies.listOrganiserAllocations();
+        response.status(200).json({ data: { allocations } });
+      } catch (value) {
+        sendRouteError(response, value);
+      }
+    },
+  );
+
+  app.get(
     "/api/allocations/candidates",
     authenticate,
     resolveProfileRole,
@@ -1644,24 +1748,27 @@ export function createApp(
         return;
       }
 
-      const minimumMark = parseMarkValue(request.query.minimumMark);
-      if (minimumMark === null) {
-        const result = error(
-          400,
-          "VALIDATION_ERROR",
-          "Minimum mark must be a number from 0 to 100.",
-        );
-        response.status(result.status).json(result.body);
-        return;
-      }
-
       try {
         await dependencies.removeAllocation(
           (request as AuthenticatedRequest).auth!.subject,
           allocationId.value,
-          { minimumMark },
         );
         response.status(204).end();
+      } catch (value) {
+        sendRouteError(response, value);
+      }
+    },
+  );
+
+  app.get(
+    "/api/organiser/approvals",
+    authenticate,
+    resolveProfileRole,
+    requireRole("ORGANISER"),
+    async (_request, response) => {
+      try {
+        const approvals = await dependencies.listOrganiserApprovals();
+        response.status(200).json({ data: approvals });
       } catch (value) {
         sendRouteError(response, value);
       }
@@ -1821,6 +1928,33 @@ export function createApp(
     },
   );
 
+  app.delete(
+    "/api/tutors/:tutorId/marks/:courseId",
+    authenticate,
+    resolveProfileRole,
+    requireRole("ORGANISER"),
+    async (request, response) => {
+      const tutorId = parseNumericId(request.params.tutorId, "Tutor");
+      const courseId = parseNumericId(request.params.courseId, "Course");
+      if ("error" in tutorId || "error" in courseId) {
+        const result = error(
+          400,
+          "VALIDATION_ERROR",
+          "Tutor and course identifiers must be positive whole numbers.",
+        );
+        response.status(result.status).json(result.body);
+        return;
+      }
+
+      try {
+        await dependencies.deleteTutorMark(tutorId.value, courseId.value);
+        response.status(204).end();
+      } catch (value) {
+        sendRouteError(response, value);
+      }
+    },
+  );
+
   app.get(
     "/api/tutors/:tutorId/time-slots",
     authenticate,
@@ -1881,6 +2015,36 @@ export function createApp(
           parsed.value,
         );
         response.status(201).json({ data: { timeSlot } });
+      } catch (value) {
+        sendRouteError(response, value);
+      }
+    },
+  );
+
+  app.delete(
+    "/api/tutors/:tutorId/time-slots/:timeSlotId",
+    authenticate,
+    resolveProfileRole,
+    requireRole("ORGANISER"),
+    async (request, response) => {
+      const tutorId = parseNumericId(request.params.tutorId, "Tutor");
+      const timeSlotId = parseNumericId(request.params.timeSlotId, "Time slot");
+      if ("error" in tutorId || "error" in timeSlotId) {
+        const result = error(
+          400,
+          "VALIDATION_ERROR",
+          "Tutor and time-slot identifiers must be positive whole numbers.",
+        );
+        response.status(result.status).json(result.body);
+        return;
+      }
+
+      try {
+        await dependencies.deleteTutorBusyTimeSlot(
+          tutorId.value,
+          timeSlotId.value,
+        );
+        response.status(204).end();
       } catch (value) {
         sendRouteError(response, value);
       }

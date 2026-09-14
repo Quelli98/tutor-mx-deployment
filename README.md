@@ -2,12 +2,12 @@
 
 Tutor Mx is one integrated React + Vite, Auth0, handwritten Express, Prisma and Neon PostgreSQL project. Browser code calls only the Express API; it never connects to Neon, Prisma or an Auth0 Management API.
 
-## Sprint 1 live demo and team repository
+## Demo and team repository
 
 - **Public Sprint 1 demo:** https://tutor-mx.pages.dev
 - **Official team source repository:** Gitea `innovent/tutor-mx-system`
 - **Deployment mirror:** the GitHub copy can be used to trigger the hosted Cloudflare Pages / Render deployment, but team development starts from the latest Gitea `main`.
-- **Current integrated Sprint 1 code:** Members 1-6 are integrated into this main-ready source.
+- **Current integrated Sprint 2 code:** Members 1-6 are integrated into this PR-ready source.
 
 The hosted demo follows the repository architecture: the browser loads the React/Vite frontend, Auth0 handles sign-in, React sends an Auth0 bearer token to the handwritten Express API, Express enforces role/ownership checks, and Prisma accesses Neon PostgreSQL. Team members can use the public URL for Sprint 1 demonstrations without receiving production database or Auth0 secrets.
 
@@ -93,9 +93,18 @@ Authorization: Bearer <access-token>
 | `PATCH /api/tutors/:tutorId` | Organiser | `200 { data: { tutor } }` | `400`, `401`, `403`, `404`, `409` |
 | `GET /api/tutors/:tutorId/marks` | Organiser | `200 { data: { marks } }` | `400`, `401`, `403`, safe `500` |
 | `PUT /api/tutors/:tutorId/marks` | Organiser | `200 { data: { mark } }` | `400`, `401`, `403`, `404`, safe `500` |
+| `DELETE /api/tutors/:tutorId/marks/:courseId` | Organiser | `204`; existing allocations remain intact | `400`, `401`, `403`, `404` |
 | `GET /api/tutors/:tutorId/time-slots` | Organiser | `200 { data: { timeSlots } }` | `400`, `401`, `403`, safe `500` |
 | `POST /api/tutors/:tutorId/time-slots` | Organiser | `201 { data: { timeSlot } }` | `400`, `401`, `403`, `404`, `409` |
+| `DELETE /api/tutors/:tutorId/time-slots/:timeSlotId` | Organiser | `204` for a Tutor-owned busy slot | `400`, `401`, `403`, `404` |
 | `GET /api/allocations/candidates` | Organiser | `200 { data: { candidates } }` with mark/clash/hour rule results | `400`, `401`, `403`, safe `500` |
+| `GET /api/allocations` | Organiser | `200 { data: { allocations } }` with active allocation details | `401`, `403`, safe `500` |
+| `POST /api/allocations` | Organiser | `201 { data: { allocation } }` after server-side rule checks | `400`, `401`, `403`, `404`, `409` |
+| `PATCH /api/allocations/:allocationId` | Organiser | `200 { data: { allocation } }` after server-side rule checks | `400`, `401`, `403`, `404`, `409` |
+| `DELETE /api/allocations/:allocationId` | Organiser | `204` and releases the allocation's committed hours | `400`, `401`, `403`, `404`, `409` |
+| `GET /api/organiser/approvals` | Organiser | `200 { data: { timesheets, volunteerClaims } }` for pending queues | `401`, `403`, safe `500` |
+| `PATCH /api/timesheets/:timesheetId/decision` | Organiser | Approves or returns a submitted timesheet | `400`, `401`, `403`, `404`, `409` |
+| `PATCH /api/volunteer-claims/:claimId/decision` | Organiser | Approves or rejects a pending claim | `400`, `401`, `403`, `404`, `409` |
 | `GET /api/tutor/dashboard` | Tutor; identity comes from token | `200 { data: { dashboard } }` | `401`, `403`, `404`, safe `500` |
 | `POST /api/tutor/time-slots` | Tutor; identity comes from token | `201 { data: { timeSlot } }` | `400`, `401`, `403`, `404`, `409` |
 | `POST /api/tutor/work-logs` | Tutor; identity comes from token | `201 { data: { workLog } }` | `400`, `401`, `403`, `404`, `409` |
@@ -113,7 +122,7 @@ Tutor workflow URLs never accept a browser-supplied tutor identifier. The backen
 
 A newly self-onboarded Tutor may legitimately have no `TutorHourLimit` and no allocations until an Organiser configures them. That state now returns a usable dashboard instead of a `409`: `weeklyLimit` and `remainingHours` are `null`, `usedHours` is still safe to display, and the frontend shows **Weekly hour limit not set yet** plus the normal no-work state.
 
-The protected Organiser workspace now contains the Sprint 1 allocation board plus course and tutor management. Organisers can add/edit/remove courses, search registered tutor accounts, maintain tutor profile and weekly-hour data, record course marks and busy times, and view mark, timetable-clash and remaining-hour results together before selecting a tutor. Tutor accounts themselves are created by the self-service Auth0 onboarding flow, so organisers never need to copy Auth0 User IDs. Failed checks remain visible and every result includes written Pass/Fail wording so colour is never the only signal. The Sprint 1 **Save allocation** control is intentionally the handbook-approved action placeholder until the final allocation-write endpoint is agreed; it becomes available only after an eligible tutor is selected.
+The protected Organiser workspace now provides complete Sprint 2 course, tutor, allocation and approval workflows. Organisers can add/edit/remove courses, search registered tutor accounts, maintain tutor profile and weekly-hour data, record or remove course marks and busy times, and view mark, timetable-clash and remaining-hour results together before selecting a tutor. Tutor accounts themselves are created by the self-service Auth0 onboarding flow, so organisers never need to copy Auth0 User IDs. The live allocation board creates, edits and removes persisted allocations; every write is rechecked on the server and the board refreshes committed hours and assignments after success. The approvals workspace shows submitted timesheets and pending overflow claims, persists decisions and handles stale decisions safely. Failed checks remain visible and every result includes written Pass/Fail wording so colour is never the only signal.
 
 Sprint 2 replaces the Student overflow mock with the protected handwritten API. The page loads real eligible open work, submits only the selected `overflowWorkId`, and reloads the signed-in Student's persisted pending/approved/rejected/withdrawn outcomes. Student ownership always comes from the verified token; browser-supplied Student IDs are ignored. Public holidays are supporting information loaded through the protected backend adapter, and its safe fallback never blocks the core overflow/volunteer flow. The browser never imports Prisma, connects to Neon or calls the external holiday provider directly.
 
@@ -134,7 +143,7 @@ Sprint 2 replaces the Student overflow mock with the protected handwritten API. 
 
 The CI workflow uploads `coverage/lcov.info` with the `backend` Codecov flag and `frontend/coverage/lcov.info` with the `frontend` flag. Repository administrators must configure `CODECOV_TOKEN`, protect `main`, and require all checks. Member branches and integration PRs target `main`; this repository does not require a `develop` branch.
 
-See `docs/sprint1-members-1-2-3-4-5-6-integration.md`, `docs/sprint2-m4-student-overflow.md`, the six `docs/member-*-handoff.md` files and `docs/github-required-checks.md` for completed evidence and repository-admin follow-ups.
+See `docs/member-2-handoff.md`, `docs/sprint2-endpoint-role-matrix.md`, `docs/sprint2-m4-student-overflow.md`, the other `docs/member-*-handoff.md` files and `docs/github-required-checks.md` for completed evidence and repository-admin follow-ups.
 
 ## AI declaration
 
@@ -152,7 +161,7 @@ Commits containing AI-generated code must include the actual assisting tool/mode
 Assisted-by: ChatGPT[GPT-5.6 Sol]
 ```
 
-For the 23 August 2026 Member 2 integration in this source, use the truthful trailer:
+For the 14 September 2026 Member 2 Sprint 2 final integration in this source, use the truthful trailer:
 
 ```text
 Assisted-by: Codex[GPT-5]

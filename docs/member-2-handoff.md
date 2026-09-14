@@ -1,4 +1,43 @@
-# Sprint 1 Member 2 Handoff
+# Member 2 Handoff
+
+## Sprint 2 final integration — 14 September 2026
+
+### Handbook scope
+
+Member 2 owned three Sprint 2 deliverables:
+
+- **S2-M2-1:** harden Organiser course and Tutor management around self-onboarded Tutor profiles, including persistent profile/hour-limit/mark/busy-time editing, validation and reliable refresh/error states.
+- **S2-M2-2:** replace the allocation placeholder with live create, edit and remove operations whose mark, clash and weekly-hour rules are enforced by the server, then refresh assignments and committed hours after every success.
+- **S2-M2-3:** provide Organiser queues for submitted timesheets and pending overflow claims, with persistent approve/return/reject decisions and safe duplicate/stale handling.
+
+### Supplied work and integration gaps
+
+The supplied `s2-m2-organiser-crud` snapshot contained useful Tutor detail and removal work, and `s2-m2-allocation-board-basic` contained a first live-create path. The latest supplied `main` already contained the completed Member 1, 3, 4, 5 and 6 APIs and workflows, including allocation mutations and approval decisions. The snapshots were not merged wholesale because they were based on older project states and would have removed completed work.
+
+The final gaps were a current allocation read model, live edit/remove UI, edit-aware rule queries, a real approvals queue/read model and UI, hour-limit clearing, accurate mark-removal protection, safe busy-slot removal, post-mutation refresh behavior, database timestamp compatibility and complete integration tests/documentation.
+
+### Integrated behavior
+
+- Course and Tutor management uses only self-onboarded profiles. There is no Organiser form for Auth0 subjects or manual Tutor creation.
+- A blank weekly-hour field intentionally clears the limit. Marks and busy slots can be removed with confirmation; an active allocation prevents deletion of its required mark.
+- The allocation workspace lists persisted assignments, supports create/edit/remove, excludes the edited allocation from its own clash/hour calculation, revalidates inside a transaction and refreshes allocations/candidates after success.
+- Allocation removal does not incorrectly rerun eligibility rules: cancellation safely releases committed hours even if the Tutor's current eligibility has changed.
+- The approvals workspace lists enough Tutor/Student, course, date, hours and description context to decide submitted timesheets and pending claims. Negative decisions require a reason.
+- Timesheet and volunteer decisions persist, reject stale/repeated state transitions with `409`, refresh queues after success and show safe actionable errors. Approving one volunteer atomically rejects competing pending claims for the same work.
+- PostgreSQL allocation queries now pass UTC-naive timestamp values compatible with the Prisma `pg` adapter instead of relying on driver-specific `Date` coercion.
+- The security matrix and smoke suite cover all 40 authenticated routes, including the new Organiser reads and scoped delete endpoints.
+
+### Final product polish
+
+The role workspaces now share one responsive navigation, page width, typography scale, card/form/table treatment, action hierarchy, alerts, empty/loading states and status badges. Organiser, Tutor and Student headings and guidance use consistent task-focused language. Allocation and approval controls stack cleanly at phone widths, destructive actions are visibly secondary, and reduced-motion/focus behavior is preserved.
+
+### Sprint 2 verification
+
+Reproducible final results are recorded in `docs/integration-verification-2026-09-14.txt`. Backend route/service tests cover valid and rejected allocation rules, create/edit/remove, queue reads, approval outcomes, stale decisions, API failures, removal ownership and UTC query behavior. Frontend tests cover the matching successful, loading, empty, rejected, stale and responsive user states.
+
+---
+
+## Earlier Sprint 1 integration record
 
 > **Integration Lead note - 23 August 2026:** The supplied `s1/m2/course-tutor-ui` branch was reviewed against handbook pages 14-16 (within the requested physical-page range 1-29), corrected and integrated into live Gitea `main` commit `c5a1e19071a2aade57f651ec5e8ed0c6b14e8b01`. The branch's valid course/tutor work was preserved, while the missing S1-M2-1 and S1-M2-3 Organiser behavior and the missing marks/busy-times portion of S1-M2-2 were completed during integration.
 
