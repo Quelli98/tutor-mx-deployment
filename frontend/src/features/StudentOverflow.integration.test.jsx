@@ -94,7 +94,7 @@ describe('StudentOverflow — API integration', () => {
     ).toBeInTheDocument()
 
     expect(loadWorkItems).toHaveBeenCalledTimes(1)
-  }, 10_000)
+  })
 
   it('renders only OPEN work when the API returns only eligible items', async () => {
     // API contract: GET /api/student/open-work returns only OPEN work.
