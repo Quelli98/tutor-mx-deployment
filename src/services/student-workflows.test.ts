@@ -149,7 +149,9 @@ describe("student open work", () => {
       where: { auth0Id: "auth0|student" },
       select: { id: true, role: true },
     });
-    expect(harness.query.mock.calls[0]?.[1]).toEqual([now]);
+    expect(harness.query.mock.calls[0]?.[1]).toEqual([
+      "2030-09-01 12:00:00.000",
+    ]);
     expect(harness.volunteerClaimFindMany).toHaveBeenCalledWith({
       where: {
         studentId: 7,

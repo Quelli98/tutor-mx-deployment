@@ -310,6 +310,8 @@ function makeApp(
 
     listAllocationCandidates:
       overrides.listAllocationCandidates ?? (async () => []),
+    listOrganiserAllocations: async () => [],
+    listOrganiserApprovals: async () => ({ timesheets: [], volunteerClaims: [] }),
 
     createAllocation: async (_auth0Id, input) => ({
       id: 1,
@@ -359,11 +361,14 @@ function makeApp(
         courseCode: "DEMO101",
         courseName: "Demo Course",
         mark: input.mark,
+        activeAllocationCount: 0,
       })),
 
     listTutorMarks: overrides.listTutorMarks ?? (async () => []),
+    deleteTutorMark: async () => undefined,
 
     listTutorTimeSlots: overrides.listTutorTimeSlots ?? (async () => []),
+    deleteTutorBusyTimeSlot: async () => undefined,
 
     createTutorTimeSlotForTutor:
       overrides.createTutorTimeSlotForTutor ??

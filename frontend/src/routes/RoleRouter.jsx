@@ -8,11 +8,13 @@ import { StudentOverflow } from '../features/StudentOverflow'
 import CourseManagement from '../features/CourseManagement'
 import TutorManagement from '../features/TutorManagement'
 import OrganiserDashboard from '../features/OrganiserDashboard'
+import OrganiserApprovals from '../features/OrganiserApprovals'
 import { SkipToContent } from '../components/shared/SkipToContent'
 
 const ORGANISER_LINKS = Object.freeze([
-  { path: '/organiser/courses', label: 'Course management' },
-  { path: '/organiser/tutors', label: 'Tutor management' },
+  { path: '/organiser/courses', label: 'Courses' },
+  { path: '/organiser/tutors', label: 'Tutors' },
+  { path: '/organiser/approvals', label: 'Approvals' },
 ])
 
 function RoleNavigation({ currentRole, onSignOut }) {
@@ -25,8 +27,13 @@ function RoleNavigation({ currentRole, onSignOut }) {
       aria-label="Tutor Mx primary navigation"
     >
       <div className="role-navigation-inner">
+        <span className="role-navigation-brand" aria-label="Tutor Mx">
+          <span className="brand-mark" aria-hidden="true">TM</span>
+          <span>Tutor Mx</span>
+        </span>
         <NavLink
           to={roleRoute.path}
+          end
           className={({ isActive }) =>
             `role-navigation-link${isActive ? ' active' : ''}`
           }
@@ -108,6 +115,10 @@ export function RoleRouter({ currentRole, onSignOut }) {
         <Route
           path="/organiser/tutors"
           element={protect(currentRole, ['ORGANISER'], <TutorManagement />)}
+        />
+        <Route
+          path="/organiser/approvals"
+          element={protect(currentRole, ['ORGANISER'], <OrganiserApprovals />)}
         />
         <Route
           path="/tutor"

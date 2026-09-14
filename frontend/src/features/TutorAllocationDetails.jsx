@@ -2,12 +2,15 @@ import { useCallback, useEffect, useState } from 'react'
 import { useAuth0 } from '@auth0/auth0-react'
 import {
   createTutorTimeSlot,
+  deleteTutorMark,
+  deleteTutorTimeSlot,
   listCourses,
   listTutorMarks,
   listTutorTimeSlots,
   saveTutorMark,
 } from '../api/organiser'
 import { EmptyState, ErrorState, LoadingState } from '../components/shared/StatusMessage'
+import { ConfirmationDialog } from '../components/shared/ConfirmationDialog'
 
 const EMPTY_MARK_FORM = { courseId: '', mark: '' }
 const EMPTY_BUSY_FORM = { startsAt: '', endsAt: '', weekly: false }
@@ -21,6 +24,12 @@ function safeErrorMessage(error, fallback) {
   }
   if (error?.code === 'TIME_SLOT_CONFLICT') {
     return 'That busy time conflicts with an existing tutor record.'
+  }
+  if (error?.code === 'TIME_SLOT_NOT_FOUND') {
+    return 'That busy time no longer exists. Refresh the tutor details and try again.'
+  }
+  if (error?.code === 'TUTOR_MARK_NOT_FOUND') {
+    return 'That mark no longer exists. Refresh the tutor details and try again.'
   }
   if (error?.code === 'VALIDATION_ERROR') {
     return 'Check the entered details and try again.'
@@ -76,6 +85,10 @@ export default function TutorAllocationDetails({ tutor, onClose }) {
   const [saving, setSaving] = useState(null)
   const [formError, setFormError] = useState('')
   const [successMessage, setSuccessMessage] = useState('')
+  const [slotToRemove, setSlotToRemove] = useState(null)
+  const [removeStatus, setRemoveStatus] = useState('idle')
+  const [markToRemove, setMarkToRemove] = useState(null)
+  const [markRemoveStatus, setMarkRemoveStatus] = useState('idle')
 
   const loadDetails = useCallback(
     async (isActive = () => true) => {
@@ -175,6 +188,60 @@ export default function TutorAllocationDetails({ tutor, onClose }) {
     }
   }
 
+  function handleCancelMarkRemove() {
+    if (markRemoveStatus === 'pending') return
+    setMarkToRemove(null)
+  }
+
+  async function handleConfirmMarkRemove() {
+    if (!markToRemove || markRemoveStatus === 'pending') return
+
+    setMarkRemoveStatus('pending')
+    setFormError('')
+    setSuccessMessage('')
+    try {
+      await deleteTutorMark(
+        { tutorId: tutor.id, courseId: markToRemove.courseId },
+        getAccessTokenSilently,
+      )
+      setMarks((current) => current.filter((item) => item.courseId !== markToRemove.courseId))
+      setSuccessMessage(`${markToRemove.courseCode} mark was removed for ${tutor.fullName}.`)
+      setMarkToRemove(null)
+    } catch (error) {
+      setFormError(safeErrorMessage(error, 'Unable to remove the mark. Please try again.'))
+      setMarkToRemove(null)
+    } finally {
+      setMarkRemoveStatus('idle')
+    }
+  }
+
+  function handleCancelRemove() {
+    if (removeStatus === 'pending') return
+    setSlotToRemove(null)
+  }
+
+  async function handleConfirmRemove() {
+    if (!slotToRemove || removeStatus === 'pending') return
+
+    setRemoveStatus('pending')
+    setFormError('')
+    setSuccessMessage('')
+    try {
+      await deleteTutorTimeSlot(
+        { tutorId: tutor.id, timeSlotId: slotToRemove.id },
+        getAccessTokenSilently,
+      )
+      setTimeSlots((current) => current.filter((slot) => slot.id !== slotToRemove.id))
+      setSuccessMessage(`Busy time was removed for ${tutor.fullName}.`)
+      setSlotToRemove(null)
+    } catch (error) {
+      setFormError(safeErrorMessage(error, 'Unable to remove the busy time. Please try again.'))
+      setSlotToRemove(null)
+    } finally {
+      setRemoveStatus('idle')
+    }
+  }
+
   return (
     <section className="role-card tutor-allocation-details" aria-labelledby="tutor-details-heading">
       <div className="candidate-results-header">
@@ -260,6 +327,14 @@ export default function TutorAllocationDetails({ tutor, onClose }) {
                     <strong>{mark.courseCode}</strong>
                     <span>{mark.courseName}</span>
                     <span>{mark.mark}%</span>
+                    <button
+                      className="danger-button"
+                      type="button"
+                      onClick={() => setMarkToRemove(mark)}
+                      aria-label={`Remove ${mark.courseCode} mark`}
+                    >
+                      Remove
+                    </button>
                   </li>
                 ))}
               </ul>
@@ -332,6 +407,16 @@ export default function TutorAllocationDetails({ tutor, onClose }) {
                       {formatDateTime(slot.startsAt)} to {formatDateTime(slot.endsAt)}
                     </span>
                     <span>{slot.recurrence === 'WEEKLY' ? 'Repeats weekly' : 'Once-off'}</span>
+                    {slot.type === 'BUSY' && (
+                      <button
+                        className="danger-button"
+                        type="button"
+                        onClick={() => setSlotToRemove(slot)}
+                        aria-label={`Remove busy time from ${formatDateTime(slot.startsAt)}`}
+                      >
+                        Remove
+                      </button>
+                    )}
                   </li>
                 ))}
               </ul>
@@ -350,6 +435,45 @@ export default function TutorAllocationDetails({ tutor, onClose }) {
           {successMessage}
         </p>
       )}
+
+      <ConfirmationDialog
+        open={Boolean(markToRemove)}
+        title="Remove course mark?"
+        confirmLabel="Remove mark"
+        onConfirm={handleConfirmMarkRemove}
+        onCancel={handleCancelMarkRemove}
+        isPending={markRemoveStatus === 'pending'}
+      >
+        <p>
+          Remove the {markToRemove?.courseCode ?? 'course'} mark for {tutor.fullName}? This cannot
+          be undone.
+        </p>
+        {markToRemove && markToRemove.activeAllocationCount > 0 && (
+          <p className="status-note danger">
+            {tutor.fullName} has {markToRemove.activeAllocationCount}{' '}
+            {markToRemove.activeAllocationCount === 1 ? 'allocation' : 'allocations'} for{' '}
+            {markToRemove.courseCode}. Existing allocations stay in place, but this tutor will not
+            appear as a candidate for that course until a mark is recorded again.
+          </p>
+        )}
+      </ConfirmationDialog>
+
+      <ConfirmationDialog
+        open={Boolean(slotToRemove)}
+        title="Remove busy time?"
+        confirmLabel="Remove busy time"
+        onConfirm={handleConfirmRemove}
+        onCancel={handleCancelRemove}
+        isPending={removeStatus === 'pending'}
+      >
+        <p>
+          Remove the busy time
+          {slotToRemove
+            ? ` from ${formatDateTime(slotToRemove.startsAt)} to ${formatDateTime(slotToRemove.endsAt)}`
+            : ''}{' '}
+          for {tutor.fullName}? This cannot be undone.
+        </p>
+      </ConfirmationDialog>
     </section>
   )
 }

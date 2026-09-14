@@ -68,9 +68,12 @@ export default function TutorForms() {
 
   return (
     <main id="main-content" className="dashboard-shell tutor-workspace">
-      <header>
-        <p className="eyebrow">Tutor Mx</p>
-        <h1>Availability, Work Log and Excuses</h1>
+      <header className="dashboard-header">
+        <div>
+          <p className="eyebrow">Tutor workspace</p>
+          <h1>Forms and submissions</h1>
+          <p className="helper-text">Manage availability, log completed work and submit excuses.</p>
+        </div>
       </header>
       <div className="tutor-form-grid">
         <AvailabilityForm tokenOrGetter={getAccessTokenSilently} />

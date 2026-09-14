@@ -207,7 +207,9 @@ describe('TimesheetSection', () => {
     render(<TimesheetSection savedLogs={[]} tokenOrGetter={tokenGetter} />)
 
     expect(await screen.findByText(/no timesheets yet/i)).toBeInTheDocument()
-    expect(JSON.parse(window.sessionStorage.getItem(STORAGE_KEY))).toEqual([])
+    await waitFor(() => {
+      expect(JSON.parse(window.sessionStorage.getItem(STORAGE_KEY))).toEqual([])
+    })
   })
 
   it('refetches the decision quietly when the window regains focus', async () => {

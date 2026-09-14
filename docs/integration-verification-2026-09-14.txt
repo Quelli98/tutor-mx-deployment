@@ -1,0 +1,61 @@
+Tutor Mx Sprint 2 Member 2 final-integration verification
+Date: 14 September 2026
+Branch: integration/s2-m2-final-polish
+Supplied main archive source revision: f03ea3ad6792d0f62366e8d8b071a44bc3f8708f
+
+Clean dependency installation
+-----------------------------
+PASS  npm ci
+PASS  npm ci --prefix frontend
+
+Full release rehearsal
+----------------------
+PASS  npm run check
+      - Prisma Client generation
+      - backend ESLint
+      - frontend ESLint
+      - strict backend TypeScript check
+      - backend: 21 test files, 420 tests
+      - frontend: 33 test files, 232 tests
+      - backend production build
+      - frontend Vite production build
+      - tracked-secret and AI-attribution check
+
+Coverage
+--------
+PASS  npm run coverage
+      - backend: 93.07% statements, 89.15% branches,
+        95.43% functions, 94.51% lines
+      - frontend: 88.65% statements, 86.03% branches,
+        94.41% functions, 90.46% lines
+
+Responsive and workflow smoke review
+------------------------------------
+PASS  Existing 360 px Tutor and Student responsive component suites.
+PASS  Organiser allocation and approval controls are covered by component
+      tests for loading, empty, success, error/retry, validation, disabled
+      mutation, edit, remove, stale decision and rejected server-rule states.
+PASS  CSS audit confirms mobile stacking at 820/640 px, scroll containment for
+      approval tables, full-width phone actions, non-overflowing grid columns,
+      visible focus treatment and reduced-motion handling.
+LIMIT The Work cloud browser cannot connect back to the isolated local preview
+      server (502 connection refused). This is a tooling/network boundary, not
+      an application response. Reproduce the authenticated desktop/phone smoke
+      after configuring local Auth0/API environment values.
+
+Database and deployment boundaries
+----------------------------------
+NOT RUN  npm run db:verify: no DATABASE_URL was supplied to this isolated
+         workspace. PostgreSQL migration/constraint verification remains a CI
+         or configured-local-environment check.
+NOT RUN  live Auth0/Neon/Render/Cloudflare smoke: no deployment credentials or
+         live environment were changed or required for this integration.
+
+Non-blocking warning
+--------------------
+Vite reports one 547.22 kB minified JavaScript chunk above its 500 kB advisory
+threshold. The production build succeeds; no dependency or architecture rewrite
+was introduced solely to remove this existing performance advisory.
+
+The preceding document was generated and reviewed with the assistance of the
+following: Codex[GPT-5].

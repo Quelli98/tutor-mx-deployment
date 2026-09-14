@@ -176,9 +176,9 @@ export default function CourseManagement() {
     <main id="main-content" className="dashboard-shell">
       <header className="dashboard-header">
         <div>
-          <p className="eyebrow">Tutor Mx</p>
+          <p className="eyebrow">Organiser workspace</p>
           <h1>Course management</h1>
-          <p className="helper-text">Review the courses currently set up for Tutor Mx.</p>
+          <p className="helper-text">Create and maintain the courses used across Tutor Mx.</p>
         </div>
       </header>
 

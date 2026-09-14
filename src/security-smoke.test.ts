@@ -285,6 +285,8 @@ function smokeApp(overrides: SmokeOverrides = {}): Express {
     }),
 
     listAllocationCandidates: async () => [],
+    listOrganiserAllocations: async () => [],
+    listOrganiserApprovals: async () => ({ timesheets: [], volunteerClaims: [] }),
     createAllocation: async (_auth0Id, input): Promise<AllocationSummary> => ({
       id: 61,
       tutorId: input.tutorId,
@@ -334,9 +336,12 @@ function smokeApp(overrides: SmokeOverrides = {}): Express {
       courseCode: "DEMO101",
       courseName: "Demo Course",
       mark: input.mark,
+      activeAllocationCount: 0,
     }),
     listTutorMarks: async () => [],
+    deleteTutorMark: async () => undefined,
     listTutorTimeSlots: async () => [],
+    deleteTutorBusyTimeSlot: async () => undefined,
     createTutorTimeSlotForTutor: async (_tutorId, input) => ({
       id: 1,
       type: input.type,
@@ -471,6 +476,18 @@ const criticalEndpoints: CriticalEndpoint[] = [
     allowedRoles: ["ORGANISER"],
   },
   {
+    label: "GET /api/allocations",
+    method: "get",
+    path: "/api/allocations",
+    allowedRoles: ["ORGANISER"],
+  },
+  {
+    label: "GET /api/organiser/approvals",
+    method: "get",
+    path: "/api/organiser/approvals",
+    allowedRoles: ["ORGANISER"],
+  },
+  {
     label: "POST /api/allocations",
     method: "post",
     path: "/api/allocations",
@@ -487,7 +504,7 @@ const criticalEndpoints: CriticalEndpoint[] = [
   {
     label: "DELETE /api/allocations/:allocationId",
     method: "delete",
-    path: "/api/allocations/61?minimumMark=50",
+    path: "/api/allocations/61",
     allowedRoles: ["ORGANISER"],
   },
   {
@@ -518,6 +535,12 @@ const criticalEndpoints: CriticalEndpoint[] = [
     allowedRoles: ["ORGANISER"],
   },
   {
+    label: "DELETE /api/tutors/:tutorId/marks/:courseId",
+    method: "delete",
+    path: "/api/tutors/2/marks/3",
+    allowedRoles: ["ORGANISER"],
+  },
+  {
     label: "GET /api/tutors/:tutorId/time-slots",
     method: "get",
     path: "/api/tutors/2/time-slots",
@@ -532,6 +555,12 @@ const criticalEndpoints: CriticalEndpoint[] = [
       startsAt: "2030-09-04T14:00:00.000Z",
       endsAt: "2030-09-04T16:00:00.000Z",
     },
+    allowedRoles: ["ORGANISER"],
+  },
+  {
+    label: "DELETE /api/tutors/:tutorId/time-slots/:timeSlotId",
+    method: "delete",
+    path: "/api/tutors/2/time-slots/9",
     allowedRoles: ["ORGANISER"],
   },
   {

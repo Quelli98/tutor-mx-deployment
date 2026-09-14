@@ -144,6 +144,8 @@ function dependenciesFor(
       updatedAt: "2030-09-02T08:00:00.000Z",
     }),
     listAllocationCandidates: async () => [],
+    listOrganiserAllocations: async () => [],
+    listOrganiserApprovals: async () => ({ timesheets: [], volunteerClaims: [] }),
     createAllocation: async (_auth0Id, input) => ({
       id: 1,
       tutorId: input.tutorId,
@@ -185,9 +187,12 @@ function dependenciesFor(
       courseCode: "DEMO101",
       courseName: "Demo Course",
       mark: input.mark,
+      activeAllocationCount: 0,
     }),
     listTutorMarks: async () => [],
+    deleteTutorMark: async () => undefined,
     listTutorTimeSlots: async () => [],
+    deleteTutorBusyTimeSlot: async () => undefined,
     createTutorTimeSlotForTutor: async (_tutorId, input) => ({
       id: 1,
       type: input.type,

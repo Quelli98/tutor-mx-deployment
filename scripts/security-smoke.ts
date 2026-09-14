@@ -181,6 +181,28 @@ const probes: Probe[] = [
     expectStatus: 200,
   },
   {
+    name: "Organiser allocation board loads active allocations",
+    path: "/api/allocations",
+    init: {
+      headers: {
+        accept: "application/json",
+        authorization: bearerToken(personaTokens.ORGANISER),
+      },
+    },
+    expectStatus: 200,
+  },
+  {
+    name: "Organiser approval queues load safely",
+    path: "/api/organiser/approvals",
+    init: {
+      headers: {
+        accept: "application/json",
+        authorization: bearerToken(personaTokens.ORGANISER),
+      },
+    },
+    expectStatus: 200,
+  },
+  {
     name: "Student cannot open the Tutor dashboard",
     path: "/api/tutor/dashboard",
     init: {
@@ -249,6 +271,18 @@ const probes: Probe[] = [
   {
     name: "Tutor cannot list tutors",
     path: "/api/tutors",
+    init: {
+      headers: {
+        accept: "application/json",
+        authorization: bearerToken(personaTokens.TUTOR),
+      },
+    },
+    expectStatus: 403,
+    expectErrorCode: "FORBIDDEN",
+  },
+  {
+    name: "Tutor cannot open organiser approval queues",
+    path: "/api/organiser/approvals",
     init: {
       headers: {
         accept: "application/json",

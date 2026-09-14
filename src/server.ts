@@ -123,18 +123,22 @@ function toTimeSlotSummary(timeSlot: {
   };
 }
 
-function toTutorMarkSummary(mark: {
-  id: number;
-  courseId: number;
-  course: { code: string; name: string };
-  mark: unknown;
-}): TutorMarkSummary {
+function toTutorMarkSummary(
+  mark: {
+    id: number;
+    courseId: number;
+    course: { code: string; name: string };
+    mark: unknown;
+  },
+  activeAllocationCount = 0,
+): TutorMarkSummary {
   return {
     id: mark.id,
     courseId: mark.courseId,
     courseCode: mark.course.code,
     courseName: mark.course.name,
     mark: Number(mark.mark),
+    activeAllocationCount,
   };
 }
 
@@ -373,6 +377,10 @@ const app = createApp(
           );
         }
 
+        const setsWeeklyHours =
+          input.weeklyHours !== undefined && input.weeklyHours !== null;
+        const clearsWeeklyHours = input.weeklyHours === null;
+
         const tutor = await prisma.profile.update({
           where: { id: tutorId },
           data: {
@@ -380,12 +388,12 @@ const app = createApp(
             ...(input.fullName !== undefined
               ? { fullName: input.fullName }
               : {}),
-            ...(input.weeklyHours !== undefined
+            ...(setsWeeklyHours
               ? {
                   hourLimit: {
                     upsert: {
-                      create: { weeklyHours: input.weeklyHours },
-                      update: { weeklyHours: input.weeklyHours },
+                      create: { weeklyHours: input.weeklyHours! },
+                      update: { weeklyHours: input.weeklyHours! },
                     },
                   },
                 }
@@ -402,7 +410,13 @@ const app = createApp(
             },
           },
         });
-        return toTutorSummary(tutor);
+        if (clearsWeeklyHours) {
+          await prisma.tutorHourLimit.deleteMany({ where: { tutorId } });
+        }
+
+        return toTutorSummary(
+          clearsWeeklyHours ? { ...tutor, hourLimit: null } : tutor,
+        );
       } catch (error) {
         if (isPrismaErrorCode(error, "P2025")) {
           throw createRouteError(
@@ -697,6 +711,8 @@ const app = createApp(
     async listAllocationCandidates(input) {
       return findAllocationCandidates(queryClient, input);
     },
+    listOrganiserAllocations: organiserService.listAllocations,
+    listOrganiserApprovals: organiserService.listApprovals,
     createAllocation: organiserService.createAllocation,
     updateAllocation: organiserService.updateAllocation,
     removeAllocation: organiserService.removeAllocation,
@@ -730,7 +746,14 @@ const app = createApp(
             mark: true,
           },
         });
-        return toTutorMarkSummary(mark);
+        const activeAllocationCount = await prisma.allocation.count({
+          where: {
+            tutorId,
+            courseId: input.courseId,
+            status: { in: ["PROPOSED", "CONFIRMED"] },
+          },
+        });
+        return toTutorMarkSummary(mark, activeAllocationCount);
       } catch (error) {
         if (
           isPrismaErrorCode(error, "P2003") ||
@@ -756,7 +779,30 @@ const app = createApp(
           mark: true,
         },
       });
-      return marks.map(toTutorMarkSummary);
+      const allocationCounts = await prisma.allocation.groupBy({
+        by: ["courseId"],
+        where: { tutorId, status: { in: ["PROPOSED", "CONFIRMED"] } },
+        _count: { _all: true },
+      });
+      const countByCourseId = new Map(
+        allocationCounts.map((row) => [row.courseId, row._count._all]),
+      );
+
+      return marks.map((mark) =>
+        toTutorMarkSummary(mark, countByCourseId.get(mark.courseId) ?? 0),
+      );
+    },
+    async deleteTutorMark(tutorId, courseId) {
+      const removed = await prisma.tutorMark.deleteMany({
+        where: { tutorId, courseId },
+      });
+      if (removed.count === 0) {
+        throw createRouteError(
+          404,
+          "TUTOR_MARK_NOT_FOUND",
+          "The requested tutor mark could not be found.",
+        );
+      }
     },
     async listTutorTimeSlots(tutorId) {
       const timeSlots = await prisma.timeSlot.findMany({
@@ -814,6 +860,18 @@ const app = createApp(
           );
         }
         throw error;
+      }
+    },
+    async deleteTutorBusyTimeSlot(tutorId, timeSlotId) {
+      const removed = await prisma.timeSlot.deleteMany({
+        where: { id: timeSlotId, tutorId, type: "BUSY" },
+      });
+      if (removed.count === 0) {
+        throw createRouteError(
+          404,
+          "TIME_SLOT_NOT_FOUND",
+          "The requested busy time could not be found.",
+        );
       }
     },
     async deleteAccount(auth0Id) {

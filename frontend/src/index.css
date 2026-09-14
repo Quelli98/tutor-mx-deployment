@@ -1,12 +1,20 @@
 :root {
-  --text: #5f6f82;
+  --text: #56677a;
   --text-h: #10233d;
-  --bg: #ffffff;
-  --border: #dfe7ef;
+  --bg: #f5f8fc;
+  --surface: #ffffff;
+  --surface-muted: #f7f9fc;
+  --border: #dbe4ee;
   --code-bg: #f4f7fa;
   --accent: #1268e8;
   --accent-bg: rgba(18, 104, 232, 0.08);
   --accent-border: rgba(18, 104, 232, 0.32);
+  --success: #0f8a59;
+  --success-soft: #eaf9f2;
+  --danger: #b4233b;
+  --danger-soft: #fff0f2;
+  --warning: #8a5d0b;
+  --warning-soft: #fff7df;
   --social-bg: rgba(245, 249, 252, 0.8);
   --shadow: rgba(15, 49, 88, 0.10) 0 10px 30px;
 
@@ -38,6 +46,7 @@ body {
   min-height: 100vh;
   margin: 0;
   background: var(--bg);
+  color: var(--text);
 }
 
 button,

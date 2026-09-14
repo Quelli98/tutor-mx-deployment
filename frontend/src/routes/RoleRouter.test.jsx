@@ -38,6 +38,11 @@ vi.mock('../api/organiser', () => ({
   listTutors: vi.fn().mockResolvedValue([]),
   createTutor: vi.fn(),
   updateTutor: vi.fn(),
+  listAllocations: vi.fn().mockResolvedValue([]),
+  listAllocationCandidates: vi.fn().mockResolvedValue([]),
+  listOrganiserApprovals: vi.fn().mockResolvedValue({ timesheets: [], volunteerClaims: [] }),
+  decideTimesheet: vi.fn(),
+  decideVolunteerClaim: vi.fn(),
 }))
 
 vi.mock('../api/tutorDashboard', () => ({
@@ -71,7 +76,7 @@ describe('RoleRouter', () => {
 
   it('opens the TUTOR entry route after sign in', async () => {
     renderRole('TUTOR')
-    expect(await screen.findByRole('heading', { name: /your tutor dashboard/i })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: /tutor dashboard/i })).toBeInTheDocument()
   })
 
   it('shows only navigation for the signed-in role', () => {
@@ -87,7 +92,7 @@ describe('RoleRouter', () => {
   it('keeps tutor forms behind the Tutor role guard', async () => {
     renderRole('TUTOR', '/tutor/forms')
     expect(
-      await screen.findByRole('heading', { name: /availability, work log and excuses/i }),
+      await screen.findByRole('heading', { name: /forms and submissions/i }),
     ).toBeInTheDocument()
   })
 
@@ -156,22 +161,25 @@ describe('RoleRouter', () => {
   it('shows the organiser management links only to an organiser', () => {
     renderRole('ORGANISER')
 
-    expect(screen.getByRole('link', { name: /course management/i })).toBeInTheDocument()
-    expect(screen.getByRole('link', { name: /tutor management/i })).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: /^courses$/i })).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: /^tutors$/i })).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: /^approvals$/i })).toBeInTheDocument()
   })
 
   it('hides the organiser management links from a tutor', () => {
     renderRole('TUTOR', '/tutor')
 
-    expect(screen.queryByRole('link', { name: /course management/i })).not.toBeInTheDocument()
-    expect(screen.queryByRole('link', { name: /tutor management/i })).not.toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: /^courses$/i })).not.toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: /^tutors$/i })).not.toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: /^approvals$/i })).not.toBeInTheDocument()
   })
 
   it('hides the organiser management links from a student', () => {
     renderRole('STUDENT', '/student')
 
-    expect(screen.queryByRole('link', { name: /course management/i })).not.toBeInTheDocument()
-    expect(screen.queryByRole('link', { name: /tutor management/i })).not.toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: /^courses$/i })).not.toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: /^tutors$/i })).not.toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: /^approvals$/i })).not.toBeInTheDocument()
   })
 
   it('opens course management for an organiser', () => {
@@ -184,6 +192,12 @@ describe('RoleRouter', () => {
     renderRole('ORGANISER', '/organiser/tutors')
 
     expect(screen.getByRole('heading', { name: 'Tutor management' })).toBeInTheDocument()
+  })
+
+  it('opens the approval queues for an organiser', async () => {
+    renderRole('ORGANISER', '/organiser/approvals')
+
+    expect(await screen.findByRole('heading', { name: 'Approvals' })).toBeInTheDocument()
   })
 
   it('keeps course management away from a tutor', () => {
