@@ -1,8 +1,9 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import WorkLogForm from './WorkLogForm'
 
 const mockSubmitWorkLog = vi.fn()
+const mockSubmitTimesheet = vi.fn()
 const tokenGetter = vi.fn()
 const allocations = [
   {
@@ -19,10 +20,16 @@ const allocations = [
 vi.mock('../api/workLog', () => ({
   submitWorkLog: (...args) => mockSubmitWorkLog(...args),
 }))
+vi.mock('../api/timesheet', () => ({
+  fetchTimesheetStatus: vi.fn(),
+  submitTimesheet: (...args) => mockSubmitTimesheet(...args),
+}))
 
 describe('WorkLogForm', () => {
   beforeEach(() => {
     mockSubmitWorkLog.mockReset()
+    mockSubmitTimesheet.mockReset()
+    window.sessionStorage.clear()
   })
 
   it.each([
@@ -85,8 +92,46 @@ describe('WorkLogForm', () => {
         tokenGetter,
       )
     })
-    expect(await screen.findByRole('listitem')).toHaveTextContent(
+    const draftList = screen.getByRole('region', { name: 'Draft work log' })
+    expect(await within(draftList).findByRole('listitem')).toHaveTextContent(
       /DEMO101.*2030-09-04.*2h.*Tutorial session/i,
     )
+  })
+
+  it('offers the saved week for timesheet approval', async () => {
+    mockSubmitWorkLog.mockResolvedValue({
+      id: 2,
+      allocationId: 1,
+      timesheetId: 3,
+      workDate: '2030-09-04',
+      hours: 2,
+      description: 'Tutorial session',
+    })
+    mockSubmitTimesheet.mockResolvedValue({
+      id: 3,
+      weekStart: '2030-09-02',
+      status: 'SUBMITTED',
+      submittedAt: '2030-09-06T12:00:00.000Z',
+      reviewedAt: null,
+      reviewReason: null,
+      totalHours: 2,
+    })
+    render(<WorkLogForm allocations={allocations} tokenOrGetter={tokenGetter} />)
+    fireEvent.change(screen.getByLabelText(/^session$/i), { target: { value: '1' } })
+    fireEvent.change(screen.getByLabelText(/hours worked/i), { target: { value: '2' } })
+    fireEvent.change(screen.getByLabelText(/description/i), {
+      target: { value: 'Tutorial session' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: /add to draft/i }))
+
+    const timesheets = screen.getByRole('region', { name: 'Weekly timesheets' })
+    expect(await within(timesheets).findByText('Week of 2030-09-02')).toBeInTheDocument()
+
+    fireEvent.click(within(timesheets).getByRole('button', { name: /submit for approval/i }))
+
+    expect(mockSubmitTimesheet).toHaveBeenCalledWith(3, tokenGetter)
+    expect(
+      await within(timesheets).findByText(/waiting for the organiser decision/i),
+    ).toBeInTheDocument()
   })
 })

@@ -124,3 +124,27 @@ npm run coverage
 The earlier Members 1, 3, 5 and 6 counts/coverage remain recorded in `docs/sprint1-members-1-3-5-6-integration.md`; the current integration mapping including Member 4 is in `docs/sprint1-members-1-3-4-5-6-integration.md`.
 
 The preceding document was generated and reviewed with the assistance of the following: Codex[GPT-5].
+
+## Sprint 2 Member 3 integration - 13 September 2026
+
+### Completed scope
+
+- **S2-M3-1:** The existing own-tutor dashboard now refreshes manually and when the tab regains focus. A failed refresh keeps the last safe assignments/hour summary visible and offers retry. No-work and unset-hour-limit states remain supported.
+- **S2-M3-2:** Saved work logs are grouped by their server timesheet ID, labelled with the Monday week start, and can be submitted or resubmitted through the existing protected status/submit endpoints. Pending, approved and returned states plus organiser notes are shown.
+- **S2-M3-3:** A submitted excuse is tracked as pending and refreshed through the existing protected status endpoint to show the organiser's approved or rejected outcome and review note. Past sessions are blocked in the UI, while current backend ownership checks reject unowned sessions. The combined Tutor Basic test covers dashboard loading, availability, work log, timesheet submission and excuse outcome.
+
+### Integration corrections
+
+- Cached timesheet and excuse status is namespaced by the signed-in Auth0 subject so one Tutor cannot see another Tutor's cached workflow state in the same browser tab.
+- Draft timesheet cards derive the actual Monday week start instead of labelling the session date as the week start.
+- Existing Member 1/4/5/6 backend, authentication, Student, organiser, migration, CI and public-holiday code remains unchanged.
+
+### Local verification
+
+- Focused frontend Member 3 suite: 8 files, 56 tests passed.
+- Relevant tutor route, timesheet, excuse and security suite: 4 files, 72 tests passed.
+- Full local gate: 21 backend files / 412 tests and 32 frontend files / 216 tests passed; lint, TypeScript, production builds and repository security check passed.
+- Coverage: backend 93.22% statements / 89.40% branches; frontend 90.01% statements / 85.96% branches.
+- No Prisma schema, migration or deployment configuration change is required.
+
+The authenticated browser acceptance check and Gitea Actions/Codecov evidence must be recorded after the integration branch is applied and pushed.

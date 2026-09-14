@@ -1,11 +1,12 @@
 import { useMemo, useState } from 'react'
 import { submitWorkLog } from '../api/workLog'
+import TimesheetSection from './TimesheetSection'
 
 function sessionLabel(allocation) {
   return `${allocation.courseCode} - ${new Date(allocation.startsAt).toLocaleString()}`
 }
 
-export default function WorkLogForm({ allocations = [], tokenOrGetter }) {
+export default function WorkLogForm({ allocations = [], tokenOrGetter, storageScope = null }) {
   const [allocationId, setAllocationId] = useState('')
   const [workDate, setWorkDate] = useState('')
   const [hours, setHours] = useState('')
@@ -160,6 +161,12 @@ export default function WorkLogForm({ allocations = [], tokenOrGetter }) {
           </ul>
         )}
       </section>
+
+      <TimesheetSection
+        savedLogs={draftLogs}
+        tokenOrGetter={tokenOrGetter}
+        storageScope={storageScope}
+      />
     </section>
   )
 }

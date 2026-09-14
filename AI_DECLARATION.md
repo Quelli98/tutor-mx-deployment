@@ -10,6 +10,16 @@
 
 - Qoder[Auto tier; underlying model automatically routed] was used on 31 August 2026 to implement S2-M1-1 (auth lifecycle hardening and email-verification recovery) on branch `s2/m1/account-lifecycle`: the authenticated `POST /api/auth/resend-verification` endpoint backed by the server-only Auth0 Management API verification-email job, the frontend resend/recovery UI in the onboarding card, automatic recovery from a stale pending role (`409 ROLE_ALREADY_SET`) so a linked account never returns to role choice, automatic sign-out after successful account deletion, the accompanying failure/recovery tests, and the handoff evidence updates.
 
+## Sprint 2 Member 3
+
+- Qoder[Auto tier; underlying model automatically routed] was used on 12 September 2026 for S2-M3-1 on branch `s2/m3/tutor-dashboard-api`: dashboard refresh/status handling, preservation of the last safe state after a failed refresh, and tests for changed assignments, unset limits and retry.
+
+- Qoder[Auto tier; underlying model automatically routed] was used on 12 September 2026 for S2-M3-2 on branch `s2/m3/timesheet-basic`: the timesheet API client, weekly draft grouping, submission and decision-status UI, returned-week resubmission, session persistence and tests.
+
+- Qoder[Auto tier; underlying model automatically routed] was used on 13 September 2026 for S2-M3-3 on branch `s2/m3/excuse-regression`: excuse decision/status history, organiser outcome display, future-session validation and the combined Tutor Basic regression test.
+
+- Codex[GPT-5] was used on 13 September 2026 to audit and integrate the three supplied Member 3 snapshots into the latest Gitea main, preserve completed Members 1/4/5/6 code, scope cached workflow state to the signed-in tutor, correct draft week labels and run the required integration verification.
+
 ## Current integration
 
 - Codex[GPT-5] was used on 13 September 2026 to audit Sprint 2 Member 4 against the 11 September Sprint Handbook, reconcile the stale Member 4 routes with the integrated Member 5/6 API, add the signed-in Student volunteer-request list, fix authenticated frontend request stability, complete holiday fallback/source, responsive and keyboard behavior, add regression tests, and update handoff documentation.
