@@ -12,13 +12,24 @@ function isCourse(value) {
 
 function isTutor(value) {
   return (
-    !!value &&
-    typeof value === 'object' &&
-    Number.isInteger(value.id) &&
-    typeof value.email === 'string' &&
-    typeof value.fullName === 'string' &&
-    (value.weeklyHours === null || typeof value.weeklyHours === 'number')
+    !!value && typeof value === 'object' && !('auth0Id' in value) &&
+    Number.isInteger(value.id) && value.role === 'TUTOR' &&
+    typeof value.email === 'string' && typeof value.fullName === 'string' &&
+    (value.weeklyHours === null || Number.isFinite(value.weeklyHours)) &&
+    Number.isFinite(value.usedHours) && Number.isFinite(value.workedHours) &&
+    (value.remainingHours === null || Number.isFinite(value.remainingHours)) &&
+    isDate(value.weekStart) && isDate(value.weekEnd) &&
+    ['available', 'near-limit', 'limit-reached', 'not-set'].includes(value.capacityStatus)
   )
+}
+
+function isDate(value) {
+  return typeof value === 'string' && Number.isFinite(new Date(value).valueOf())
+}
+
+export function canSelectCandidate(candidate) {
+  return candidate?.isEligible === true && Array.isArray(candidate.reasonCodes) &&
+    candidate.reasonCodes.length === 0 && candidate.hasClash === false
 }
 
 const ALLOCATION_REASON_CODES = new Set([
@@ -38,18 +49,6 @@ function isTutorMark(value) {
     typeof value.mark === 'number' &&
     Number.isFinite(value.mark) &&
     Number.isInteger(value.activeAllocationCount)
-  )
-}
-
-function isTutorTimeSlot(value) {
-  return (
-    !!value &&
-    typeof value === 'object' &&
-    Number.isInteger(value.id) &&
-    (value.type === 'AVAILABLE' || value.type === 'BUSY') &&
-    typeof value.startsAt === 'string' &&
-    typeof value.endsAt === 'string' &&
-    (value.recurrence === null || value.recurrence === 'WEEKLY')
   )
 }
 
@@ -399,47 +398,6 @@ export async function saveTutorMark(input, tokenOrGetter) {
 export async function deleteTutorMark(input, tokenOrGetter) {
   await fetchWithBearerToken(
     `/api/tutors/${input.tutorId}/marks/${input.courseId}`,
-    { method: 'DELETE' },
-    tokenOrGetter,
-  )
-}
-
-export async function listTutorTimeSlots(tutorId, tokenOrGetter) {
-  const body = await fetchWithBearerToken(
-    `/api/tutors/${tutorId}/time-slots`,
-    {},
-    tokenOrGetter,
-  )
-  const timeSlots = body?.data?.timeSlots
-  if (!Array.isArray(timeSlots) || !timeSlots.every(isTutorTimeSlot)) {
-    throw new Error('The tutor-time-slot response did not match the agreed contract.')
-  }
-  return timeSlots
-}
-
-export async function createTutorTimeSlot(input, tokenOrGetter) {
-  const payload = {
-    type: input.type,
-    startsAt: input.startsAt,
-    endsAt: input.endsAt,
-  }
-  if (input.recurrence) payload.recurrence = input.recurrence
-
-  const body = await fetchWithBearerToken(
-    `/api/tutors/${input.tutorId}/time-slots`,
-    { method: 'POST', body: JSON.stringify(payload) },
-    tokenOrGetter,
-  )
-  const timeSlot = body?.data?.timeSlot
-  if (!isTutorTimeSlot(timeSlot)) {
-    throw new Error('The tutor-time-slot response did not match the agreed contract.')
-  }
-  return timeSlot
-}
-
-export async function deleteTutorTimeSlot(input, tokenOrGetter) {
-  await fetchWithBearerToken(
-    `/api/tutors/${input.tutorId}/time-slots/${input.timeSlotId}`,
     { method: 'DELETE' },
     tokenOrGetter,
   )

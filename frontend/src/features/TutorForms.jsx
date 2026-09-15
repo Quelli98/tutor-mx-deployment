@@ -72,7 +72,7 @@ export default function TutorForms() {
         <div>
           <p className="eyebrow">Tutor workspace</p>
           <h1>Forms and submissions</h1>
-          <p className="helper-text">Manage availability, log completed work and submit excuses.</p>
+          <p className="helper-text">Manage your busy schedule, log completed work and submit excuses.</p>
         </div>
       </header>
       <div className="tutor-form-grid">

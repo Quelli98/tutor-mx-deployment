@@ -26,7 +26,12 @@ vi.mock('../api/tutorDashboard', () => ({
       remainingHours: 8,
     }),
 }))
-vi.mock('../api/availability', () => ({ submitTimeSlot: vi.fn() }))
+vi.mock('../api/availability', () => ({
+  submitTimeSlot: vi.fn(),
+  listOwnTimeSlots: () => Promise.resolve([]),
+  deleteOwnTimeSlot: vi.fn(),
+  updateOwnTimeSlot: vi.fn(),
+}))
 vi.mock('../api/workLog', () => ({ submitWorkLog: vi.fn() }))
 vi.mock('../api/excuse', () => ({ submitExcuse: vi.fn() }))
 
@@ -36,11 +41,11 @@ describe('TutorForms at the agreed 360px phone width', () => {
     window.dispatchEvent(new Event('resize'))
     const { container } = render(<TutorForms />)
 
-    expect(await screen.findByRole('button', { name: /save availability/i })).toBeVisible()
+    expect(await screen.findByRole('button', { name: /add busy time/i })).toBeVisible()
     expect(screen.getByRole('button', { name: /add to draft/i })).toBeVisible()
     expect(screen.getByRole('button', { name: /submit excuse/i })).toBeVisible()
     expect(container.querySelector('.tutor-form-grid')).toBeInTheDocument()
-    expect(screen.getByLabelText(/^start$/i)).toBeInTheDocument()
-    expect(screen.getByLabelText(/^end$/i)).toBeInTheDocument()
+    expect(screen.getByLabelText(/start.*first occurrence/i)).toBeInTheDocument()
+    expect(screen.getByLabelText(/end.*first occurrence/i)).toBeInTheDocument()
   })
 })

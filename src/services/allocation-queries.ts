@@ -19,15 +19,24 @@ export interface AllocationRuleCheck {
   requestedHours: number | null | undefined;
 }
 
+export interface ClashDetail {
+  kind: "busy" | "allocation";
+  label: string | null;
+  startsAt: string;
+  endsAt: string;
+  recurrence: "WEEKLY" | null;
+}
+
 interface CandidateRow {
   tutorId: number;
   fullName: string;
-  mark: number;
+  mark: number | null;
   weeklyLimit: number;
   usedHours: number;
   remainingHours: number;
   hasClash: boolean;
   isEligible: boolean;
+  clashDetails: ClashDetail[];
 }
 
 export interface AllocationCandidate extends CandidateRow {
@@ -139,6 +148,7 @@ export function busySlotClashes(
   recurrence: string | null | undefined,
   windowStartsAt: Date | null | undefined,
   windowEndsAt: Date | null | undefined,
+  recurrenceUntil?: Date | null,
 ): boolean {
   const values = [slotStartsAt, slotEndsAt, windowStartsAt, windowEndsAt].map(
     (value) => (value instanceof Date ? value.valueOf() : Number.NaN),
@@ -159,118 +169,124 @@ export function busySlotClashes(
     return slotStart < windowEnd && slotEnd > windowStart;
   }
 
-  // Project the slot onto the weeks nearest the window and honour k >= 0 so
-  // occurrences before the slot's first week are ignored.
-  const baseOffset = Math.floor((windowStart - slotStart) / WEEK_MS);
-  for (const delta of [-1, 0, 1]) {
-    const k = baseOffset + delta;
-    if (k < 0) {
-      continue;
-    }
-    const shift = k * WEEK_MS;
-    if (slotStart + shift < windowEnd && slotEnd + shift > windowStart) {
-      return true;
-    }
-  }
-  return false;
+  const k = Math.max(0, Math.floor((windowStart - slotEnd) / WEEK_MS) + 1);
+  const occurrenceStart = slotStart + k * WEEK_MS;
+  return occurrenceStart < windowEnd &&
+    slotEnd + k * WEEK_MS > windowStart &&
+    (recurrenceUntil == null || occurrenceStart <= recurrenceUntil.valueOf());
+}
+
+function tutorHoursSql(weekParameter: string, excludeParameter = "NULL") {
+  return `
+    SELECT p."id" AS "tutorId", thl."weeklyHours" AS "weeklyLimit",
+      COALESCE(SUM(a."allocatedHours"), 0) AS "usedHours",
+      CASE WHEN thl."weeklyHours" IS NULL THEN NULL
+        ELSE GREATEST(thl."weeklyHours" - COALESCE(SUM(a."allocatedHours"), 0), 0)
+      END AS "remainingHours"
+    FROM "Profile" p
+    LEFT JOIN "TutorHourLimit" thl ON thl."tutorId" = p."id"
+    LEFT JOIN "Allocation" a ON a."tutorId" = p."id"
+      AND a."status" = 'CONFIRMED'
+      AND a."startsAt" >= date_trunc('week', ${weekParameter}::timestamp)
+      AND a."startsAt" < date_trunc('week', ${weekParameter}::timestamp) + interval '7 days'
+      AND (${excludeParameter}::integer IS NULL OR a."id" <> ${excludeParameter})
+    WHERE p."role" = 'TUTOR'
+    GROUP BY p."id", thl."weeklyHours"
+  `;
 }
 
 export const candidateQuerySql = `
-WITH tutor_hours AS (
-  SELECT
-    p."id" AS "tutorId",
-    COALESCE(thl."weeklyHours", 0)::double precision AS "weeklyLimit",
-    COALESCE(SUM(a."allocatedHours") FILTER (
-      WHERE a."status" = 'CONFIRMED'
-        AND a."startsAt" >= date_trunc('week', $2::timestamp)
-        AND a."startsAt" < date_trunc('week', $2::timestamp) + interval '7 days'
-        AND ($6::integer IS NULL OR a."id" <> $6)
-    ), 0)::double precision AS "usedHours"
-  FROM "Profile" p
-  LEFT JOIN "TutorHourLimit" thl ON thl."tutorId" = p."id"
-  LEFT JOIN "Allocation" a ON a."tutorId" = p."id"
-  WHERE p."role" = 'TUTOR'
-  GROUP BY p."id", thl."weeklyHours"
-), candidate_data AS (
-  SELECT
-    p."id" AS "tutorId",
-    p."fullName",
+WITH tutor_hours AS (${tutorHoursSql("$2", "$6")}), candidate_data AS (
+  SELECT p."id" AS "tutorId", p."fullName",
     tm."mark"::double precision AS "mark",
-    th."weeklyLimit",
-    th."usedHours",
-    GREATEST(th."weeklyLimit" - th."usedHours", 0)::double precision AS "remainingHours",
-    (
-      EXISTS (
-        SELECT 1 FROM "TimeSlot" ts
-        WHERE ts."tutorId" = p."id"
-          AND ts."type" = 'BUSY'
-          AND (
-            (
-              ts."recurrence" IS DISTINCT FROM 'WEEKLY'
-              AND ts."startsAt" < $3::timestamp
-              AND ts."endsAt" > $2::timestamp
-            )
-            OR (
-              ts."recurrence" = 'WEEKLY'
-              AND EXISTS (
-                SELECT 1
-                FROM generate_series(-1, 1) AS delta
-                CROSS JOIN LATERAL (
-                  SELECT floor(
-                    extract(epoch FROM ($2::timestamp - ts."startsAt")) / 604800
-                  )::bigint + delta AS k
-                ) occ
-                WHERE occ.k >= 0
-                  AND ts."startsAt" + (occ.k * interval '7 days') < $3::timestamp
-                  AND ts."endsAt" + (occ.k * interval '7 days') > $2::timestamp
-              )
-            )
-          )
-      )
-      OR EXISTS (
-        SELECT 1 FROM "Allocation" clash
-        WHERE clash."tutorId" = p."id"
-          AND clash."status" = 'CONFIRMED'
-          AND ($6::integer IS NULL OR clash."id" <> $6)
-          AND clash."startsAt" < $3::timestamp
-          AND clash."endsAt" > $2::timestamp
-      )
-    ) AS "hasClash"
+    COALESCE(th."weeklyLimit", 0)::double precision AS "weeklyLimit",
+    th."usedHours"::double precision AS "usedHours",
+    COALESCE(th."remainingHours", 0)::double precision AS "remainingHours",
+    conflicts.details IS NOT NULL AS "hasClash",
+    COALESCE(conflicts.details, '[]'::jsonb) AS "clashDetails"
   FROM "Profile" p
   JOIN "TutorMark" tm ON tm."tutorId" = p."id" AND tm."courseId" = $1
   JOIN tutor_hours th ON th."tutorId" = p."id"
+  LEFT JOIN LATERAL (
+    SELECT jsonb_agg(jsonb_build_object(
+      'kind', c.kind, 'label', c.label,
+      'startsAt', to_char(c.starts_at, 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'),
+      'endsAt', to_char(c.ends_at, 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'),
+      'recurrence', c.recurrence
+    ) ORDER BY c.starts_at, c.kind, c.label) AS details
+    FROM (
+      SELECT 'busy' AS kind, ts."label" AS label,
+        occurrence.starts_at, occurrence.ends_at, ts."recurrence" AS recurrence
+      FROM "TimeSlot" ts
+      CROSS JOIN LATERAL (
+        SELECT ts."startsAt" AS starts_at, ts."endsAt" AS ends_at
+        WHERE ts."recurrence" IS DISTINCT FROM 'WEEKLY'
+        UNION ALL
+        SELECT ts."startsAt" + k * interval '7 days', ts."endsAt" + k * interval '7 days'
+        FROM LATERAL (
+          SELECT GREATEST(0, floor(extract(epoch FROM ($2::timestamp - ts."endsAt")) / 604800) + 1)::bigint AS k
+        ) projected
+        WHERE ts."recurrence" = 'WEEKLY'
+          AND (ts."recurrenceUntil" IS NULL OR ts."startsAt" + k * interval '7 days' <= ts."recurrenceUntil")
+      ) occurrence
+      WHERE ts."tutorId" = p."id" AND ts."type" = 'BUSY'
+        AND occurrence.starts_at < $3::timestamp AND occurrence.ends_at > $2::timestamp
+      UNION ALL
+      SELECT 'allocation', course."code", clash."startsAt", clash."endsAt", NULL
+      FROM "Allocation" clash JOIN "Course" course ON course."id" = clash."courseId"
+      WHERE clash."tutorId" = p."id" AND clash."status" = 'CONFIRMED'
+        AND ($6::integer IS NULL OR clash."id" <> $6)
+        AND clash."startsAt" < $3::timestamp AND clash."endsAt" > $2::timestamp
+    ) c
+  ) conflicts ON true
   WHERE p."role" = 'TUTOR'
 )
-SELECT
-  *,
-  ("mark" >= $4 AND NOT "hasClash" AND "remainingHours" >= $5) AS "isEligible"
+SELECT *, ("mark" >= $4 AND NOT "hasClash" AND "remainingHours" >= $5) AS "isEligible"
 FROM candidate_data
 ORDER BY "isEligible" DESC, "mark" DESC, "fullName" ASC;
 `;
 
 export const tutorHourSummarySql = `
-SELECT
-  p."id" AS "tutorId",
-  thl."weeklyHours"::double precision AS "weeklyLimit",
-  COALESCE(SUM(a."allocatedHours") FILTER (
-    WHERE a."status" = 'CONFIRMED'
-      AND a."startsAt" >= $2::date
-      AND a."startsAt" < $2::date + interval '7 days'
-  ), 0)::double precision AS "usedHours",
-  GREATEST(
-    thl."weeklyHours" - COALESCE(SUM(a."allocatedHours") FILTER (
-      WHERE a."status" = 'CONFIRMED'
-        AND a."startsAt" >= $2::date
-        AND a."startsAt" < $2::date + interval '7 days'
-    ), 0),
-    0
-  )::double precision AS "remainingHours"
-FROM "Profile" p
-JOIN "TutorHourLimit" thl ON thl."tutorId" = p."id"
-LEFT JOIN "Allocation" a ON a."tutorId" = p."id"
-WHERE p."id" = $1 AND p."role" = 'TUTOR'
-GROUP BY p."id", thl."weeklyHours";
+WITH tutor_hours AS (${tutorHoursSql("$2")})
+SELECT "tutorId", "weeklyLimit"::double precision, "usedHours"::double precision,
+  "remainingHours"::double precision
+FROM tutor_hours WHERE "tutorId" = $1 AND "weeklyLimit" IS NOT NULL;
 `;
+
+export interface TutorWorkload {
+  tutorId: number;
+  weeklyLimit: number | null;
+  usedHours: number;
+  remainingHours: number | null;
+  workedHours: number;
+  weekStart: string;
+  weekEnd: string;
+  capacityStatus: "available" | "near-limit" | "limit-reached" | "not-set";
+}
+
+export async function getTutorWorkloads(client: QueryClient, weekStart: Date): Promise<TutorWorkload[]> {
+  if (weekStart.getUTCDay() !== 1 || weekStart.toISOString().slice(11) !== "00:00:00.000Z") {
+    throw new RangeError("weekStart must be a Monday at midnight in UTC");
+  }
+  const result = await client.query<Omit<TutorWorkload, "weekStart" | "weekEnd">>(`
+    WITH tutor_hours AS (${tutorHoursSql("$1")})
+    SELECT th."tutorId", th."weeklyLimit"::double precision, th."usedHours"::double precision,
+      th."remainingHours"::double precision,
+      COALESCE((SELECT SUM(w."hours") FROM "WorkLog" w
+        WHERE w."tutorId" = th."tutorId" AND w."workDate" >= $1::date
+          AND w."workDate" < $1::date + interval '7 days'), 0)::double precision AS "workedHours",
+      CASE WHEN th."weeklyLimit" IS NULL THEN 'not-set'
+        WHEN th."remainingHours" = 0 THEN 'limit-reached'
+        WHEN th."usedHours" >= th."weeklyLimit" * 0.8 THEN 'near-limit'
+        ELSE 'available' END AS "capacityStatus"
+    FROM tutor_hours th ORDER BY th."tutorId"
+  `, [toNaiveUtcText(weekStart)]);
+  return result.rows.map((row) => ({
+    ...row,
+    weekStart: weekStart.toISOString(),
+    weekEnd: new Date(weekStart.valueOf() + WEEK_MS).toISOString(),
+  }));
+}
 
 export const openWorkQuerySql = `
 SELECT

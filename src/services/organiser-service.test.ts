@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { AllocationWriteInput } from "../app.js";
 import type { PrismaClient } from "../generated/prisma/client.js";
 import { createOrganiserService } from "./organiser-service.js";
+import { busySlotClashes, timeRangesOverlap } from "./allocation-queries.js";
 
 const startsAt = new Date("2030-09-04T14:00:00.000Z");
 const endsAt = new Date("2030-09-04T16:00:00.000Z");
@@ -51,17 +52,8 @@ function createHarness() {
     course: {
       findUnique: vi.fn(),
     },
-    tutorMark: {
-      findUnique: vi.fn(),
-    },
-    tutorHourLimit: {
-      findUnique: vi.fn(),
-    },
-    timeSlot: {
-      findMany: vi.fn(),
-    },
+    $queryRawUnsafe: vi.fn(),
     allocation: {
-      aggregate: vi.fn(),
       create: vi.fn(),
       findMany: vi.fn(),
       findUnique: vi.fn(),
@@ -125,17 +117,86 @@ function arrangePassingAllocationRules(
       : { role: "TUTOR" },
   );
   transaction.course.findUnique.mockResolvedValue({ id: 9 });
-  transaction.tutorMark.findUnique.mockResolvedValue(
-    mark === null ? null : { mark },
+  transaction.$queryRawUnsafe.mockImplementation(
+    async (sql: string, ...params: unknown[]) => {
+      if (typeof sql === "string" && sql.includes("candidate_data")) {
+        if (mark === null) {
+          return [];
+        }
+        const usedHoursValue = usedHours ?? 0;
+        const remaining =
+          weeklyHours === null
+            ? 0
+            : Math.round(Math.max(weeklyHours - usedHoursValue, 0) * 1e10) /
+              1e10;
+
+        const clashDetails: Array<{
+          kind: "busy" | "allocation";
+          label: string | null;
+          startsAt: string;
+          endsAt: string;
+          recurrence: "WEEKLY" | null;
+        }> = [];
+        for (const slot of busySlots) {
+          if (
+            busySlotClashes(
+              slot.startsAt,
+              slot.endsAt,
+              slot.recurrence ?? undefined,
+              startsAt,
+              endsAt,
+            )
+          ) {
+            clashDetails.push({
+              kind: "busy",
+              label: null,
+              startsAt: slot.startsAt.toISOString(),
+              endsAt: slot.endsAt.toISOString(),
+              recurrence: (slot.recurrence ?? null) as "WEEKLY" | null,
+            });
+          }
+        }
+        for (const alloc of confirmedAllocations) {
+          if (
+            timeRangesOverlap(
+              alloc.startsAt,
+              alloc.endsAt,
+              startsAt,
+              endsAt,
+            ) === true
+          ) {
+            clashDetails.push({
+              kind: "allocation",
+              label: null,
+              startsAt: alloc.startsAt.toISOString(),
+              endsAt: alloc.endsAt.toISOString(),
+              recurrence: null,
+            });
+          }
+        }
+
+        const hasClash = clashDetails.length > 0;
+        const minimumMark = (params[3] as number) ?? 65;
+        const requestedHours = (params[4] as number) ?? 2;
+
+        return [
+          {
+            tutorId: 7,
+            fullName: "Test Tutor",
+            mark,
+            weeklyLimit: weeklyHours ?? 0,
+            usedHours: usedHoursValue,
+            remainingHours: remaining,
+            hasClash,
+            isEligible:
+              mark >= minimumMark && !hasClash && remaining >= requestedHours,
+            clashDetails,
+          },
+        ];
+      }
+      return [];
+    },
   );
-  transaction.tutorHourLimit.findUnique.mockResolvedValue(
-    weeklyHours === null ? null : { weeklyHours },
-  );
-  transaction.timeSlot.findMany.mockResolvedValue(busySlots);
-  transaction.allocation.findMany.mockResolvedValue(confirmedAllocations);
-  transaction.allocation.aggregate.mockResolvedValue({
-    _sum: { allocatedHours: usedHours },
-  });
 }
 
 describe("organiser allocation service", () => {
@@ -480,15 +541,14 @@ describe("organiser allocation service", () => {
     );
 
     expect(result.status).toBe("CONFIRMED");
-    expect(harness.transaction.allocation.findMany).toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: expect.objectContaining({ id: { not: 11 } }),
-      }),
-    );
-    expect(harness.transaction.allocation.aggregate).toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: expect.objectContaining({ id: { not: 11 } }),
-      }),
+    expect(harness.transaction.$queryRawUnsafe).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.any(Number),
+      expect.any(String),
+      expect.any(String),
+      expect.any(Number),
+      expect.any(Number),
+      11,
     );
     expect(harness.transaction.allocation.updateMany).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -572,8 +632,7 @@ describe("organiser allocation service", () => {
     await expect(
       harness.service.removeAllocation("auth0|organiser", 11),
     ).resolves.toBeUndefined();
-    expect(harness.transaction.tutorMark.findUnique).not.toHaveBeenCalled();
-    expect(harness.transaction.allocation.aggregate).not.toHaveBeenCalled();
+    expect(harness.transaction.$queryRawUnsafe).not.toHaveBeenCalled();
     expect(harness.transaction.allocation.updateMany).toHaveBeenCalledWith({
       where: { id: 11, status: "CONFIRMED" },
       data: { status: "CANCELLED", reviewedById: 21, reviewedAt: expect.any(Date) },

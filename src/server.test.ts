@@ -15,14 +15,13 @@ const mocks = vi.hoisted(() => ({
   findAllocationCandidates: vi.fn(),
   getPublicHolidays: vi.fn(),
   getTutorHourSummary: vi.fn(),
+  getTutorWorkloads: vi.fn(),
   listen: vi.fn(),
   profileCreate: vi.fn(),
   profileFindMany: vi.fn(),
   profileFindUnique: vi.fn(),
-  profileUpdate: vi.fn(),
   queryRaw: vi.fn(),
   timeSlotCreate: vi.fn(),
-  timeSlotDeleteMany: vi.fn(),
   timeSlotFindMany: vi.fn(),
   timesheetUpsert: vi.fn(),
   transaction: vi.fn(),
@@ -61,14 +60,12 @@ vi.mock("./database.js", () => ({
       create: mocks.profileCreate,
       findMany: mocks.profileFindMany,
       findUnique: mocks.profileFindUnique,
-      update: mocks.profileUpdate,
     },
     excuse: {
       create: mocks.excuseCreate,
     },
     timeSlot: {
       create: mocks.timeSlotCreate,
-      deleteMany: mocks.timeSlotDeleteMany,
       findMany: mocks.timeSlotFindMany,
     },
     tutorMark: {
@@ -86,6 +83,7 @@ vi.mock("./database.js", () => ({
 vi.mock("./services/allocation-queries.js", () => ({
   findAllocationCandidates: mocks.findAllocationCandidates,
   getTutorHourSummary: mocks.getTutorHourSummary,
+  getTutorWorkloads: mocks.getTutorWorkloads,
 }));
 
 vi.mock("./services/course-service.js", () => ({
@@ -318,39 +316,57 @@ describe("server-side API persistence", () => {
     ]);
 
     mocks.profileFindMany.mockResolvedValueOnce([
+      { id: 4, email: "tutor@tutormx.example", fullName: "Demo Tutor", role: "TUTOR" },
+      { id: 5, email: "tutor2@tutormx.example", fullName: "Tutor Without Limit", role: "TUTOR" },
+    ]);
+    mocks.getTutorWorkloads.mockResolvedValueOnce([
       {
-        id: 4,
-        auth0Id: "demo|tutor",
-        email: "tutor@tutormx.example",
-        fullName: "Demo Tutor",
-        role: "TUTOR",
-        hourLimit: { weeklyHours: "12.5" },
+        tutorId: 4,
+        weeklyLimit: 12.5,
+        usedHours: 8,
+        remainingHours: 4.5,
+        workedHours: 6,
+        weekStart: "2030-09-02T00:00:00.000Z",
+        weekEnd: "2030-09-08T23:59:59.999Z",
+        capacityStatus: "near-limit",
       },
       {
-        id: 5,
-        auth0Id: "demo|tutor-no-limit",
-        email: "tutor2@tutormx.example",
-        fullName: "Tutor Without Limit",
-        role: "TUTOR",
-        hourLimit: null,
+        tutorId: 5,
+        weeklyLimit: null,
+        usedHours: 0,
+        remainingHours: null,
+        workedHours: 0,
+        weekStart: "2030-09-02T00:00:00.000Z",
+        weekEnd: "2030-09-08T23:59:59.999Z",
+        capacityStatus: "not-set",
       },
     ]);
     await expect(dependencies.listTutors()).resolves.toEqual([
       {
         id: 4,
-        auth0Id: "demo|tutor",
         email: "tutor@tutormx.example",
         fullName: "Demo Tutor",
         role: "TUTOR",
         weeklyHours: 12.5,
+        usedHours: 8,
+        remainingHours: 4.5,
+        workedHours: 6,
+        weekStart: "2030-09-02T00:00:00.000Z",
+        weekEnd: "2030-09-08T23:59:59.999Z",
+        capacityStatus: "near-limit",
       },
       {
         id: 5,
-        auth0Id: "demo|tutor-no-limit",
         email: "tutor2@tutormx.example",
         fullName: "Tutor Without Limit",
         role: "TUTOR",
         weeklyHours: null,
+        usedHours: 0,
+        remainingHours: null,
+        workedHours: 0,
+        weekStart: "2030-09-02T00:00:00.000Z",
+        weekEnd: "2030-09-08T23:59:59.999Z",
+        capacityStatus: "not-set",
       },
     ]);
   });
@@ -387,89 +403,6 @@ describe("server-side API persistence", () => {
     mocks.courseServiceDelete.mockResolvedValueOnce(undefined);
     await expect(dependencies.deleteCourse(6)).resolves.toBeUndefined();
     expect(mocks.courseServiceDelete).toHaveBeenCalledWith(6);
-  });
-
-  it("creates and updates tutor profiles without exposing Prisma records", async () => {
-    await import("./server.js");
-    const dependencies = capturedDependencies();
-    const tutor = {
-      id: 7,
-      auth0Id: "auth0|new-tutor",
-      email: "new.tutor@tutormx.example",
-      fullName: "New Tutor",
-      role: "TUTOR",
-      hourLimit: { weeklyHours: 8 },
-    };
-
-    mocks.profileCreate.mockResolvedValueOnce(tutor);
-    await expect(
-      dependencies.createTutor({
-        auth0Id: tutor.auth0Id,
-        email: tutor.email,
-        fullName: tutor.fullName,
-        weeklyHours: 8,
-      }),
-    ).resolves.toEqual({
-      id: 7,
-      auth0Id: tutor.auth0Id,
-      email: tutor.email,
-      fullName: tutor.fullName,
-      role: "TUTOR",
-      weeklyHours: 8,
-    });
-    expect(mocks.profileCreate.mock.calls[0]![0].data.hourLimit).toEqual({
-      create: { weeklyHours: 8 },
-    });
-
-    mocks.profileCreate.mockResolvedValueOnce({
-      ...tutor,
-      id: 8,
-      auth0Id: "auth0|no-limit",
-      hourLimit: null,
-    });
-    await dependencies.createTutor({
-      auth0Id: "auth0|no-limit",
-      email: "no.limit@tutormx.example",
-      fullName: "No Limit Tutor",
-    });
-    expect(mocks.profileCreate.mock.calls[1]![0].data).not.toHaveProperty(
-      "hourLimit",
-    );
-
-    mocks.profileFindUnique.mockResolvedValueOnce({ role: "TUTOR" });
-    mocks.profileUpdate.mockResolvedValueOnce({
-      ...tutor,
-      email: "updated@tutormx.example",
-      fullName: "Updated Tutor",
-      hourLimit: { weeklyHours: 10 },
-    });
-    await expect(
-      dependencies.updateTutor(7, {
-        email: "updated@tutormx.example",
-        fullName: "Updated Tutor",
-        weeklyHours: 10,
-      }),
-    ).resolves.toMatchObject({
-      id: 7,
-      email: "updated@tutormx.example",
-      fullName: "Updated Tutor",
-      weeklyHours: 10,
-    });
-    expect(mocks.profileUpdate.mock.calls[0]![0].data.hourLimit).toEqual({
-      upsert: {
-        create: { weeklyHours: 10 },
-        update: { weeklyHours: 10 },
-      },
-    });
-
-    mocks.profileFindUnique.mockResolvedValueOnce({ role: "TUTOR" });
-    mocks.profileUpdate.mockResolvedValueOnce({ ...tutor, hourLimit: { weeklyHours: 10 } });
-    mocks.tutorHourLimitDeleteMany.mockResolvedValueOnce({ count: 1 });
-    await expect(dependencies.updateTutor(7, { weeklyHours: null })).resolves.toMatchObject({
-      id: 7,
-      weeklyHours: null,
-    });
-    expect(mocks.tutorHourLimitDeleteMany).toHaveBeenCalledWith({ where: { tutorId: 7 } });
   });
 
   it("builds the own-tutor dashboard from Prisma and the Member 6 hour query", async () => {
@@ -818,28 +751,6 @@ describe("server-side API persistence", () => {
     });
     mocks.courseServiceDelete.mockRejectedValueOnce(deleteConflict);
     await expect(dependencies.deleteCourse(1)).rejects.toBe(deleteConflict);
-
-    mocks.profileCreate.mockRejectedValueOnce({ code: "P2002" });
-    await expect(
-      dependencies.createTutor({
-        auth0Id: "auth0|duplicate",
-        email: "duplicate@tutormx.example",
-        fullName: "Duplicate Tutor",
-      }),
-    ).rejects.toMatchObject({ status: 409, code: "TUTOR_CONFLICT" });
-
-    mocks.profileFindUnique.mockResolvedValueOnce({ role: "ORGANISER" });
-    await expect(
-      dependencies.updateTutor(1, { fullName: "Not a Tutor" }),
-    ).rejects.toMatchObject({ status: 404, code: "TUTOR_NOT_FOUND" });
-
-    mocks.profileFindUnique.mockResolvedValueOnce({ role: "TUTOR" });
-    mocks.profileUpdate.mockRejectedValueOnce({ code: "P2002" });
-    await expect(
-      dependencies.updateTutor(7, {
-        email: "duplicate@tutormx.example",
-      }),
-    ).rejects.toMatchObject({ status: 409, code: "TUTOR_CONFLICT" });
   });
 
   it("delegates allocation candidate queries to the Member 6 allocation engine", async () => {
@@ -963,109 +874,21 @@ describe("server-side API persistence", () => {
     );
   });
 
-  it("lists and creates organiser-managed tutor availability", async () => {
-    await import("./server.js");
-    const dependencies = capturedDependencies();
-
-    mocks.timeSlotFindMany.mockResolvedValueOnce([
-      {
-        id: 8,
-        type: "BUSY",
-        startsAt: new Date("2030-09-04T14:00:00.000Z"),
-        endsAt: new Date("2030-09-04T16:00:00.000Z"),
-        recurrence: "WEEKLY",
-      },
-    ]);
-    await expect(dependencies.listTutorTimeSlots(7)).resolves.toEqual([
-      {
-        id: 8,
-        type: "BUSY",
-        startsAt: "2030-09-04T14:00:00.000Z",
-        endsAt: "2030-09-04T16:00:00.000Z",
-        recurrence: "WEEKLY",
-      },
-    ]);
-    expect(mocks.timeSlotFindMany).toHaveBeenCalledWith(
-      expect.objectContaining({ where: { tutorId: 7 } }),
-    );
-
-    mocks.profileFindUnique.mockResolvedValueOnce({ role: "TUTOR" });
-    mocks.timeSlotCreate.mockResolvedValueOnce({
-      id: 9,
-      type: "BUSY",
-      startsAt: new Date("2030-09-04T14:00:00.000Z"),
-      endsAt: new Date("2030-09-04T16:00:00.000Z"),
-      recurrence: null,
-    });
-    await expect(
-      dependencies.createTutorTimeSlotForTutor(7, {
-        type: "BUSY",
-        startsAt: new Date("2030-09-04T14:00:00.000Z"),
-        endsAt: new Date("2030-09-04T16:00:00.000Z"),
-      }),
-    ).resolves.toMatchObject({ id: 9, type: "BUSY", recurrence: null });
-    expect(mocks.timeSlotCreate.mock.calls[0]![0].data.tutorId).toBe(7);
-
-    mocks.profileFindUnique.mockResolvedValueOnce({ role: "STUDENT" });
-    await expect(
-      dependencies.createTutorTimeSlotForTutor(1, {
-        type: "BUSY",
-        startsAt: new Date("2030-09-04T14:00:00.000Z"),
-        endsAt: new Date("2030-09-04T16:00:00.000Z"),
-      }),
-    ).rejects.toMatchObject({ status: 404, code: "TUTOR_NOT_FOUND" });
-  });
-
-  it("removes organiser-managed marks and busy times with tutor scoping", async () => {
+  it("removes organiser-managed marks with tutor scoping", async () => {
     await import("./server.js");
     const dependencies = capturedDependencies();
     mocks.tutorMarkDeleteMany.mockResolvedValueOnce({ count: 1 });
-    mocks.timeSlotDeleteMany.mockResolvedValueOnce({ count: 1 });
 
     await expect(dependencies.deleteTutorMark(7, 3)).resolves.toBeUndefined();
-    await expect(dependencies.deleteTutorBusyTimeSlot(7, 9)).resolves.toBeUndefined();
     expect(mocks.tutorMarkDeleteMany).toHaveBeenCalledWith({
       where: { tutorId: 7, courseId: 3 },
     });
-    expect(mocks.timeSlotDeleteMany).toHaveBeenCalledWith({
-      where: { id: 9, tutorId: 7, type: "BUSY" },
-    });
 
     mocks.tutorMarkDeleteMany.mockResolvedValueOnce({ count: 0 });
-    mocks.timeSlotDeleteMany.mockResolvedValueOnce({ count: 0 });
     await expect(dependencies.deleteTutorMark(7, 404)).rejects.toMatchObject({
       status: 404,
       code: "TUTOR_MARK_NOT_FOUND",
     });
-    await expect(dependencies.deleteTutorBusyTimeSlot(7, 404)).rejects.toMatchObject({
-      status: 404,
-      code: "TIME_SLOT_NOT_FOUND",
-    });
-  });
-
-  it("maps organiser busy-time persistence conflicts and preserves unexpected errors", async () => {
-    await import("./server.js");
-    const dependencies = capturedDependencies();
-    const input = {
-      type: "BUSY" as const,
-      startsAt: new Date("2030-09-04T14:00:00.000Z"),
-      endsAt: new Date("2030-09-04T16:00:00.000Z"),
-    };
-
-    for (const code of ["P2003", "P2004"]) {
-      mocks.profileFindUnique.mockResolvedValueOnce({ role: "TUTOR" });
-      mocks.timeSlotCreate.mockRejectedValueOnce({ code });
-      await expect(
-        dependencies.createTutorTimeSlotForTutor(7, input),
-      ).rejects.toMatchObject({ status: 409, code: "TIME_SLOT_CONFLICT" });
-    }
-
-    const unexpected = new Error("database unavailable");
-    mocks.profileFindUnique.mockResolvedValueOnce({ role: "TUTOR" });
-    mocks.timeSlotCreate.mockRejectedValueOnce(unexpected);
-    await expect(
-      dependencies.createTutorTimeSlotForTutor(7, input),
-    ).rejects.toBe(unexpected);
   });
 
   it("does not hide unexpected persistence failures", async () => {
@@ -1085,21 +908,6 @@ describe("server-side API persistence", () => {
 
     mocks.courseServiceDelete.mockRejectedValueOnce(unexpected);
     await expect(dependencies.deleteCourse(1)).rejects.toBe(unexpected);
-
-    mocks.profileCreate.mockRejectedValueOnce(unexpected);
-    await expect(
-      dependencies.createTutor({
-        auth0Id: "auth0|error",
-        email: "error@tutormx.example",
-        fullName: "Error Tutor",
-      }),
-    ).rejects.toBe(unexpected);
-
-    mocks.profileFindUnique.mockResolvedValueOnce({ role: "TUTOR" });
-    mocks.profileUpdate.mockRejectedValueOnce(unexpected);
-    await expect(
-      dependencies.updateTutor(7, { fullName: "Error Tutor" }),
-    ).rejects.toBe(unexpected);
 
     mocks.profileFindUnique.mockResolvedValueOnce({ role: "TUTOR" });
     mocks.tutorMarkUpsert.mockRejectedValueOnce(unexpected);

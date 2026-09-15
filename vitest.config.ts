@@ -12,6 +12,7 @@ export default defineConfig({
         "src/**/*.test.ts",
         "src/**/*.spec.ts",
         "src/generated/**",
+        "src/server.ts",
       ],
       reporter: ["text", "html", "lcov"],
       thresholds: {

@@ -8,6 +8,7 @@ import {
   type AppDependencies,
   type ProfileSummary,
   type TimesheetDecisionSummary,
+  type TutorTimeSlotWriteInput,
   type VolunteerClaimDecisionSummary,
 } from "./app.js";
 import type { AuthContext, TutorRole } from "./auth/contract.js";
@@ -88,32 +89,32 @@ function makeApp(
     updateCourse: async (id, input) => ({ id, ...input }),
     deleteCourse: async () => undefined,
     listTutors: async () => [],
-    createTutor: async (input) => ({
-      id: 7,
-      role: "TUTOR",
-      weeklyHours: input.weeklyHours ?? null,
-      ...input,
-    }),
-    updateTutor: async (id, input) => ({
-      id,
-      auth0Id: "auth0|tutor",
-      email: input.email ?? "tutor@tutormx.example",
-      fullName: input.fullName ?? "Demo Tutor",
-      role: "TUTOR",
-      weeklyHours: input.weeklyHours ?? 10,
-    }),
     getTutorDashboard: async () => ({
       allocations: [],
       weeklyLimit: 10,
       usedHours: 0,
       remainingHours: 10,
     }),
-    createTutorTimeSlot: async (_auth0Id, input) => ({
+    listOwnTutorTimeSlots: async () => [],
+    updateTutorTimeSlot: async (_auth0Id: string, _timeSlotId: number, input: TutorTimeSlotWriteInput) => ({
       id: 1,
       type: input.type,
       startsAt: input.startsAt.toISOString(),
       endsAt: input.endsAt.toISOString(),
       recurrence: input.recurrence ?? null,
+      label: input.label ?? null,
+      recurrenceUntil: input.recurrenceUntil?.toISOString() ?? null,
+    }),
+    deleteTutorTimeSlot: async () => undefined,
+    updateTutorWeeklyCapacity: async (_auth0Id: string, input: { weeklyHours: number | null }) => input,
+    createTutorTimeSlot: async (_auth0Id: string, input: TutorTimeSlotWriteInput) => ({
+      id: 1,
+      type: input.type,
+      startsAt: input.startsAt.toISOString(),
+      endsAt: input.endsAt.toISOString(),
+      recurrence: input.recurrence ?? null,
+      label: input.label ?? null,
+      recurrenceUntil: input.recurrenceUntil?.toISOString() ?? null,
     }),
     createTutorWorkLog: async (_auth0Id, input) => ({
       id: 1,
@@ -206,14 +207,6 @@ function makeApp(
     listTutorMarks: async () => [],
     deleteTutorMark: async () => undefined,
     listTutorTimeSlots: async () => [],
-    deleteTutorBusyTimeSlot: async () => undefined,
-    createTutorTimeSlotForTutor: async (_tutorId, input) => ({
-      id: 1,
-      type: input.type,
-      startsAt: input.startsAt.toISOString(),
-      endsAt: input.endsAt.toISOString(),
-      recurrence: input.recurrence ?? null,
-    }),
     requestPasswordReset: async () => undefined,
     verifyAccessToken: async () => auth(role),
     ...overrides,
@@ -308,40 +301,28 @@ describe("organiser live-board query routes", () => {
 });
 
 describe("organiser tutor-rule deletion routes", () => {
-  it("removes a tutor mark and busy time by database identifiers", async () => {
+  it("removes a tutor mark by database identifiers", async () => {
     const deleteTutorMark = vi.fn().mockResolvedValue(undefined);
-    const deleteTutorBusyTimeSlot = vi.fn().mockResolvedValue(undefined);
-    const app = makeApp({ deleteTutorMark, deleteTutorBusyTimeSlot });
+    const app = makeApp({ deleteTutorMark });
 
     const markResponse = await request(app)
       .delete("/api/tutors/7/marks/3")
       .set("Authorization", "Bearer valid-token");
-    const slotResponse = await request(app)
-      .delete("/api/tutors/7/time-slots/9")
-      .set("Authorization", "Bearer valid-token");
 
     expect(markResponse.status).toBe(204);
-    expect(slotResponse.status).toBe(204);
     expect(deleteTutorMark).toHaveBeenCalledWith(7, 3);
-    expect(deleteTutorBusyTimeSlot).toHaveBeenCalledWith(7, 9);
   });
 
   it("rejects invalid tutor-rule identifiers before deletion", async () => {
     const deleteTutorMark = vi.fn();
-    const deleteTutorBusyTimeSlot = vi.fn();
-    const app = makeApp({ deleteTutorMark, deleteTutorBusyTimeSlot });
+    const app = makeApp({ deleteTutorMark });
 
     const markResponse = await request(app)
       .delete("/api/tutors/0/marks/3")
       .set("Authorization", "Bearer valid-token");
-    const slotResponse = await request(app)
-      .delete("/api/tutors/7/time-slots/no")
-      .set("Authorization", "Bearer valid-token");
 
     expect(markResponse.status).toBe(400);
-    expect(slotResponse.status).toBe(400);
     expect(deleteTutorMark).not.toHaveBeenCalled();
-    expect(deleteTutorBusyTimeSlot).not.toHaveBeenCalled();
   });
 });
 

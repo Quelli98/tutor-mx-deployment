@@ -95,13 +95,15 @@ model TutorMark {
 }
 
 model TimeSlot {
-  id         Int          @id @default(autoincrement())
-  tutorId    Int
-  type       TimeSlotType
-  startsAt   DateTime
-  endsAt     DateTime
-  recurrence String?      @db.VarChar(32)
-  tutor      Profile      @relation(fields: [tutorId], references: [id], onDelete: Cascade)
+  id               Int          @id @default(autoincrement())
+  tutorId          Int
+  type             TimeSlotType
+  startsAt         DateTime
+  endsAt           DateTime
+  recurrence       String?      @db.VarChar(32)
+  label            String?      @db.VarChar(255)
+  recurrenceUntil  DateTime?
+  tutor            Profile      @relation(fields: [tutorId], references: [id], onDelete: Cascade)
 
   @@index([tutorId, type, startsAt, endsAt])
 }

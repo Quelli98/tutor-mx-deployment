@@ -1,12 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   createAllocation,
-  createTutor,
-  createTutorTimeSlot,
   createCourse,
   deleteCourse,
   deleteTutorMark,
-  deleteTutorTimeSlot,
   decideTimesheet,
   decideVolunteerClaim,
   listAllocationCandidates,
@@ -14,12 +11,10 @@ import {
   listCourses,
   listOrganiserApprovals,
   listTutorMarks,
-  listTutorTimeSlots,
   listTutors,
   saveTutorMark,
   updateCourse,
   updateAllocation,
-  updateTutor,
   removeAllocation,
 } from './organiser'
 
@@ -34,11 +29,16 @@ const tokenGetter = vi.fn()
 const course = { id: 1, code: 'DEMO101', name: 'Demo Course' }
 const tutor = {
   id: 7,
-  auth0Id: 'auth0|tutor-7',
   email: 'tutor@tutormx.example',
   fullName: 'Sam Tutor',
   role: 'TUTOR',
   weeklyHours: 10,
+  usedHours: 2,
+  workedHours: 1,
+  remainingHours: 8,
+  weekStart: '2030-09-02',
+  weekEnd: '2030-09-08',
+  capacityStatus: 'available',
 }
 
 describe('organiser course API contract', () => {
@@ -131,37 +131,8 @@ describe('organiser tutor API contract', () => {
     expect(fetchWithBearerToken).toHaveBeenCalledWith('/api/tutors', {}, tokenGetter)
   })
 
-  it('posts the exact tutor create payload', async () => {
-    fetchWithBearerToken.mockResolvedValue({ data: { tutor } })
-
-    await expect(
-      createTutor(
-        {
-          auth0Id: 'auth0|tutor-7',
-          email: 'tutor@tutormx.example',
-          fullName: 'Sam Tutor',
-          weeklyHours: 10,
-        },
-        tokenGetter,
-      ),
-    ).resolves.toEqual(tutor)
-    expect(fetchWithBearerToken).toHaveBeenCalledWith(
-      '/api/tutors',
-      {
-        method: 'POST',
-        body: JSON.stringify({
-          auth0Id: 'auth0|tutor-7',
-          email: 'tutor@tutormx.example',
-          fullName: 'Sam Tutor',
-          weeklyHours: 10,
-        }),
-      },
-      tokenGetter,
-    )
-  })
-
   it('accepts an unconfigured weekly-hour limit as null', async () => {
-    const unconfigured = { ...tutor, id: 8, weeklyHours: null }
+    const unconfigured = { ...tutor, id: 8, weeklyHours: null, usedHours: 0, workedHours: 0, remainingHours: null, capacityStatus: 'not-set' }
     fetchWithBearerToken.mockResolvedValue({ data: { tutors: [tutor, unconfigured] } })
 
     await expect(listTutors(tokenGetter)).resolves.toEqual([tutor, unconfigured])
@@ -175,25 +146,6 @@ describe('organiser tutor API contract', () => {
     await expect(listTutors(tokenGetter)).rejects.toThrow(
       'The tutor response did not match the agreed contract.',
     )
-  })
-
-  it('does not send the tutor identifier in the update body', async () => {
-    fetchWithBearerToken.mockResolvedValue({ data: { tutor } })
-
-    await expect(
-      updateTutor({ tutorId: 7, weeklyHours: 12 }, tokenGetter),
-    ).resolves.toEqual(tutor)
-    expect(fetchWithBearerToken).toHaveBeenCalledWith(
-      '/api/tutors/7',
-      {
-        method: 'PATCH',
-        body: JSON.stringify({ weeklyHours: 12 }),
-      },
-      tokenGetter,
-    )
-
-    const [, options] = fetchWithBearerToken.mock.calls[0]
-    expect(JSON.parse(options.body)).not.toHaveProperty('tutorId')
   })
 })
 
@@ -422,60 +374,9 @@ describe('organiser allocation and tutor-detail API contracts', () => {
 
     fetchWithBearerToken.mockResolvedValue({})
     await deleteTutorMark({ tutorId: 7, courseId: 3 }, tokenGetter)
-    await deleteTutorTimeSlot({ tutorId: 7, timeSlotId: 9 }, tokenGetter)
-    expect(fetchWithBearerToken).toHaveBeenNthCalledWith(
-      fetchWithBearerToken.mock.calls.length - 1,
+    expect(fetchWithBearerToken).toHaveBeenLastCalledWith(
       '/api/tutors/7/marks/3',
       { method: 'DELETE' },
-      tokenGetter,
-    )
-    expect(fetchWithBearerToken).toHaveBeenLastCalledWith(
-      '/api/tutors/7/time-slots/9',
-      { method: 'DELETE' },
-      tokenGetter,
-    )
-  })
-
-  it('lists and creates tutor time slots', async () => {
-    const timeSlot = {
-      id: 9,
-      type: 'BUSY',
-      startsAt: '2030-09-04T14:00:00.000Z',
-      endsAt: '2030-09-04T16:00:00.000Z',
-      recurrence: 'WEEKLY',
-    }
-    fetchWithBearerToken.mockResolvedValueOnce({ data: { timeSlots: [timeSlot] } })
-    await expect(listTutorTimeSlots(7, tokenGetter)).resolves.toEqual([timeSlot])
-    expect(fetchWithBearerToken).toHaveBeenLastCalledWith(
-      '/api/tutors/7/time-slots',
-      {},
-      tokenGetter,
-    )
-
-    fetchWithBearerToken.mockResolvedValueOnce({ data: { timeSlot } })
-    await expect(
-      createTutorTimeSlot(
-        {
-          tutorId: 7,
-          type: 'BUSY',
-          startsAt: timeSlot.startsAt,
-          endsAt: timeSlot.endsAt,
-          recurrence: 'WEEKLY',
-        },
-        tokenGetter,
-      ),
-    ).resolves.toEqual(timeSlot)
-    expect(fetchWithBearerToken).toHaveBeenLastCalledWith(
-      '/api/tutors/7/time-slots',
-      {
-        method: 'POST',
-        body: JSON.stringify({
-          type: 'BUSY',
-          startsAt: timeSlot.startsAt,
-          endsAt: timeSlot.endsAt,
-          recurrence: 'WEEKLY',
-        }),
-      },
       tokenGetter,
     )
   })

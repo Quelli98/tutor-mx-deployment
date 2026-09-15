@@ -124,15 +124,6 @@ function makeApp(
         ...input,
       })),
 
-    createTutor:
-      overrides.createTutor ??
-      (async (input) => ({
-        id: 22,
-        role: "TUTOR",
-        weeklyHours: input.weeklyHours ?? null,
-        ...input,
-      })),
-
     deleteCourse: overrides.deleteCourse ?? (async () => undefined),
 
     findProfileByAuth0Id:
@@ -172,11 +163,16 @@ function makeApp(
       (async () => [
         {
           id: 2,
-          auth0Id: "demo|tutor",
           email: "tutor@tutormx.example",
           fullName: "Demo Tutor",
           role: "TUTOR",
           weeklyHours: 10,
+          usedHours: 6,
+          remainingHours: 4,
+          workedHours: 0,
+          weekStart: "2030-09-02T00:00:00.000Z",
+          weekEnd: "2030-09-08T23:59:59.999Z",
+          capacityStatus: "available",
         },
       ]),
 
@@ -190,17 +186,6 @@ function makeApp(
       (async (courseId, input) => ({
         id: courseId,
         ...input,
-      })),
-
-    updateTutor:
-      overrides.updateTutor ??
-      (async (tutorId, input) => ({
-        id: tutorId,
-        auth0Id: "demo|tutor",
-        email: input.email ?? "tutor@tutormx.example",
-        fullName: input.fullName ?? "Demo Tutor",
-        role: "TUTOR",
-        weeklyHours: input.weeklyHours ?? 10,
       })),
 
     getTutorDashboard:
@@ -220,6 +205,8 @@ function makeApp(
         startsAt: input.startsAt.toISOString(),
         endsAt: input.endsAt.toISOString(),
         recurrence: input.recurrence ?? null,
+        label: input.label ?? null,
+        recurrenceUntil: input.recurrenceUntil?.toISOString() ?? null,
       })),
 
     createTutorWorkLog:
@@ -368,17 +355,18 @@ function makeApp(
     deleteTutorMark: async () => undefined,
 
     listTutorTimeSlots: overrides.listTutorTimeSlots ?? (async () => []),
-    deleteTutorBusyTimeSlot: async () => undefined,
-
-    createTutorTimeSlotForTutor:
-      overrides.createTutorTimeSlotForTutor ??
-      (async (_tutorId, input) => ({
-        id: 1,
-        type: input.type,
-        startsAt: input.startsAt.toISOString(),
-        endsAt: input.endsAt.toISOString(),
-        recurrence: input.recurrence ?? null,
-      })),
+    deleteTutorTimeSlot: async () => undefined,
+    listOwnTutorTimeSlots: async () => [],
+    updateTutorTimeSlot: async (_auth0Id, _id, input) => ({
+      id: 1,
+      type: input.type,
+      startsAt: input.startsAt.toISOString(),
+      endsAt: input.endsAt.toISOString(),
+      recurrence: input.recurrence ?? null,
+      label: input.label ?? null,
+      recurrenceUntil: input.recurrenceUntil?.toISOString() ?? null,
+    }),
+    updateTutorWeeklyCapacity: async (_auth0Id, input) => input,
 
     deleteAccount:
       overrides.deleteAccount ?? (async () => undefined),
@@ -986,13 +974,10 @@ describe("course and tutor endpoints", () => {
         updateCourse: vi.fn(),
         deleteCourse: vi.fn(),
         listTutors: vi.fn(),
-        createTutor: vi.fn(),
-        updateTutor: vi.fn(),
         listAllocationCandidates: vi.fn(),
         listTutorMarks: vi.fn(),
         upsertTutorMark: vi.fn(),
         listTutorTimeSlots: vi.fn(),
-        createTutorTimeSlotForTutor: vi.fn(),
       };
 
       const app = makeApp({
@@ -1020,20 +1005,6 @@ describe("course and tutor endpoints", () => {
           request(app).get("/api/tutors").set("Authorization", "Bearer valid-token"),
         () =>
           request(app)
-            .post("/api/tutors")
-            .set("Authorization", "Bearer valid-token")
-            .send({
-              auth0Id: "auth0|new-tutor",
-              email: "new@tutormx.example",
-              fullName: "New Tutor",
-            }),
-        () =>
-          request(app)
-            .patch("/api/tutors/2")
-            .set("Authorization", "Bearer valid-token")
-            .send({ fullName: "Changed" }),
-        () =>
-          request(app)
             .get(`/api/allocations/candidates?${candidateQuery}`)
             .set("Authorization", "Bearer valid-token"),
         () =>
@@ -1049,15 +1020,6 @@ describe("course and tutor endpoints", () => {
           request(app)
             .get("/api/tutors/2/time-slots")
             .set("Authorization", "Bearer valid-token"),
-        () =>
-          request(app)
-            .post("/api/tutors/2/time-slots")
-            .set("Authorization", "Bearer valid-token")
-            .send({
-              type: "BUSY",
-              startsAt: "2030-09-04T14:00:00.000Z",
-              endsAt: "2030-09-04T16:00:00.000Z",
-            }),
       ];
 
       for (const makeRequest of organiserOnlyRequests) {
@@ -1073,7 +1035,7 @@ describe("course and tutor endpoints", () => {
     }
   });
 
-  it("returns organiser tutor listings and accepts tutor updates", async () => {
+  it("returns organiser tutor listings", async () => {
     const listTutors = vi.fn().mockResolvedValue([
       {
         id: 2,
@@ -1085,19 +1047,9 @@ describe("course and tutor endpoints", () => {
       },
     ]);
 
-    const updateTutor = vi.fn().mockResolvedValue({
-      id: 2,
-      auth0Id: "demo|tutor",
-      email: "updated@tutormx.example",
-      fullName: "Updated Tutor",
-      role: "TUTOR",
-      weeklyHours: 12,
-    });
-
     const app = makeApp({
       ...organiserAccess(),
       listTutors,
-      updateTutor,
     });
 
     const listResponse = await request(app)
@@ -1107,129 +1059,6 @@ describe("course and tutor endpoints", () => {
     expect(listTutors).toHaveBeenCalledOnce();
     expect(listResponse.status).toBe(200);
     expect(listResponse.body.data.tutors).toHaveLength(1);
-
-    const updateResponse = await request(app)
-      .patch("/api/tutors/2")
-      .set("Authorization", "Bearer valid-token")
-      .send({
-        email: "updated@tutormx.example",
-        weeklyHours: 12,
-      });
-
-    expect(updateTutor).toHaveBeenCalledWith(2, {
-      email: "updated@tutormx.example",
-      weeklyHours: 12,
-    });
-
-    expect(updateResponse.status).toBe(200);
-
-    expect(
-      updateResponse.body.data.tutor.email,
-    ).toBe("updated@tutormx.example");
-  });
-
-  it("creates tutors for organisers with validated fields", async () => {
-    const createTutor = vi.fn().mockResolvedValue({
-      id: 9,
-      auth0Id: "auth0|new-tutor",
-      email: "new.tutor@tutormx.example",
-      fullName: "New Tutor",
-      role: "TUTOR",
-      weeklyHours: 8,
-    });
-
-    const app = makeApp({
-      ...organiserAccess(),
-      createTutor,
-    });
-
-    const response = await request(app)
-      .post("/api/tutors")
-      .set("Authorization", "Bearer valid-token")
-      .send({
-        auth0Id: "auth0|new-tutor",
-        email: "new.tutor@tutormx.example",
-        fullName: "New Tutor",
-        weeklyHours: 8,
-      });
-
-    expect(createTutor).toHaveBeenCalledWith({
-      auth0Id: "auth0|new-tutor",
-      email: "new.tutor@tutormx.example",
-      fullName: "New Tutor",
-      weeklyHours: 8,
-    });
-
-    expect(response.status).toBe(201);
-    expect(response.body.data.tutor.role).toBe("TUTOR");
-  });
-
-  it("rejects invalid tutor email and hour values before persistence", async () => {
-    const createTutor = vi.fn();
-
-    const app = makeApp({
-      ...organiserAccess(),
-      createTutor,
-    });
-
-    const response = await request(app)
-      .post("/api/tutors")
-      .set("Authorization", "Bearer valid-token")
-      .send({
-        auth0Id: "auth0|new-tutor",
-        email: "not-an-email",
-        fullName: "New Tutor",
-        weeklyHours: 0,
-      });
-
-    expect(createTutor).not.toHaveBeenCalled();
-    expect(response.status).toBe(400);
-    expect(response.body.error.code).toBe("VALIDATION_ERROR");
-  });
-
-  it("validates tutor identifiers and requires at least one update field", async () => {
-    const updateTutor = vi.fn().mockResolvedValue({
-      id: 2,
-      auth0Id: "demo|tutor",
-      email: "tutor@tutormx.example",
-      fullName: "Renamed Tutor",
-      role: "TUTOR",
-      weeklyHours: 10,
-    });
-
-    const app = makeApp({
-      ...organiserAccess(),
-      updateTutor,
-    });
-
-    const invalidId = await request(app)
-      .patch("/api/tutors/nope")
-      .set("Authorization", "Bearer valid-token")
-      .send({
-        fullName: "Renamed Tutor",
-      });
-
-    expect(invalidId.status).toBe(400);
-
-    const emptyUpdate = await request(app)
-      .patch("/api/tutors/2")
-      .set("Authorization", "Bearer valid-token")
-      .send({});
-
-    expect(emptyUpdate.status).toBe(400);
-
-    const updated = await request(app)
-      .patch("/api/tutors/2")
-      .set("Authorization", "Bearer valid-token")
-      .send({
-        fullName: " Renamed Tutor ",
-      });
-
-    expect(updated.status).toBe(200);
-
-    expect(updateTutor).toHaveBeenCalledWith(2, {
-      fullName: "Renamed Tutor",
-    });
   });
 
   it("maps route errors and hides unexpected dependency details", async () => {
@@ -1293,10 +1122,6 @@ describe("course and tutor endpoints", () => {
     const failedWrites = makeApp({
       ...organiserAccess(),
 
-      createTutor: async () => {
-        throw new Error("private persistence details");
-      },
-
       deleteCourse: async () => {
         throw createRouteError(
           404,
@@ -1312,30 +1137,7 @@ describe("course and tutor endpoints", () => {
           "Course not found.",
         );
       },
-
-      updateTutor: async () => {
-        throw createRouteError(
-          404,
-          "TUTOR_NOT_FOUND",
-          "Tutor not found.",
-        );
-      },
     });
-
-    const createdTutor = await request(failedWrites)
-      .post("/api/tutors")
-      .set("Authorization", "Bearer valid-token")
-      .send({
-        auth0Id: "auth0|new-tutor",
-        email: "new.tutor@tutormx.example",
-        fullName: "New Tutor",
-      });
-
-    expect(createdTutor.status).toBe(500);
-
-    expect(createdTutor.text).not.toContain(
-      "private persistence details",
-    );
 
     const updatedCourse = await request(failedWrites)
       .patch("/api/courses/1")
@@ -1352,15 +1154,6 @@ describe("course and tutor endpoints", () => {
       .set("Authorization", "Bearer valid-token");
 
     expect(deletedCourse.status).toBe(404);
-
-    const updatedTutor = await request(failedWrites)
-      .patch("/api/tutors/1")
-      .set("Authorization", "Bearer valid-token")
-      .send({
-        fullName: "Missing Tutor",
-      });
-
-    expect(updatedTutor.status).toBe(404);
   });
 });
 
@@ -1690,135 +1483,5 @@ describe("organiser tutor mark routes", () => {
 
     expect(response.status).toBe(404);
     expect(response.body.error.code).toBe("COURSE_NOT_FOUND");
-  });
-});
-
-describe("organiser tutor availability routes", () => {
-  it("requires an Organiser token to manage availability", async () => {
-    const createTutorTimeSlotForTutor = vi.fn();
-    const withoutToken = await request(
-      makeApp({ createTutorTimeSlotForTutor }),
-    )
-      .post("/api/tutors/7/time-slots")
-      .send({
-        type: "BUSY",
-        startsAt: "2030-09-04T14:00:00.000Z",
-        endsAt: "2030-09-04T16:00:00.000Z",
-      });
-    expect(withoutToken.status).toBe(401);
-    expect(createTutorTimeSlotForTutor).not.toHaveBeenCalled();
-  });
-
-  it("validates and creates a busy slot for a specific tutor", async () => {
-    const timeSlot = {
-      id: 9,
-      type: "BUSY",
-      startsAt: "2030-09-04T14:00:00.000Z",
-      endsAt: "2030-09-04T16:00:00.000Z",
-      recurrence: null,
-    };
-    const createTutorTimeSlotForTutor = vi.fn().mockResolvedValue(timeSlot);
-    const app = makeApp({
-      ...organiserAccess(),
-      createTutorTimeSlotForTutor,
-    });
-
-    const invalid = await request(app)
-      .post("/api/tutors/7/time-slots")
-      .set("Authorization", "Bearer valid-token")
-      .send({
-        type: "BUSY",
-        startsAt: "2030-09-04T16:00:00.000Z",
-        endsAt: "2030-09-04T14:00:00.000Z",
-      });
-    expect(invalid.status).toBe(400);
-    expect(createTutorTimeSlotForTutor).not.toHaveBeenCalled();
-
-    const invalidId = await request(app)
-      .post("/api/tutors/not-a-number/time-slots")
-      .set("Authorization", "Bearer valid-token")
-      .send({
-        type: "BUSY",
-        startsAt: "2030-09-04T14:00:00.000Z",
-        endsAt: "2030-09-04T16:00:00.000Z",
-      });
-    expect(invalidId.status).toBe(400);
-
-    const created = await request(app)
-      .post("/api/tutors/7/time-slots")
-      .set("Authorization", "Bearer valid-token")
-      .send({
-        type: "BUSY",
-        startsAt: "2030-09-04T14:00:00.000Z",
-        endsAt: "2030-09-04T16:00:00.000Z",
-      });
-    expect(created.status).toBe(201);
-    expect(created.body).toEqual({ data: { timeSlot } });
-    expect(createTutorTimeSlotForTutor).toHaveBeenCalledWith(7, {
-      type: "BUSY",
-      startsAt: new Date("2030-09-04T14:00:00.000Z"),
-      endsAt: new Date("2030-09-04T16:00:00.000Z"),
-    });
-  });
-
-  it("lists a tutor's availability", async () => {
-    const timeSlots = [
-      {
-        id: 8,
-        type: "BUSY",
-        startsAt: "2030-09-04T14:00:00.000Z",
-        endsAt: "2030-09-04T16:00:00.000Z",
-        recurrence: "WEEKLY",
-      },
-    ];
-    const listTutorTimeSlots = vi.fn().mockResolvedValue(timeSlots);
-    const response = await request(
-      makeApp({ ...organiserAccess(), listTutorTimeSlots }),
-    )
-      .get("/api/tutors/7/time-slots")
-      .set("Authorization", "Bearer valid-token");
-    expect(response.status).toBe(200);
-    expect(response.body).toEqual({ data: { timeSlots } });
-    expect(listTutorTimeSlots).toHaveBeenCalledWith(7);
-  });
-
-  it("validates time-slot list IDs and maps time-slot service errors", async () => {
-    const listTutorTimeSlots = vi.fn().mockRejectedValue(
-      createRouteError(404, "TUTOR_NOT_FOUND", "Tutor not found."),
-    );
-    const app = makeApp({ ...organiserAccess(), listTutorTimeSlots });
-
-    const invalid = await request(app)
-      .get("/api/tutors/invalid/time-slots")
-      .set("Authorization", "Bearer valid-token");
-    expect(invalid.status).toBe(400);
-    expect(listTutorTimeSlots).not.toHaveBeenCalled();
-
-    const missing = await request(app)
-      .get("/api/tutors/7/time-slots")
-      .set("Authorization", "Bearer valid-token");
-    expect(missing.status).toBe(404);
-    expect(missing.body.error.code).toBe("TUTOR_NOT_FOUND");
-  });
-
-  it("maps tutor time-slot write service errors", async () => {
-    const response = await request(
-      makeApp({
-        ...organiserAccess(),
-        createTutorTimeSlotForTutor: async () => {
-          throw createRouteError(409, "TIME_SLOT_CONFLICT", "Time slot conflict.");
-        },
-      }),
-    )
-      .post("/api/tutors/7/time-slots")
-      .set("Authorization", "Bearer valid-token")
-      .send({
-        type: "BUSY",
-        startsAt: "2030-09-04T14:00:00.000Z",
-        endsAt: "2030-09-04T16:00:00.000Z",
-      });
-
-    expect(response.status).toBe(409);
-    expect(response.body.error.code).toBe("TIME_SLOT_CONFLICT");
   });
 });
