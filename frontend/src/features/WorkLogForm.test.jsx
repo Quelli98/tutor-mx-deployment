@@ -134,4 +134,23 @@ describe('WorkLogForm', () => {
       await within(timesheets).findByText(/waiting for the organiser decision/i),
     ).toBeInTheDocument()
   })
+
+  it('explains when the week timesheet is locked', async () => {
+    const lockedError = new Error('Worked hours cannot be changed on this timesheet.')
+    lockedError.code = 'TIMESHEET_LOCKED'
+    mockSubmitWorkLog.mockRejectedValue(lockedError)
+
+    render(<WorkLogForm allocations={allocations} tokenOrGetter={tokenGetter} />)
+    fireEvent.change(screen.getByLabelText(/^session$/i), { target: { value: '1' } })
+    fireEvent.change(screen.getByLabelText(/hours worked/i), { target: { value: '2' } })
+    fireEvent.change(screen.getByLabelText(/description/i), {
+      target: { value: 'Tutorial session' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: /add to draft/i }))
+
+    expect(
+      await screen.findByText(/this week's timesheet has already been submitted/i),
+    ).toBeInTheDocument()
+    expect(mockSubmitWorkLog).toHaveBeenCalled()
+  })
 })

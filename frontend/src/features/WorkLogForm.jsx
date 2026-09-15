@@ -73,8 +73,12 @@ export default function WorkLogForm({ allocations = [], tokenOrGetter, storageSc
       setWorkDate('')
       setHours('')
       setDescription('')
-    } catch {
-      setStatus('error')
+    } catch (error) {
+      if (error?.code === 'TIMESHEET_LOCKED') {
+        setStatus('locked')
+      } else {
+        setStatus('error')
+      }
     }
   }
 
@@ -142,6 +146,11 @@ export default function WorkLogForm({ allocations = [], tokenOrGetter, storageSc
         <button className="primary-button" type="submit" disabled={status === 'submitting'}>
           {status === 'submitting' ? 'Saving...' : 'Add to draft'}
         </button>
+        {status === 'locked' && (
+          <p className="status-note danger" role="alert">
+            This week's timesheet has already been submitted and can't be changed.
+          </p>
+        )}
         {status === 'error' && (
           <p className="status-note danger" role="alert">Worked hours could not be saved. Try again.</p>
         )}
