@@ -17,6 +17,7 @@ describe('fetchWithBearerToken', () => {
     expect(globalThis.fetch).toHaveBeenCalledWith(
       expect.stringContaining('/api/me'),
       expect.objectContaining({
+        cache: 'no-store',
         headers: expect.objectContaining({
           Authorization: 'Bearer token-123',
         }),

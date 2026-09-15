@@ -24,6 +24,7 @@ export async function fetchWithBearerToken(path, options = {}, tokenOrGetter) {
 
   const response = await fetch(`${API_BASE_URL}${path}`, {
     ...options,
+    cache: 'no-store',
     headers: {
       ...(options.body ? { 'Content-Type': 'application/json' } : {}),
       ...options.headers,
