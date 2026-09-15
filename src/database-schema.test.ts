@@ -464,4 +464,98 @@ describe("Sprint 2 stability corrections", () => {
     );
     expect(new Date(explicit.rows[0]!.submittedAt).getUTCFullYear()).toBe(2035);
   });
+
+  it("safely deletes a course whose only dependants are disposable setup data", async () => {
+    const { tutorId } = await demoIds();
+    const created = await database.query<{ id: number }>(
+      `INSERT INTO "Course" ("code", "name") VALUES ('DELSAFE1', 'Disposable Course') RETURNING "id"`,
+    );
+    const courseId = created.rows[0]!.id;
+    await database.query(
+      `INSERT INTO "TutorMark" ("tutorId", "courseId", "mark") VALUES ($1, $2, 70.00)`,
+      [tutorId, courseId],
+    );
+    await database.query(
+      `INSERT INTO "Allocation" ("tutorId", "courseId", "startsAt", "endsAt", "allocatedHours", "status")
+       VALUES ($1, $2, '2031-01-05 10:00', '2031-01-05 12:00', 2.00, 'PROPOSED')`,
+      [tutorId, courseId],
+    );
+    await database.query(
+      `INSERT INTO "OverflowWork" ("courseId", "startsAt", "endsAt", "hours", "status")
+       VALUES ($1, '2031-01-06 10:00', '2031-01-06 12:00', 2.00, 'OPEN')`,
+      [courseId],
+    );
+
+    // Delete disposable children in the same order the service uses, then the
+    // course itself: every ON DELETE Restrict foreign key stays satisfied.
+    await database.query(`DELETE FROM "OverflowWork" WHERE "courseId" = $1`, [
+      courseId,
+    ]);
+    await database.query(`DELETE FROM "Allocation" WHERE "courseId" = $1`, [
+      courseId,
+    ]);
+    await database.query(`DELETE FROM "TutorMark" WHERE "courseId" = $1`, [
+      courseId,
+    ]);
+    await expect(
+      database.query(`DELETE FROM "Course" WHERE "id" = $1`, [courseId]),
+    ).resolves.toBeDefined();
+
+    const remaining = await database.query(
+      `SELECT "id" FROM "Course" WHERE "id" = $1`,
+      [courseId],
+    );
+    expect(remaining.rows).toHaveLength(0);
+  });
+
+  it("protects logged work with a Restrict foreign key so course history cannot be dropped", async () => {
+    const { tutorId } = await demoIds();
+    const created = await database.query<{ id: number }>(
+      `INSERT INTO "Course" ("code", "name") VALUES ('DELHIST1', 'Historical Course') RETURNING "id"`,
+    );
+    const courseId = created.rows[0]!.id;
+    const organiser = await database.query<{ id: number }>(
+      `SELECT "id" FROM "Profile" WHERE "auth0Id" = 'demo|organiser'`,
+    );
+    const organiserId = organiser.rows[0]!.id;
+    const allocation = await database.query<{ id: number }>(
+      `INSERT INTO "Allocation" ("tutorId", "courseId", "startsAt", "endsAt", "allocatedHours", "status")
+       VALUES ($1, $2, '2031-02-05 10:00', '2031-02-05 12:00', 2.00, 'PROPOSED') RETURNING "id"`,
+      [tutorId, courseId],
+    );
+    const allocationId = allocation.rows[0]!.id;
+    // A work log is auditable history and may only attach to a confirmed
+    // allocation owned by the tutor, so confirm it before recording work.
+    await database.query(
+      `UPDATE "Allocation"
+         SET "status" = 'CONFIRMED', "reviewedById" = $2, "reviewedAt" = CURRENT_TIMESTAMP
+       WHERE "id" = $1`,
+      [allocationId, organiserId],
+    );
+    await database.query(
+      `INSERT INTO "WorkLog" ("tutorId", "allocationId", "workDate", "hours", "description")
+       VALUES ($1, $2, '2031-02-05', 2.00, 'Recorded tutorial')`,
+      [tutorId, allocationId],
+    );
+
+    // The database itself refuses to drop the allocation (and therefore the
+    // course) while a work log references it, which is why the service inspects
+    // and blocks instead of leaning on a raw foreign-key error.
+    await expectDatabaseRejection(
+      database,
+      `DELETE FROM "Allocation" WHERE "id" = $1`,
+      [allocationId],
+    );
+    await expectDatabaseRejection(
+      database,
+      `DELETE FROM "Course" WHERE "id" = $1`,
+      [courseId],
+    );
+
+    const stillThere = await database.query(
+      `SELECT "id" FROM "Course" WHERE "id" = $1`,
+      [courseId],
+    );
+    expect(stillThere.rows).toHaveLength(1);
+  });
 });

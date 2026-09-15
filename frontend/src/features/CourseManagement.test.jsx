@@ -304,4 +304,61 @@ describe('CourseManagement create, edit and delete', () => {
     ).toBeInTheDocument()
     expect(screen.queryByText(/raw server detail/i)).not.toBeInTheDocument()
   })
+
+  it('shows the safe conflict explanation when a delete is blocked', async () => {
+    listCourses.mockResolvedValue(courses)
+    const conflict = new Error('raw server detail')
+    conflict.code = 'COURSE_DELETE_CONFLICT'
+    conflict.message =
+      'This course still has confirmed allocations and logged work that must remain auditable, so it cannot be deleted. Cancel or reassign that work first.'
+    deleteCourse.mockRejectedValueOnce(conflict)
+
+    renderPage()
+    await screen.findByRole('table')
+
+    fireEvent.click(screen.getByRole('button', { name: /delete DEMO101/i }))
+    fireEvent.click(
+      within(await screen.findByRole('dialog')).getByRole('button', {
+        name: /^delete course$/i,
+      }),
+    )
+
+    expect(await screen.findByText(/must remain auditable/i)).toBeInTheDocument()
+    // The dialog closes and no success is claimed for a blocked delete.
+    await waitFor(() => {
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    })
+    expect(screen.queryByText(/was deleted/i)).not.toBeInTheDocument()
+    expect(deleteCourse).toHaveBeenCalledTimes(1)
+  })
+
+  it('ignores repeated confirm clicks and deletes only once', async () => {
+    listCourses.mockResolvedValue(courses)
+
+    let resolveDelete
+    deleteCourse.mockReturnValue(
+      new Promise((resolve) => {
+        resolveDelete = resolve
+      }),
+    )
+
+    renderPage()
+    await screen.findByRole('table')
+
+    fireEvent.click(screen.getByRole('button', { name: /delete DEMO101/i }))
+    const dialog = await screen.findByRole('dialog')
+    const confirmButton = within(dialog).getByRole('button', { name: /^delete course$/i })
+
+    // Rapidly click the confirm button several times while the request is in flight.
+    fireEvent.click(confirmButton)
+    fireEvent.click(confirmButton)
+    fireEvent.click(confirmButton)
+
+    expect(deleteCourse).toHaveBeenCalledTimes(1)
+
+    resolveDelete(undefined)
+    await waitFor(() => {
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    })
+  })
 })

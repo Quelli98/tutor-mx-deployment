@@ -7,6 +7,7 @@ const mocks = vi.hoisted(() => ({
   allocationGroupBy: vi.fn(),
   courseCreate: vi.fn(),
   courseDelete: vi.fn(),
+  courseServiceDelete: vi.fn(),
   courseFindMany: vi.fn(),
   courseUpdate: vi.fn(),
   createApp: vi.fn(),
@@ -85,6 +86,10 @@ vi.mock("./database.js", () => ({
 vi.mock("./services/allocation-queries.js", () => ({
   findAllocationCandidates: mocks.findAllocationCandidates,
   getTutorHourSummary: mocks.getTutorHourSummary,
+}));
+
+vi.mock("./services/course-service.js", () => ({
+  createCourseService: () => ({ deleteCourse: mocks.courseServiceDelete }),
 }));
 
 vi.mock("./integrations/public-holidays.js", () => ({
@@ -379,9 +384,9 @@ describe("server-side API persistence", () => {
       name: "Updated Course",
     });
 
-    mocks.courseDelete.mockResolvedValueOnce({ id: 6 });
+    mocks.courseServiceDelete.mockResolvedValueOnce(undefined);
     await expect(dependencies.deleteCourse(6)).resolves.toBeUndefined();
-    expect(mocks.courseDelete).toHaveBeenCalledWith({ where: { id: 6 } });
+    expect(mocks.courseServiceDelete).toHaveBeenCalledWith(6);
   });
 
   it("creates and updates tutor profiles without exposing Prisma records", async () => {
@@ -807,16 +812,12 @@ describe("server-side API persistence", () => {
       dependencies.updateCourse(1, { code: "DUP101", name: "Duplicate" }),
     ).rejects.toMatchObject({ status: 409, code: "COURSE_CODE_CONFLICT" });
 
-    mocks.courseDelete.mockRejectedValueOnce({ code: "P2025" });
-    await expect(dependencies.deleteCourse(999)).rejects.toMatchObject({
-      status: 404,
-      code: "COURSE_NOT_FOUND",
-    });
-    mocks.courseDelete.mockRejectedValueOnce({ code: "P2003" });
-    await expect(dependencies.deleteCourse(1)).rejects.toMatchObject({
+    const deleteConflict = Object.assign(new Error("blocked"), {
       status: 409,
-      code: "COURSE_CONFLICT",
+      code: "COURSE_DELETE_CONFLICT",
     });
+    mocks.courseServiceDelete.mockRejectedValueOnce(deleteConflict);
+    await expect(dependencies.deleteCourse(1)).rejects.toBe(deleteConflict);
 
     mocks.profileCreate.mockRejectedValueOnce({ code: "P2002" });
     await expect(
@@ -1082,7 +1083,7 @@ describe("server-side API persistence", () => {
       dependencies.updateCourse(1, { code: "ERR101", name: "Failure" }),
     ).rejects.toBe(unexpected);
 
-    mocks.courseDelete.mockRejectedValueOnce(unexpected);
+    mocks.courseServiceDelete.mockRejectedValueOnce(unexpected);
     await expect(dependencies.deleteCourse(1)).rejects.toBe(unexpected);
 
     mocks.profileCreate.mockRejectedValueOnce(unexpected);
