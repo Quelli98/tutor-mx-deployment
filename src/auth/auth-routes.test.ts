@@ -571,6 +571,7 @@ describe("authentication contract", () => {
   });
 
   it("uses the central safe error format when a handler dependency fails", async () => {
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
     const app = makeApp({
       findProfileByAuth0Id: async () => {
         throw new Error("database connection details");
@@ -593,6 +594,19 @@ describe("authentication contract", () => {
     expect(response.text).not.toContain(
       "database connection details",
     );
+
+    // The profile-role middleware answers before any route runs, so it must log
+    // the cause itself.
+    expect(consoleError).toHaveBeenCalledTimes(1);
+    expect(JSON.parse(String(consoleError.mock.calls[0][0]))).toMatchObject({
+      event: "unhandled_route_error",
+      source: "profile_role_middleware",
+      method: "GET",
+      path: "/api/me",
+      name: "Error",
+      message: "database connection details",
+    });
+    consoleError.mockRestore();
   });
 
   it("deletes only the account identified by the verified token subject", async () => {
@@ -759,9 +773,12 @@ describe("GET /api/public-holidays", () => {
   });
 
   it("keeps unexpected adapter errors private", async () => {
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
     const getPublicHolidays = vi
       .fn<AppDependencies["getPublicHolidays"]>()
-      .mockRejectedValue(new Error("private upstream details"));
+      .mockRejectedValue(
+        Object.assign(new Error("private upstream details"), { code: "P1017" }),
+      );
 
     const response = await request(makeApp({ getPublicHolidays }))
       .get("/api/public-holidays?year=2026")
@@ -775,6 +792,36 @@ describe("GET /api/public-holidays", () => {
       },
     });
     expect(response.text).not.toContain("private upstream details");
+
+    // The cause stays server-side: logged, never sent.
+    expect(consoleError).toHaveBeenCalledTimes(1);
+    const logged = JSON.parse(String(consoleError.mock.calls[0][0]));
+    expect(logged).toMatchObject({
+      event: "unhandled_route_error",
+      source: "route",
+      method: "GET",
+      path: "/api/public-holidays",
+      name: "Error",
+      message: "private upstream details",
+      code: "P1017",
+    });
+    expect(logged.stack).toContain("private upstream details");
+    consoleError.mockRestore();
+  });
+
+  it("does not log errors that routes deliberately map to a response", async () => {
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const deleteCourse = vi.fn().mockRejectedValue(
+      createRouteError(409, "COURSE_CONFLICT", "The course is still referenced by existing records."),
+    );
+
+    const response = await request(makeApp({ ...organiserAccess(), deleteCourse }))
+      .delete("/api/courses/7")
+      .set("Authorization", "Bearer valid-token");
+
+    expect(response.status).toBe(409);
+    expect(consoleError).not.toHaveBeenCalled();
+    consoleError.mockRestore();
   });
 });
 
