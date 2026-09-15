@@ -323,3 +323,239 @@ describe("Basic workflow migrations", () => {
     }
   }, 30_000);
 });
+
+describe("Sprint 2 stability corrections", () => {
+  let database: PGlite;
+
+  beforeAll(async () => {
+    database = new PGlite();
+    await applyMigrations(database);
+    await seed(database);
+  }, 30_000);
+
+  afterAll(async () => {
+    await database.close();
+  });
+
+  async function demoIds(): Promise<{ tutorId: number; courseId: number }> {
+    const ids = await database.query<{ tutor_id: number; course_id: number }>(`
+      SELECT
+        (SELECT "id" FROM "Profile" WHERE "auth0Id" = 'demo|tutor-pass') AS tutor_id,
+        (SELECT "id" FROM "Course" WHERE "code" = 'DEMO101') AS course_id;
+    `);
+    return {
+      tutorId: ids.rows[0]!.tutor_id,
+      courseId: ids.rows[0]!.course_id,
+    };
+  }
+
+  it("treats a WEEKLY busy slot as a clash on later-week occurrences only", async () => {
+    const { tutorId, courseId } = await demoIds();
+    // A WEEKLY busy slot whose first occurrence is a fortnight before the query.
+    await database.query(
+      `INSERT INTO "TimeSlot" ("tutorId", "type", "startsAt", "endsAt", "recurrence")
+       VALUES ($1, 'BUSY', '2030-10-02 14:00', '2030-10-02 16:00', 'WEEKLY')`,
+      [tutorId],
+    );
+
+    const clashing = await findAllocationCandidates(asQueryClient(database), {
+      courseId,
+      startsAt: new Date("2030-10-16T14:00:00.000Z"),
+      endsAt: new Date("2030-10-16T16:00:00.000Z"),
+      minimumMark: 50,
+      requestedHours: 2,
+    });
+    expect(
+      clashing.find((c) => c.fullName === "Demo Tutor Pass")?.reasonCodes,
+    ).toContain("schedule-clash");
+
+    // The same weekday two weeks on, but a non-overlapping time, must not clash.
+    const clear = await findAllocationCandidates(asQueryClient(database), {
+      courseId,
+      startsAt: new Date("2030-10-16T16:00:00.000Z"),
+      endsAt: new Date("2030-10-16T18:00:00.000Z"),
+      minimumMark: 50,
+      requestedHours: 2,
+    });
+    expect(
+      clear.find((c) => c.fullName === "Demo Tutor Pass")?.reasonCodes,
+    ).not.toContain("schedule-clash");
+  });
+
+  it("keys the decided-allocation audit on reviewedAt so a reviewer link can be cleared", async () => {
+    const { tutorId, courseId } = await demoIds();
+    const organiser = await database.query<{ id: number }>(
+      `SELECT "id" FROM "Profile" WHERE "auth0Id" = 'demo|organiser'`,
+    );
+    const organiserId = organiser.rows[0]!.id;
+
+    // Allocations must start PROPOSED, then transition to CONFIRMED.
+    const inserted = await database.query<{ id: number }>(
+      `INSERT INTO "Allocation" (
+         "tutorId", "courseId", "startsAt", "endsAt", "allocatedHours", "status"
+       ) VALUES ($1, $2, '2030-12-01 10:00', '2030-12-01 12:00', 2.00, 'PROPOSED')
+       RETURNING "id"`,
+      [tutorId, courseId],
+    );
+    const allocationId = inserted.rows[0]!.id;
+    await database.query(
+      `UPDATE "Allocation"
+         SET "status" = 'CONFIRMED', "reviewedById" = $2, "reviewedAt" = CURRENT_TIMESTAMP
+       WHERE "id" = $1`,
+      [allocationId, organiserId],
+    );
+
+    // Simulate the FK ON DELETE SET NULL clearing the reviewer link: the
+    // decision timestamp survives, so the audit invariant still holds and the
+    // update succeeds (the old reviewedById-based CHECK would have failed here).
+    await expect(
+      database.query(
+        `UPDATE "Allocation" SET "reviewedById" = NULL WHERE "id" = $1`,
+        [allocationId],
+      ),
+    ).resolves.toBeDefined();
+
+    // Clearing the decision timestamp on a decided allocation is still rejected.
+    await expectDatabaseRejection(
+      database,
+      `UPDATE "Allocation" SET "reviewedAt" = NULL WHERE "id" = $1`,
+      [allocationId],
+    );
+  });
+
+  it("refreshes submittedAt on resubmission but honours an explicit value", async () => {
+    const timesheet = await database.query<{ id: number }>(`
+      SELECT t."id" FROM "Timesheet" t
+      JOIN "Profile" p ON p."id" = t."tutorId"
+      WHERE p."auth0Id" = 'demo|tutor-pass' AND t."weekStart" = DATE '2030-09-16';
+    `);
+    const id = timesheet.rows[0]!.id;
+
+    // Pin an obviously stale submission time without changing status so the
+    // transition branch of the trigger does not fire.
+    await database.query(
+      `UPDATE "Timesheet" SET "submittedAt" = TIMESTAMP '2020-01-01 00:00:00' WHERE "id" = $1`,
+      [id],
+    );
+    await database.query(
+      `UPDATE "Timesheet" SET "status" = 'SUBMITTED' WHERE "id" = $1`,
+      [id],
+    );
+    const refreshed = await database.query<{ submittedAt: string | Date }>(
+      `SELECT "submittedAt" FROM "Timesheet" WHERE "id" = $1`,
+      [id],
+    );
+    expect(
+      new Date(refreshed.rows[0]!.submittedAt).getUTCFullYear(),
+    ).toBeGreaterThan(2020);
+
+    // Return it, then resubmit supplying a deliberate timestamp: it must win.
+    await database.query(
+      `UPDATE "Timesheet" SET "status" = 'RETURNED', "reviewReason" = 'again' WHERE "id" = $1`,
+      [id],
+    );
+    await database.query(
+      `UPDATE "Timesheet" SET "status" = 'SUBMITTED', "submittedAt" = TIMESTAMP '2035-06-01 09:00:00' WHERE "id" = $1`,
+      [id],
+    );
+    const explicit = await database.query<{ submittedAt: string | Date }>(
+      `SELECT "submittedAt" FROM "Timesheet" WHERE "id" = $1`,
+      [id],
+    );
+    expect(new Date(explicit.rows[0]!.submittedAt).getUTCFullYear()).toBe(2035);
+  });
+
+  it("safely deletes a course whose only dependants are disposable setup data", async () => {
+    const { tutorId } = await demoIds();
+    const created = await database.query<{ id: number }>(
+      `INSERT INTO "Course" ("code", "name") VALUES ('DELSAFE1', 'Disposable Course') RETURNING "id"`,
+    );
+    const courseId = created.rows[0]!.id;
+    await database.query(
+      `INSERT INTO "TutorMark" ("tutorId", "courseId", "mark") VALUES ($1, $2, 70.00)`,
+      [tutorId, courseId],
+    );
+    await database.query(
+      `INSERT INTO "Allocation" ("tutorId", "courseId", "startsAt", "endsAt", "allocatedHours", "status")
+       VALUES ($1, $2, '2031-01-05 10:00', '2031-01-05 12:00', 2.00, 'PROPOSED')`,
+      [tutorId, courseId],
+    );
+    await database.query(
+      `INSERT INTO "OverflowWork" ("courseId", "startsAt", "endsAt", "hours", "status")
+       VALUES ($1, '2031-01-06 10:00', '2031-01-06 12:00', 2.00, 'OPEN')`,
+      [courseId],
+    );
+
+    // Delete disposable children in the same order the service uses, then the
+    // course itself: every ON DELETE Restrict foreign key stays satisfied.
+    await database.query(`DELETE FROM "OverflowWork" WHERE "courseId" = $1`, [
+      courseId,
+    ]);
+    await database.query(`DELETE FROM "Allocation" WHERE "courseId" = $1`, [
+      courseId,
+    ]);
+    await database.query(`DELETE FROM "TutorMark" WHERE "courseId" = $1`, [
+      courseId,
+    ]);
+    await expect(
+      database.query(`DELETE FROM "Course" WHERE "id" = $1`, [courseId]),
+    ).resolves.toBeDefined();
+
+    const remaining = await database.query(
+      `SELECT "id" FROM "Course" WHERE "id" = $1`,
+      [courseId],
+    );
+    expect(remaining.rows).toHaveLength(0);
+  });
+
+  it("protects logged work with a Restrict foreign key so course history cannot be dropped", async () => {
+    const { tutorId } = await demoIds();
+    const created = await database.query<{ id: number }>(
+      `INSERT INTO "Course" ("code", "name") VALUES ('DELHIST1', 'Historical Course') RETURNING "id"`,
+    );
+    const courseId = created.rows[0]!.id;
+    const organiser = await database.query<{ id: number }>(
+      `SELECT "id" FROM "Profile" WHERE "auth0Id" = 'demo|organiser'`,
+    );
+    const organiserId = organiser.rows[0]!.id;
+    const allocation = await database.query<{ id: number }>(
+      `INSERT INTO "Allocation" ("tutorId", "courseId", "startsAt", "endsAt", "allocatedHours", "status")
+       VALUES ($1, $2, '2031-02-05 10:00', '2031-02-05 12:00', 2.00, 'PROPOSED') RETURNING "id"`,
+      [tutorId, courseId],
+    );
+    const allocationId = allocation.rows[0]!.id;
+    // A work log is auditable history and may only attach to a confirmed
+    // allocation owned by the tutor, so confirm it before recording work.
+    await database.query(
+      `UPDATE "Allocation"
+         SET "status" = 'CONFIRMED', "reviewedById" = $2, "reviewedAt" = CURRENT_TIMESTAMP
+       WHERE "id" = $1`,
+      [allocationId, organiserId],
+    );
+    await database.query(
+      `INSERT INTO "WorkLog" ("tutorId", "allocationId", "workDate", "hours", "description")
+       VALUES ($1, $2, '2031-02-05', 2.00, 'Recorded tutorial')`,
+      [tutorId, allocationId],
+    );
+
+    // The database itself refuses to drop the allocation (and therefore the
+    // course) while a work log references it, which is why the service inspects
+    // and blocks instead of leaning on a raw foreign-key error.
+    await expectDatabaseRejection(
+      database,
+      `DELETE FROM "Allocation" WHERE "id" = $1`,
+      [allocationId],
+    );
+    await expectDatabaseRejection(
+      database,
+      `DELETE FROM "Course" WHERE "id" = $1`,
+      [courseId],
+    );
+
+    const stillThere = await database.query(
+      `SELECT "id" FROM "Course" WHERE "id" = $1`,
+      [courseId],
+    );
+    expect(stillThere.rows).toHaveLength(1);
+  });
+});

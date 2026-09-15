@@ -119,6 +119,62 @@ export function toNaiveUtcText(value: Date): string {
   return value.toISOString().replace("T", " ").replace("Z", "");
 }
 
+const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
+
+/**
+ * Whether a tutor BUSY interval clashes with a requested allocation window.
+ *
+ * A non-recurring slot clashes only on its own absolute window, using the same
+ * half-open rule as {@link timeRangesOverlap} (touching intervals do not clash).
+ * A WEEKLY slot repeats every seven days from its first occurrence, so it
+ * clashes when any occurrence on or after that first week overlaps the window.
+ * Occurrences before the slot's own start are never counted, which is what
+ * stops a recurring slot from flagging a false clash for a session that
+ * predates it. This is the in-process twin of the WEEKLY branch in
+ * {@link candidateQuerySql}; both are pinned to identical verdicts by test.
+ */
+export function busySlotClashes(
+  slotStartsAt: Date | null | undefined,
+  slotEndsAt: Date | null | undefined,
+  recurrence: string | null | undefined,
+  windowStartsAt: Date | null | undefined,
+  windowEndsAt: Date | null | undefined,
+): boolean {
+  const values = [slotStartsAt, slotEndsAt, windowStartsAt, windowEndsAt].map(
+    (value) => (value instanceof Date ? value.valueOf() : Number.NaN),
+  );
+  const slotStart = values[0]!;
+  const slotEnd = values[1]!;
+  const windowStart = values[2]!;
+  const windowEnd = values[3]!;
+  if (
+    values.some((value) => !Number.isFinite(value)) ||
+    slotEnd <= slotStart ||
+    windowEnd <= windowStart
+  ) {
+    return false;
+  }
+
+  if (recurrence !== "WEEKLY") {
+    return slotStart < windowEnd && slotEnd > windowStart;
+  }
+
+  // Project the slot onto the weeks nearest the window and honour k >= 0 so
+  // occurrences before the slot's first week are ignored.
+  const baseOffset = Math.floor((windowStart - slotStart) / WEEK_MS);
+  for (const delta of [-1, 0, 1]) {
+    const k = baseOffset + delta;
+    if (k < 0) {
+      continue;
+    }
+    const shift = k * WEEK_MS;
+    if (slotStart + shift < windowEnd && slotEnd + shift > windowStart) {
+      return true;
+    }
+  }
+  return false;
+}
+
 export const candidateQuerySql = `
 WITH tutor_hours AS (
   SELECT
@@ -148,8 +204,28 @@ WITH tutor_hours AS (
         SELECT 1 FROM "TimeSlot" ts
         WHERE ts."tutorId" = p."id"
           AND ts."type" = 'BUSY'
-          AND ts."startsAt" < $3::timestamp
-          AND ts."endsAt" > $2::timestamp
+          AND (
+            (
+              ts."recurrence" IS DISTINCT FROM 'WEEKLY'
+              AND ts."startsAt" < $3::timestamp
+              AND ts."endsAt" > $2::timestamp
+            )
+            OR (
+              ts."recurrence" = 'WEEKLY'
+              AND EXISTS (
+                SELECT 1
+                FROM generate_series(-1, 1) AS delta
+                CROSS JOIN LATERAL (
+                  SELECT floor(
+                    extract(epoch FROM ($2::timestamp - ts."startsAt")) / 604800
+                  )::bigint + delta AS k
+                ) occ
+                WHERE occ.k >= 0
+                  AND ts."startsAt" + (occ.k * interval '7 days') < $3::timestamp
+                  AND ts."endsAt" + (occ.k * interval '7 days') > $2::timestamp
+              )
+            )
+          )
       )
       OR EXISTS (
         SELECT 1 FROM "Allocation" clash

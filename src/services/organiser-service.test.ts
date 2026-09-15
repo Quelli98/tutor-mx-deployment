@@ -102,7 +102,11 @@ function arrangePassingAllocationRules(
     mark?: number | null;
     weeklyHours?: number | null;
     usedHours?: number | null;
-    busySlots?: Array<{ startsAt: Date; endsAt: Date }>;
+    busySlots?: Array<{
+      startsAt: Date;
+      endsAt: Date;
+      recurrence?: string | null;
+    }>;
     confirmedAllocations?: Array<{ startsAt: Date; endsAt: Date }>;
   } = {},
 ) {
@@ -343,6 +347,45 @@ describe("organiser allocation service", () => {
       harness.service.createAllocation("auth0|organiser", allocationInput()),
     ).rejects.toMatchObject({ status: 409, code: "schedule-clash" });
     expect(harness.transaction.allocation.create).not.toHaveBeenCalled();
+  });
+
+  it("rejects a WEEKLY busy slot whose earlier occurrence recurs into the request", async () => {
+    // The slot's own window is a week before the request and never overlaps it,
+    // so only the recurrence rule can detect the clash. This is the create-path
+    // twin of the candidate board's WEEKLY branch.
+    arrangePassingAllocationRules(harness, {
+      busySlots: [
+        {
+          startsAt: new Date("2030-08-28T14:00:00.000Z"),
+          endsAt: new Date("2030-08-28T16:00:00.000Z"),
+          recurrence: "WEEKLY",
+        },
+      ],
+    });
+
+    await expect(
+      harness.service.createAllocation("auth0|organiser", allocationInput()),
+    ).rejects.toMatchObject({ status: 409, code: "schedule-clash" });
+    expect(harness.transaction.allocation.create).not.toHaveBeenCalled();
+  });
+
+  it("allows a WEEKLY busy slot whose occurrences never meet the request window", async () => {
+    // WEEKLY on a different time-of-day: no occurrence overlaps the request.
+    arrangePassingAllocationRules(harness, {
+      busySlots: [
+        {
+          startsAt: new Date("2030-08-28T18:00:00.000Z"),
+          endsAt: new Date("2030-08-28T19:00:00.000Z"),
+          recurrence: "WEEKLY",
+        },
+      ],
+    });
+    harness.transaction.allocation.create.mockResolvedValue(allocationRow());
+
+    await expect(
+      harness.service.createAllocation("auth0|organiser", allocationInput()),
+    ).resolves.toMatchObject({ status: "PROPOSED" });
+    expect(harness.transaction.allocation.create).toHaveBeenCalled();
   });
 
   it("rejects an allocation over the weekly-hour limit with the canonical reason code", async () => {

@@ -4,14 +4,18 @@ services:
     runtime: node
     plan: free
     buildCommand: npm ci && npm run generate && npm run build:backend
-    preDeployCommand: npm run db:migrate
-    startCommand: npm start
+    # Render's preDeployCommand is not available on the free plan, so pending
+    # migrations are applied as part of startup instead. db:migrate connects
+    # through DIRECT_URL (the non-pooled Neon endpoint) via prisma.config.ts.
+    startCommand: npm run db:migrate && npm start
     healthCheckPath: /health
     autoDeployTrigger: commit
     envVars:
       - key: NODE_VERSION
         value: 22
       - key: DATABASE_URL
+        sync: false
+      - key: DIRECT_URL
         sync: false
       - key: FRONTEND_ORIGIN
         sync: false

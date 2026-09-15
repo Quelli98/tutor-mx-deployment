@@ -10,6 +10,10 @@ export default defineConfig({
     seed: "tsx prisma/seed.ts",
   },
   datasource: {
-    url: process.env["DATABASE_URL"],
+    // Prisma CLI operations (migrate deploy, db seed) must run over a direct,
+    // non-pooled connection. Neon's pooled endpoint (PgBouncer) cannot run the
+    // migration engine, so prefer DIRECT_URL when it is set and fall back to
+    // DATABASE_URL for local setups that use a single connection string.
+    url: process.env["DIRECT_URL"] ?? process.env["DATABASE_URL"],
   },
 });

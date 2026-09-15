@@ -213,8 +213,9 @@ describe("timesheet workflow submission", () => {
     expect(harness.timesheetFindFirst).toHaveBeenCalledTimes(2);
   });
 
-  it("resubmits RETURNED work and clears the organiser review fields", async () => {
+  it("resubmits RETURNED work, clears the review fields and stamps a fresh submission time", async () => {
     const returned = timesheet("RETURNED", {
+      submittedAt: new Date("2030-09-08T12:00:00.000Z"),
       reviewedAt: new Date("2030-09-09T08:30:00.000Z"),
       reviewReason: "Correct the entry.",
     });
@@ -235,14 +236,17 @@ describe("timesheet workflow submission", () => {
       where: { id: 12, tutorId: 7, status: "RETURNED" },
       data: {
         status: "SUBMITTED",
+        submittedAt: expect.any(Date),
         reviewedAt: null,
         reviewedById: null,
         reviewReason: null,
       },
     });
-    expect(harness.timesheetUpdateMany.mock.calls[0]?.[0].data).not.toHaveProperty(
-      "submittedAt",
-    );
+    // The stamped time must be fresh (roughly now), not the original
+    // submission, so the organiser queue reorders the resubmission.
+    const stamped = harness.timesheetUpdateMany.mock.calls[0]?.[0].data
+      .submittedAt as Date;
+    expect(Date.now() - stamped.getTime()).toBeLessThan(5_000);
   });
 
   it.each(["SUBMITTED", "APPROVED"] as const)(

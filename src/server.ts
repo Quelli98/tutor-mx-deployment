@@ -14,13 +14,14 @@ import {
   createAuth0PasswordResetRequester,
   type PasswordResetRequester,
 } from "./auth/password-reset.js";
-import { createAuth0RoleProvisioner, createAuth0UserDeleter } from "./auth/management-api.js";
+import { createAuth0RoleProvisioner, createAuth0UserDeleter, createAuth0VerificationEmailSender } from "./auth/management-api.js";
 import { prisma, queryClient } from "./database.js";
 import { createSouthAfricaPublicHolidayService } from "./integrations/public-holidays.js";
 import {
   findAllocationCandidates,
   getTutorHourSummary,
 } from "./services/allocation-queries.js";
+import { createCourseService } from "./services/course-service.js";
 import { createExcuseWorkflowService } from "./services/excuse-workflows.js";
 import { createOrganiserService } from "./services/organiser-service.js";
 import { createStudentWorkflowService } from "./services/student-workflows.js";
@@ -67,6 +68,12 @@ const deleteAuth0User = auth0ManagementConfig
 const provisionAuth0Role = auth0ManagementConfig
   ? createAuth0RoleProvisioner(auth0ManagementConfig)
   : async () => { throw new Error("Auth0 Management API onboarding is not configured"); };
+
+// The resend-verification route fails closed when this is undefined (503), so it
+// is only wired when Management API credentials are present.
+const requestVerificationEmail = auth0ManagementConfig
+  ? createAuth0VerificationEmailSender(auth0ManagementConfig)
+  : undefined;
 
 function isPrismaErrorCode(error: unknown, code: string) {
   return (
@@ -172,6 +179,7 @@ const studentWorkflowService = createStudentWorkflowService(
 const timesheetWorkflowService = createTimesheetWorkflowService(prisma);
 const excuseWorkflowService = createExcuseWorkflowService(prisma);
 const organiserService = createOrganiserService(prisma);
+const courseService = createCourseService(prisma);
 const publicHolidayService = createSouthAfricaPublicHolidayService();
 
 const app = createApp(
@@ -182,6 +190,7 @@ const app = createApp(
     corsOrigin: process.env.FRONTEND_ORIGIN ?? "http://localhost:5173",
     verifyAccessToken,
     requestPasswordReset,
+    requestVerificationEmail,
     allowSelfServiceOrganiser: process.env.ALLOW_SELF_SERVICE_ORGANISER?.toLowerCase() === "true",
     getPublicHolidays: (year) => publicHolidayService.execute(year),
     async findProfileByAuth0Id(auth0Id) {
@@ -285,25 +294,12 @@ const app = createApp(
       }
     },
     async deleteCourse(courseId) {
-      try {
-        await prisma.course.delete({ where: { id: courseId } });
-      } catch (error) {
-        if (isPrismaErrorCode(error, "P2025")) {
-          throw createRouteError(
-            404,
-            "COURSE_NOT_FOUND",
-            "The requested course could not be found.",
-          );
-        }
-        if (isPrismaErrorCode(error, "P2003")) {
-          throw createRouteError(
-            409,
-            "COURSE_CONFLICT",
-            "The course is still referenced by existing records.",
-          );
-        }
-        throw error;
-      }
+      // The dedicated service inspects every dependent record inside a
+      // transaction, deletes only disposable children, and raises a public
+      // COURSE_DELETE_CONFLICT (or COURSE_NOT_FOUND) route error. Any surprise
+      // Prisma failure stays unmapped and is reported as a generic 500 so raw
+      // database detail never reaches the client.
+      await courseService.deleteCourse(courseId);
     },
     async listTutors() {
       const tutors = await prisma.profile.findMany({

@@ -22,6 +22,19 @@ function safeErrorMessage(error, fallback) {
     return 'Check the course code and name and try again.'
   }
 
+  if (error?.code === 'COURSE_DELETE_CONFLICT') {
+    // The backend supplies a specific, already-safe explanation of which
+    // auditable records blocked the delete; fall back to a general message.
+    return (
+      error?.message ||
+      'This course still has historical work that must remain auditable, so it cannot be deleted. Cancel or reassign that work first.'
+    )
+  }
+
+  if (error?.code === 'COURSE_CONFLICT') {
+    return 'This course still has tutors, allocations or timesheets linked to it. Remove those first, then delete the course.'
+  }
+
   return fallback
 }
 
