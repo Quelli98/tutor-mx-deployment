@@ -22,6 +22,11 @@ function safeErrorMessage(error, fallback) {
     return 'Check the course code and name and try again.'
   }
 
+  // The server names what is holding the course (allocations or overflow work).
+  if (error?.code === 'COURSE_CONFLICT' && error.message) {
+    return error.message
+  }
+
   return fallback
 }
 
@@ -60,6 +65,7 @@ export default function CourseManagement() {
 
   const [courseToDelete, setCourseToDelete] = useState(null)
   const [deleteStatus, setDeleteStatus] = useState('idle')
+  const [deleteError, setDeleteError] = useState('')
 
   const loadCourses = useCallback(
     async (isActive = () => true) => {
@@ -145,8 +151,14 @@ export default function CourseManagement() {
     }
   }
 
+  function openDeleteDialog(course) {
+    setDeleteError('')
+    setCourseToDelete(course)
+  }
+
   function handleCancelDelete() {
     if (deleteStatus === 'pending') return
+    setDeleteError('')
     setCourseToDelete(null)
   }
 
@@ -154,7 +166,7 @@ export default function CourseManagement() {
     if (!courseToDelete || deleteStatus === 'pending') return
 
     setDeleteStatus('pending')
-    setFormError('')
+    setDeleteError('')
     setSuccessMessage('')
 
     try {
@@ -163,8 +175,9 @@ export default function CourseManagement() {
       setCourseToDelete(null)
       await loadCourses()
     } catch (err) {
-      setFormError(safeErrorMessage(err, 'The course could not be deleted safely.'))
-      setCourseToDelete(null)
+      // Kept in the dialog, beside the course it is about, rather than under the
+      // add-course form.
+      setDeleteError(safeErrorMessage(err, 'The course could not be deleted safely.'))
     } finally {
       setDeleteStatus('idle')
     }
@@ -305,7 +318,7 @@ export default function CourseManagement() {
                         <button
                           className="danger-button"
                           type="button"
-                          onClick={() => setCourseToDelete(course)}
+                          onClick={() => openDeleteDialog(course)}
                         >
                           Delete {course.code}
                         </button>
@@ -332,6 +345,11 @@ export default function CourseManagement() {
           {courseToDelete ? `${courseToDelete.code} - ${courseToDelete.name}` : 'this course'}? This
           cannot be undone.
         </p>
+        {deleteError && (
+          <p className="status-note danger" role="alert">
+            {deleteError}
+          </p>
+        )}
       </ConfirmationDialog>
     </main>
   )

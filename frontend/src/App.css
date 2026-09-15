@@ -1300,6 +1300,23 @@ a:focus-visible {
   justify-self: start;
 }
 
+.calculated-value {
+  display: flex;
+  align-items: center;
+  min-height: 46px;
+  box-sizing: border-box;
+  padding: 12px 14px;
+  border-radius: 11px;
+  background: var(--surface-muted);
+  color: var(--text-h);
+  font-weight: 650;
+}
+
+.calculated-value-hint {
+  margin: 0;
+  font-size: 0.82rem;
+}
+
 .candidate-results {
   display: grid;
   gap: 20px;

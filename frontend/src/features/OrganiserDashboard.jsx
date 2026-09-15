@@ -17,7 +17,6 @@ const EMPTY_FORM = {
   startsAt: '',
   endsAt: '',
   minimumMark: '65',
-  requestedHours: '2',
 }
 
 const ALLOCATION_RULE_CODES = new Set([
@@ -65,11 +64,19 @@ function formatDateTime(isoValue) {
   }).format(new Date(isoValue))
 }
 
+function sessionHours(startsAtValue, endsAtValue) {
+  if (!startsAtValue || !endsAtValue) return null
+  const startsAt = new Date(startsAtValue)
+  const endsAt = new Date(endsAtValue)
+  if (Number.isNaN(startsAt.valueOf()) || Number.isNaN(endsAt.valueOf())) return null
+  if (endsAt <= startsAt) return null
+  return Math.round(((endsAt - startsAt) / 3_600_000) * 100) / 100
+}
+
 function validateBoard(form) {
   const errors = {}
   const courseId = Number(form.courseId)
   const minimumMark = Number(form.minimumMark)
-  const requestedHours = Number(form.requestedHours)
   const startsAt = new Date(form.startsAt)
   const endsAt = new Date(form.endsAt)
 
@@ -83,6 +90,8 @@ function validateBoard(form) {
     errors.endsAt = 'Choose a valid end date and time.'
   } else if (!errors.startsAt && endsAt <= startsAt) {
     errors.endsAt = 'The end time must be later than the start time.'
+  } else if (!errors.startsAt && sessionHours(form.startsAt, form.endsAt) > 24) {
+    errors.endsAt = 'A session can be no longer than 24 hours.'
   }
   if (
     !form.minimumMark.trim() ||
@@ -91,14 +100,6 @@ function validateBoard(form) {
     minimumMark > 100
   ) {
     errors.minimumMark = 'Enter a minimum mark from 0 to 100.'
-  }
-  if (
-    !form.requestedHours.trim() ||
-    !Number.isFinite(requestedHours) ||
-    requestedHours <= 0 ||
-    requestedHours > 24
-  ) {
-    errors.requestedHours = 'Enter requested hours above 0 and no more than 24.'
   }
 
   return errors
@@ -229,6 +230,7 @@ export default function OrganiserDashboard() {
   )
 
   const isMutating = mutationStatus !== 'idle'
+  const requestedHours = sessionHours(form.startsAt, form.endsAt)
 
   function boardInput() {
     return {
@@ -236,7 +238,7 @@ export default function OrganiserDashboard() {
       startsAt: new Date(form.startsAt).toISOString(),
       endsAt: new Date(form.endsAt).toISOString(),
       minimumMark: Number(form.minimumMark),
-      requestedHours: Number(form.requestedHours),
+      requestedHours,
       ...(editingAllocation ? { excludeAllocationId: editingAllocation.id } : {}),
     }
   }
@@ -292,7 +294,6 @@ export default function OrganiserDashboard() {
       startsAt: dateTimeLocalValue(allocation.startsAt),
       endsAt: dateTimeLocalValue(allocation.endsAt),
       minimumMark: '65',
-      requestedHours: String(allocation.allocatedHours),
     })
     setFieldErrors({})
     setCandidateStatus('idle')
@@ -634,23 +635,19 @@ export default function OrganiserDashboard() {
 
           <div className="field-group">
             <label htmlFor="allocation-hours">Required hours</label>
-            <input
+            <output
               id="allocation-hours"
-              type="number"
-              min="0.25"
-              max="24"
-              step="0.25"
-              value={form.requestedHours}
-              disabled={isMutating}
-              onChange={(event) => updateField('requestedHours', event.target.value)}
-              aria-invalid={Boolean(fieldErrors.requestedHours)}
-              aria-describedby={fieldErrors.requestedHours ? 'allocation-hours-error' : undefined}
-            />
-            {fieldErrors.requestedHours && (
-              <p id="allocation-hours-error" className="error-text">
-                {fieldErrors.requestedHours}
-              </p>
-            )}
+              className="calculated-value"
+              htmlFor="allocation-start allocation-end"
+              aria-describedby="allocation-hours-hint"
+            >
+              {requestedHours === null
+                ? 'Not calculated yet'
+                : `${requestedHours} ${requestedHours === 1 ? 'hour' : 'hours'}`}
+            </output>
+            <p id="allocation-hours-hint" className="helper-text calculated-value-hint">
+              Calculated from the session start and end times.
+            </p>
           </div>
 
           <button
@@ -727,7 +724,7 @@ export default function OrganiserDashboard() {
                 key={candidate.tutorId}
                 candidate={candidate}
                 minimumMark={Number(form.minimumMark)}
-                requestedHours={Number(form.requestedHours)}
+                requestedHours={requestedHours}
                 selected={candidate.tutorId === selectedTutorId}
                 onSelect={() => setSelectedTutorId(candidate.tutorId)}
                 disabled={isMutating}

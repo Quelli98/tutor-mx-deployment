@@ -124,6 +124,7 @@ describe("shared error handling", () => {
   });
 
   it("uses the generic safe error envelope for other middleware failures", async () => {
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
     const app = createApp(async () => undefined);
     const oversizedBody = JSON.stringify({ value: "x".repeat(40_000) });
 
@@ -140,5 +141,15 @@ describe("shared error handling", () => {
       },
     });
     expect(response.text).not.toContain("request entity too large");
+
+    expect(consoleError).toHaveBeenCalledTimes(1);
+    expect(JSON.parse(String(consoleError.mock.calls[0][0]))).toMatchObject({
+      event: "unhandled_route_error",
+      source: "final_error_handler",
+      method: "POST",
+      path: "/api/auth/password-reset",
+      message: "request entity too large",
+    });
+    consoleError.mockRestore();
   });
 });

@@ -1,5 +1,6 @@
 import type { NextFunction, Request, RequestHandler, Response } from "express";
 import type { AccessTokenVerifier, AuthContext, TutorRole } from "./contract.js";
+import { logUnhandledError } from "../unhandled-error-log.js";
 
 export interface ResolvedProfileRole { role: TutorRole }
 export type AuthenticatedRequest = Request & { auth?: AuthContext };
@@ -30,7 +31,10 @@ export function createProfileRoleMiddleware(findProfileByAuth0Id: (auth0Id: stri
       }
       auth.role = profile.role;
       next();
-    } catch { sendError(response, 500, "INTERNAL_ERROR", "The request could not be completed."); }
+    } catch (value) {
+      logUnhandledError("profile_role_middleware", request, value);
+      sendError(response, 500, "INTERNAL_ERROR", "The request could not be completed.");
+    }
   };
 }
 

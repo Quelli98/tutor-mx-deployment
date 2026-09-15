@@ -7,7 +7,9 @@ const mocks = vi.hoisted(() => ({
   allocationGroupBy: vi.fn(),
   courseCreate: vi.fn(),
   courseDelete: vi.fn(),
+  deleteCourseAndDependents: vi.fn(),
   courseFindMany: vi.fn(),
+  courseFindUnique: vi.fn(),
   courseUpdate: vi.fn(),
   createApp: vi.fn(),
   excuseCreate: vi.fn(),
@@ -54,6 +56,7 @@ vi.mock("./database.js", () => ({
       create: mocks.courseCreate,
       delete: mocks.courseDelete,
       findMany: mocks.courseFindMany,
+      findUnique: mocks.courseFindUnique,
       update: mocks.courseUpdate,
     },
     profile: {
@@ -80,6 +83,10 @@ vi.mock("./database.js", () => ({
     },
   },
   queryClient: {},
+}));
+
+vi.mock("./services/course-deletion.js", () => ({
+  deleteCourseAndDependents: mocks.deleteCourseAndDependents,
 }));
 
 vi.mock("./services/allocation-queries.js", () => ({
@@ -379,9 +386,15 @@ describe("server-side API persistence", () => {
       name: "Updated Course",
     });
 
-    mocks.courseDelete.mockResolvedValueOnce({ id: 6 });
+    // The cascade and its refusals are covered against Postgres in
+    // services/course-deletion.test.ts; here only the wiring is checked.
+    mocks.deleteCourseAndDependents.mockResolvedValueOnce(undefined);
     await expect(dependencies.deleteCourse(6)).resolves.toBeUndefined();
-    expect(mocks.courseDelete).toHaveBeenCalledWith({ where: { id: 6 } });
+    expect(mocks.deleteCourseAndDependents).toHaveBeenCalledWith(
+      expect.objectContaining({ course: expect.any(Object) }),
+      6,
+    );
+    expect(mocks.courseDelete).not.toHaveBeenCalled();
   });
 
   it("creates and updates tutor profiles without exposing Prisma records", async () => {
@@ -807,17 +820,6 @@ describe("server-side API persistence", () => {
       dependencies.updateCourse(1, { code: "DUP101", name: "Duplicate" }),
     ).rejects.toMatchObject({ status: 409, code: "COURSE_CODE_CONFLICT" });
 
-    mocks.courseDelete.mockRejectedValueOnce({ code: "P2025" });
-    await expect(dependencies.deleteCourse(999)).rejects.toMatchObject({
-      status: 404,
-      code: "COURSE_NOT_FOUND",
-    });
-    mocks.courseDelete.mockRejectedValueOnce({ code: "P2003" });
-    await expect(dependencies.deleteCourse(1)).rejects.toMatchObject({
-      status: 409,
-      code: "COURSE_CONFLICT",
-    });
-
     mocks.profileCreate.mockRejectedValueOnce({ code: "P2002" });
     await expect(
       dependencies.createTutor({
@@ -857,6 +859,7 @@ describe("server-side API persistence", () => {
         reasonCodes: [],
       },
     ];
+    mocks.courseFindUnique.mockResolvedValueOnce({ id: 3 });
     mocks.findAllocationCandidates.mockResolvedValueOnce(candidates);
     const input = {
       courseId: 3,
@@ -869,7 +872,20 @@ describe("server-side API persistence", () => {
     await expect(dependencies.listAllocationCandidates(input)).resolves.toEqual(
       candidates,
     );
+    expect(mocks.courseFindUnique).toHaveBeenCalledWith({
+      where: { id: 3 },
+      select: { id: true },
+    });
     expect(mocks.findAllocationCandidates).toHaveBeenCalledWith({}, input);
+
+    // A stale page asking about a deleted course gets a 404, not an empty list
+    // that would read as "no tutor has a mark record for this course".
+    mocks.courseFindUnique.mockResolvedValueOnce(null);
+    mocks.findAllocationCandidates.mockClear();
+    await expect(
+      dependencies.listAllocationCandidates({ ...input, courseId: 999 }),
+    ).rejects.toMatchObject({ status: 404, code: "COURSE_NOT_FOUND" });
+    expect(mocks.findAllocationCandidates).not.toHaveBeenCalled();
   });
 
   it("upserts tutor marks and maps missing tutor or course references", async () => {
@@ -1082,7 +1098,7 @@ describe("server-side API persistence", () => {
       dependencies.updateCourse(1, { code: "ERR101", name: "Failure" }),
     ).rejects.toBe(unexpected);
 
-    mocks.courseDelete.mockRejectedValueOnce(unexpected);
+    mocks.deleteCourseAndDependents.mockRejectedValueOnce(unexpected);
     await expect(dependencies.deleteCourse(1)).rejects.toBe(unexpected);
 
     mocks.profileCreate.mockRejectedValueOnce(unexpected);
