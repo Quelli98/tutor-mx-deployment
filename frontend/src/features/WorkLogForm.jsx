@@ -1,6 +1,37 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { submitWorkLog } from '../api/workLog'
 import TimesheetSection from './TimesheetSection'
+
+const STORAGE_KEY = 'tutormx.tutorWorkLogs'
+
+function storageKeyFor(scope) {
+  return scope ? `${STORAGE_KEY}.${scope}` : STORAGE_KEY
+}
+
+function loadStoredDrafts(storageKey) {
+  try {
+    const raw = window.sessionStorage.getItem(storageKey)
+    const stored = raw ? JSON.parse(raw) : []
+    if (!Array.isArray(stored)) return []
+    return stored.filter(
+      (entry) =>
+        Number.isInteger(entry?.id) &&
+        typeof entry?.workDate === 'string' &&
+        typeof entry?.hours === 'number' &&
+        typeof entry?.description === 'string',
+    )
+  } catch {
+    return []
+  }
+}
+
+function persistDrafts(drafts, storageKey) {
+  try {
+    window.sessionStorage.setItem(storageKey, JSON.stringify(drafts))
+  } catch {
+    // A blocked or full store must not break the in-page workflow.
+  }
+}
 
 function sessionLabel(allocation) {
   return `${allocation.courseCode} - ${new Date(allocation.startsAt).toLocaleString()}`
@@ -13,7 +44,9 @@ export default function WorkLogForm({ allocations = [], tokenOrGetter, storageSc
   const [description, setDescription] = useState('')
   const [errors, setErrors] = useState({})
   const [status, setStatus] = useState('idle')
-  const [draftLogs, setDraftLogs] = useState([])
+  const [draftLogs, setDraftLogs] = useState(() =>
+    loadStoredDrafts(storageKeyFor(storageScope)),
+  )
 
   const selectedAllocation = useMemo(
     () => allocations.find((allocation) => String(allocation.id) === allocationId),
@@ -48,6 +81,10 @@ export default function WorkLogForm({ allocations = [], tokenOrGetter, storageSc
     setErrors(nextErrors)
     return Object.keys(nextErrors).length === 0
   }
+
+  useEffect(() => {
+    persistDrafts(draftLogs, storageKeyFor(storageScope))
+  }, [draftLogs, storageScope])
 
   async function handleSubmit(event) {
     event.preventDefault()
