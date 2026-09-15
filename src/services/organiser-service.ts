@@ -13,6 +13,7 @@ import {
 import { Prisma, type PrismaClient } from "../generated/prisma/client.js";
 import {
   allocationReasonCodesFor,
+  busySlotClashes,
   timeRangesOverlap,
   type CandidateReasonCode,
 } from "./allocation-queries.js";
@@ -243,14 +244,23 @@ async function validateAllocationRules(
     where: { tutorId: input.tutorId },
     select: { weeklyHours: true },
   });
+  // Non-recurring busy slots only matter when their absolute window overlaps
+  // the request, but a WEEKLY slot can sit in any week and still clash on a
+  // later occurrence, so those must be fetched regardless of their base window
+  // and evaluated with the same recurrence-aware rule as the candidate board.
   const busySlots = await transaction.timeSlot.findMany({
     where: {
       tutorId: input.tutorId,
       type: "BUSY",
-      startsAt: { lt: input.endsAt },
-      endsAt: { gt: input.startsAt },
+      OR: [
+        { recurrence: "WEEKLY" },
+        {
+          startsAt: { lt: input.endsAt },
+          endsAt: { gt: input.startsAt },
+        },
+      ],
     },
-    select: { startsAt: true, endsAt: true },
+    select: { startsAt: true, endsAt: true, recurrence: true },
   });
   const confirmedAllocations = await transaction.allocation.findMany({
     where: {
@@ -272,15 +282,28 @@ async function validateAllocationRules(
     _sum: { allocatedHours: true },
   });
 
-  const hasClash = [...busySlots, ...confirmedAllocations].some(
+  // Use === true / recurrence-aware helpers so a degenerate range never yields
+  // a false clash, keeping create/update verdicts identical to the candidate
+  // board's SQL.
+  const hasBusyClash = busySlots.some((slot) =>
+    busySlotClashes(
+      slot.startsAt,
+      slot.endsAt,
+      slot.recurrence,
+      input.startsAt,
+      input.endsAt,
+    ),
+  );
+  const hasAllocationClash = confirmedAllocations.some(
     (range) =>
       timeRangesOverlap(
         input.startsAt,
         input.endsAt,
         range.startsAt,
         range.endsAt,
-      ) !== false,
+      ) === true,
   );
+  const hasClash = hasBusyClash || hasAllocationClash;
   const weeklyLimit =
     hourLimit?.weeklyHours === undefined
       ? null

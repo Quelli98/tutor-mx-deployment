@@ -22,6 +22,10 @@ function safeErrorMessage(error, fallback) {
     return 'Check the course code and name and try again.'
   }
 
+  if (error?.code === 'COURSE_CONFLICT') {
+    return 'This course still has tutors, allocations or timesheets linked to it. Remove those first, then delete the course.'
+  }
+
   return fallback
 }
 

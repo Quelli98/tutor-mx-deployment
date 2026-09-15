@@ -1,5 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
-import { createAuth0RoleProvisioner, createAuth0UserDeleter } from "./management-api.js";
+import {
+  createAuth0RoleProvisioner,
+  createAuth0UserDeleter,
+  createAuth0VerificationEmailSender,
+} from "./management-api.js";
 
 describe("Auth0 Management API user deletion", () => {
   it("uses a server-side client-credentials token and URL-encodes the verified subject", async () => {
@@ -46,6 +50,70 @@ describe("Auth0 Management API user deletion", () => {
 
     await expect(deleteUser("auth0|user")).rejects.toThrow(
       "Auth0 Management API authentication failed",
+    );
+  });
+});
+
+
+describe("Auth0 Management API verification email", () => {
+  it("posts a verification-email job for the subject using a server-side token", async () => {
+    const fetchImplementation = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ access_token: "management-token" }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      )
+      .mockResolvedValueOnce(new Response(null, { status: 201 }));
+
+    const requestVerificationEmail = createAuth0VerificationEmailSender(
+      {
+        domain: "tenant.us.auth0.com",
+        clientId: "server-only-client",
+        clientSecret: "server-only-secret",
+      },
+      fetchImplementation,
+    );
+
+    await expect(requestVerificationEmail("auth0|tutor")).resolves.toBeUndefined();
+
+    expect(fetchImplementation).toHaveBeenNthCalledWith(
+      2,
+      "https://tenant.us.auth0.com/api/v2/jobs/verification-email",
+      expect.objectContaining({
+        method: "POST",
+        headers: {
+          Authorization: "Bearer management-token",
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ user_id: "auth0|tutor" }),
+      }),
+    );
+  });
+
+  it("does not leak the Management API response when the job fails", async () => {
+    const fetchImplementation = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ access_token: "management-token" }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      )
+      .mockResolvedValueOnce(new Response("private detail", { status: 429 }));
+
+    const requestVerificationEmail = createAuth0VerificationEmailSender(
+      {
+        domain: "tenant.us.auth0.com",
+        clientId: "server-only-client",
+        clientSecret: "server-only-secret",
+      },
+      fetchImplementation,
+    );
+
+    await expect(requestVerificationEmail("auth0|tutor")).rejects.toThrow(
+      "Auth0 verification email could not be sent",
     );
   });
 });

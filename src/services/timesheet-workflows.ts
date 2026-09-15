@@ -75,6 +75,7 @@ interface TimesheetDelegate {
     };
     data: {
       status: "SUBMITTED";
+      submittedAt?: Date;
       reviewedAt?: null;
       reviewedById?: null;
       reviewReason?: null;
@@ -388,10 +389,16 @@ export function createTimesheetWorkflowService(
             }
             validateSubmissionHours(timesheet, tutor.hourLimit);
 
+            // A returned timesheet is being re-submitted: stamp a fresh
+            // submission time so the organiser queue orders it by when the tutor
+            // actually re-submitted, not the original submission. The transition
+            // trigger only auto-fills submittedAt when the caller leaves it
+            // unchanged, so this explicit value is honoured.
             const data =
               timesheet.status === "RETURNED"
                 ? {
                     status: "SUBMITTED" as const,
+                    submittedAt: new Date(),
                     reviewedAt: null,
                     reviewedById: null,
                     reviewReason: null,

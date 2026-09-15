@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   allocationReasonCodesFor,
+  busySlotClashes,
   findAllocationCandidates,
   getTutorHourSummary,
   listOpenWork,
@@ -143,6 +144,88 @@ describe("allocation queries", () => {
         new Date("2030-09-04T18:00:00.000Z"),
       ),
     ).toBeNull();
+  });
+
+  describe("busySlotClashes", () => {
+    // A window on the same afternoon as the examples above.
+    const slotStart = new Date("2030-09-04T14:00:00.000Z");
+    const slotEnd = new Date("2030-09-04T16:00:00.000Z");
+
+    it("flags a one-off busy slot only when its own window overlaps", () => {
+      expect(
+        busySlotClashes(
+          slotStart,
+          slotEnd,
+          null,
+          new Date("2030-09-04T15:00:00.000Z"),
+          new Date("2030-09-04T17:00:00.000Z"),
+        ),
+      ).toBe(true);
+      // Touching at 16:00 is not a clash (half-open interval).
+      expect(
+        busySlotClashes(
+          slotStart,
+          slotEnd,
+          null,
+          new Date("2030-09-04T16:00:00.000Z"),
+          new Date("2030-09-04T18:00:00.000Z"),
+        ),
+      ).toBe(false);
+      // A week later the one-off slot no longer applies.
+      expect(
+        busySlotClashes(
+          slotStart,
+          slotEnd,
+          null,
+          new Date("2030-09-11T14:00:00.000Z"),
+          new Date("2030-09-11T16:00:00.000Z"),
+        ),
+      ).toBe(false);
+    });
+
+    it("projects a WEEKLY slot onto later weeks so recurring clashes are caught", () => {
+      // Same weekday and time, several weeks after the first occurrence.
+      expect(
+        busySlotClashes(
+          slotStart,
+          slotEnd,
+          "WEEKLY",
+          new Date("2030-09-25T14:00:00.000Z"),
+          new Date("2030-09-25T16:00:00.000Z"),
+        ),
+      ).toBe(true);
+      // Later week, different time on that weekday: no clash.
+      expect(
+        busySlotClashes(
+          slotStart,
+          slotEnd,
+          "WEEKLY",
+          new Date("2030-09-25T16:00:00.000Z"),
+          new Date("2030-09-25T18:00:00.000Z"),
+        ),
+      ).toBe(false);
+    });
+
+    it("never reports a clash for occurrences before the slot's first week", () => {
+      expect(
+        busySlotClashes(
+          slotStart,
+          slotEnd,
+          "WEEKLY",
+          new Date("2030-08-28T14:00:00.000Z"),
+          new Date("2030-08-28T16:00:00.000Z"),
+        ),
+      ).toBe(false);
+    });
+
+    it("fails safe (no clash) for degenerate or missing inputs", () => {
+      expect(busySlotClashes(slotEnd, slotStart, null, slotStart, slotEnd)).toBe(
+        false,
+      );
+      expect(
+        busySlotClashes(undefined, slotEnd, null, slotStart, slotEnd),
+      ).toBe(false);
+    });
   });
 
   it("returns stable candidate reason codes", async () => {

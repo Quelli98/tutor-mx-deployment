@@ -14,7 +14,7 @@ import {
   createAuth0PasswordResetRequester,
   type PasswordResetRequester,
 } from "./auth/password-reset.js";
-import { createAuth0RoleProvisioner, createAuth0UserDeleter } from "./auth/management-api.js";
+import { createAuth0RoleProvisioner, createAuth0UserDeleter, createAuth0VerificationEmailSender } from "./auth/management-api.js";
 import { prisma, queryClient } from "./database.js";
 import { createSouthAfricaPublicHolidayService } from "./integrations/public-holidays.js";
 import {
@@ -67,6 +67,12 @@ const deleteAuth0User = auth0ManagementConfig
 const provisionAuth0Role = auth0ManagementConfig
   ? createAuth0RoleProvisioner(auth0ManagementConfig)
   : async () => { throw new Error("Auth0 Management API onboarding is not configured"); };
+
+// The resend-verification route fails closed when this is undefined (503), so it
+// is only wired when Management API credentials are present.
+const requestVerificationEmail = auth0ManagementConfig
+  ? createAuth0VerificationEmailSender(auth0ManagementConfig)
+  : undefined;
 
 function isPrismaErrorCode(error: unknown, code: string) {
   return (
@@ -182,6 +188,7 @@ const app = createApp(
     corsOrigin: process.env.FRONTEND_ORIGIN ?? "http://localhost:5173",
     verifyAccessToken,
     requestPasswordReset,
+    requestVerificationEmail,
     allowSelfServiceOrganiser: process.env.ALLOW_SELF_SERVICE_ORGANISER?.toLowerCase() === "true",
     getPublicHolidays: (year) => publicHolidayService.execute(year),
     async findProfileByAuth0Id(auth0Id) {
