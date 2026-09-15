@@ -1,21 +1,36 @@
-function formatDateTime(value) {
-  return new Date(value).toLocaleString()
+function formatDate(value) {
+  return new Date(value).toLocaleDateString(undefined, {
+    weekday: 'short',
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+  })
+}
+
+function formatTime(value) {
+  return new Date(value).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
 }
 
 // Shared wording keeps the tutor editor and organiser read-only view consistent.
 export default function TimeSlotDetails({ slot }) {
+  const start = new Date(slot.startsAt)
+  const dayName = start.toLocaleDateString(undefined, { weekday: 'long' })
+  const timeRange = `${formatTime(slot.startsAt)}–${formatTime(slot.endsAt)}`
+
   return (
     <>
-      <strong>Busy{slot.label ? ` — ${slot.label}` : ''}</strong>
-      <span>First occurrence: {formatDateTime(slot.startsAt)} to {formatDateTime(slot.endsAt)}</span>
+      <strong>{slot.label || 'Unavailable'}</strong>
       <span>
         {slot.recurrence === 'WEEKLY'
-          ? `Repeats weekly from ${formatDateTime(slot.startsAt)}${slot.recurrenceUntil
-            ? ` through ${formatDateTime(slot.recurrenceUntil)} (inclusive last occurrence start).`
-            : ', indefinitely (no last occurrence start).'
-          }`
-          : 'Once-off (does not repeat).'}
+          ? `Every ${dayName} · ${timeRange}`
+          : `${formatDate(slot.startsAt)} · ${timeRange}`}
       </span>
+      {slot.recurrence === 'WEEKLY' && (
+        <span>
+          From {formatDate(slot.startsAt)}
+          {slot.recurrenceUntil ? ` until ${formatDate(slot.recurrenceUntil)}` : ' (ongoing)'}
+        </span>
+      )}
     </>
   )
 }

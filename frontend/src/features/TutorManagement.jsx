@@ -6,9 +6,9 @@ import TutorAllocationDetails from './TutorAllocationDetails'
 
 const CAPACITY_TEXT = {
   available: 'Available for more work',
-  'near-limit': 'Near weekly limit',
-  'limit-reached': 'Weekly limit reached',
-  'not-set': 'Weekly limit not set',
+  'near-limit': 'Near weekly capacity',
+  'limit-reached': 'Weekly capacity reached',
+  'not-set': 'Weekly capacity not set',
 }
 
 function safeErrorMessage(error) {
@@ -100,9 +100,9 @@ export default function TutorManagement() {
                   <span className={`capacity-status capacity-${tutor.capacityStatus}`}>{CAPACITY_TEXT[tutor.capacityStatus]}</span>
                   <p className="workload-period">UTC Monday week: {utcDate(tutor.weekStart)} to {utcDate(tutor.weekEnd)}</p>
                   <dl className="workload-facts">
-                    <div><dt>Weekly limit</dt><dd>{tutor.weeklyHours == null ? 'Not set' : `${tutor.weeklyHours} h/week`}</dd></div>
-                    <div><dt>Currently allocated this week</dt><dd>{tutor.usedHours} h</dd></div>
-                    <div><dt>Remaining capacity</dt><dd>{tutor.remainingHours == null ? 'Not set' : `${tutor.remainingHours} h`}</dd></div>
+                    <div><dt>Weekly capacity</dt><dd>{tutor.weeklyHours == null ? 'Not set — setup incomplete' : `${tutor.weeklyHours} h/week`}</dd></div>
+                    <div><dt>Allocated</dt><dd>{tutor.usedHours} h/week</dd></div>
+                    <div><dt>Remaining capacity</dt><dd>{tutor.remainingHours == null ? 'Not set' : `${tutor.remainingHours} h/week`}</dd></div>
                     <div><dt>Worked this week</dt><dd>{tutor.workedHours} h</dd></div>
                   </dl>
                   <button className="secondary-button" type="button" onClick={() => setDetailsTutor(tutor)}

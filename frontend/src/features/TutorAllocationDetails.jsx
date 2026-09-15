@@ -6,8 +6,10 @@ import {
   listTutorMarks,
   saveTutorMark,
 } from '../api/organiser'
+import { listOwnTimeSlots } from '../api/availability'
 import { EmptyState, ErrorState, LoadingState } from '../components/shared/StatusMessage'
 import { ConfirmationDialog } from '../components/shared/ConfirmationDialog'
+import TimeSlotDetails from './TimeSlotDetails'
 
 const EMPTY_MARK_FORM = { courseId: '', mark: '' }
 
@@ -53,24 +55,28 @@ export default function TutorAllocationDetails({ tutor, onClose }) {
   const [successMessage, setSuccessMessage] = useState('')
   const [markToRemove, setMarkToRemove] = useState(null)
   const [markRemoveStatus, setMarkRemoveStatus] = useState('idle')
+  const [schedule, setSchedule] = useState([])
 
   const loadDetails = useCallback(
     async (isActive = () => true) => {
       setStatus('loading')
       setErrorMessage('')
       try {
-        const [courseResult, markResult] = await Promise.all([
+        const [courseResult, markResult, scheduleResult] = await Promise.all([
           listCourses(getAccessTokenSilently),
           listTutorMarks(tutor.id, getAccessTokenSilently),
+          listOwnTimeSlots(getAccessTokenSilently),
         ])
         if (!isActive()) return
         setCourses(courseResult)
         setMarks(markResult)
+        setSchedule(scheduleResult.filter((slot) => slot.type === 'BUSY'))
         setStatus('success')
       } catch (error) {
         if (!isActive()) return
         setCourses([])
         setMarks([])
+        setSchedule([])
         setErrorMessage(safeErrorMessage(error, 'Unable to load tutor details. Please try again.'))
         setStatus('error')
       }
@@ -150,7 +156,7 @@ export default function TutorAllocationDetails({ tutor, onClose }) {
     <section className="role-card tutor-allocation-details" aria-labelledby="tutor-details-heading">
       <div className="candidate-results-header">
         <div>
-          <h2 id="tutor-details-heading">Marks & availability</h2>
+          <h2 id="tutor-details-heading">Marks & schedule</h2>
           <p className="section-intro">{tutor.fullName}</p>
         </div>
         {onClose && (
@@ -161,7 +167,7 @@ export default function TutorAllocationDetails({ tutor, onClose }) {
       </div>
 
       {status === 'loading' && (
-        <LoadingState title="Loading tutor details" message="Loading marks and availability." />
+        <LoadingState title="Loading tutor details" message="Loading marks and schedule." />
       )}
       {status === 'error' && (
         <ErrorState title="Tutor details unavailable" message={errorMessage} onRetry={() => loadDetails()} />
@@ -239,6 +245,24 @@ export default function TutorAllocationDetails({ tutor, onClose }) {
                     >
                       Remove
                     </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
+
+          <section aria-labelledby="schedule-display-heading">
+            <h3 id="schedule-display-heading">Schedule (classes, study, unavailable)</h3>
+            <p className="helper-text">
+              This tutor's busy schedule is managed by the tutor. Schedule entries block allocations during those times.
+            </p>
+            {schedule.length === 0 ? (
+              <EmptyState title="No schedule entries" message="This tutor has not added any schedule entries." />
+            ) : (
+              <ul className="detail-record-list" aria-label={`Schedule for ${tutor.fullName}`}>
+                {schedule.map((slot) => (
+                  <li key={slot.id}>
+                    <TimeSlotDetails slot={slot} />
                   </li>
                 ))}
               </ul>

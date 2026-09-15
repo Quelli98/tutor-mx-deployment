@@ -166,6 +166,7 @@ describe('organiser allocation and tutor-detail API contracts', () => {
       hasClash: false,
       isEligible: true,
       reasonCodes: [],
+      clashDetails: [],
     }
     fetchWithBearerToken.mockResolvedValue({ data: { candidates: [candidate] } })
     const input = {

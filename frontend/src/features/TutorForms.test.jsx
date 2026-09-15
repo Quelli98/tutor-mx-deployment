@@ -73,15 +73,15 @@ describe('TutorForms accessibility', () => {
     await screen.findByRole('heading', { name: /forms and submissions/i })
 
     const expectedControls = [
-      screen.getByLabelText(/start.*first occurrence/i),
-      screen.getByLabelText(/end.*first occurrence/i),
-      screen.getByLabelText(/class or busy label/i),
+      screen.getByLabelText(/from.*date and time/i),
+      screen.getByLabelText(/until.*date and time/i),
+      screen.getByLabelText(/description \(optional\)/i),
       screen.getByLabelText(/repeat weekly/i),
-      screen.getByRole('button', { name: /add busy time/i }),
+      screen.getByRole('button', { name: /add schedule entry/i }),
       screen.getAllByLabelText(/^session$/i)[0],
       screen.getByLabelText(/^date$/i),
       screen.getByLabelText(/hours worked/i),
-      screen.getByLabelText(/description/i),
+      screen.getByLabelText(/^description$/i),
       screen.getByRole('button', { name: /add to draft/i }),
       screen.getAllByLabelText(/^session$/i)[1],
       screen.getByLabelText(/^reason$/i),
@@ -98,7 +98,7 @@ describe('TutorForms accessibility', () => {
   it('activates validation from the keyboard', async () => {
     const user = userEvent.setup()
     render(<TutorForms />)
-    const saveButton = await screen.findByRole('button', { name: /add busy time/i })
+    const saveButton = await screen.findByRole('button', { name: /add schedule entry/i })
     saveButton.focus()
     await user.keyboard('{Enter}')
     expect(screen.getByText(/start time is required/i)).toBeInTheDocument()
@@ -165,10 +165,10 @@ describe('TutorForms accessibility', () => {
 
     await screen.findByRole('heading', { name: /forms and submissions/i })
 
-    fireEvent.change(screen.getByLabelText(/start.*first occurrence/i), { target: { value: '2030-09-05T09:00' } })
-    fireEvent.change(screen.getByLabelText(/end.*first occurrence/i), { target: { value: '2030-09-05T11:00' } })
-    fireEvent.click(screen.getByRole('button', { name: /add busy time/i }))
-    await screen.findByText(/busy time added/i)
+    fireEvent.change(screen.getByLabelText(/from.*date and time/i), { target: { value: '2030-09-05T09:00' } })
+    fireEvent.change(screen.getByLabelText(/until.*date and time/i), { target: { value: '2030-09-05T11:00' } })
+    fireEvent.click(screen.getByRole('button', { name: /add schedule entry/i }))
+    await screen.findByText(/schedule entry added/i)
 
     fireEvent.change(screen.getAllByLabelText(/^session$/i)[0], { target: { value: '1' } })
     fireEvent.change(screen.getByLabelText(/^hours worked$/i), { target: { value: '2' } })

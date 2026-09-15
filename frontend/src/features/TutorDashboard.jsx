@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useAuth0 } from '@auth0/auth0-react'
-import { fetchTutorDashboard } from '../api/tutorDashboard'
+import { fetchTutorDashboard, isValidWeeklyCapacity, saveWeeklyCapacity } from '../api/tutorDashboard'
 import { ErrorState } from '../components/shared/StatusMessage'
 
 function formatSessionDate(startsAt, endsAt) {
@@ -18,6 +18,10 @@ export default function TutorDashboard() {
   const [data, setData] = useState(null)
   const [isRefreshing, setIsRefreshing] = useState(false)
   const [refreshFailed, setRefreshFailed] = useState(false)
+  const [capacityInput, setCapacityInput] = useState('')
+  const [capacityError, setCapacityError] = useState('')
+  const [capacitySaving, setCapacitySaving] = useState(false)
+  const [capacitySuccess, setCapacitySuccess] = useState('')
   const hasDataRef = useRef(false)
   const isMountedRef = useRef(true)
   const refreshInFlightRef = useRef(false)
@@ -82,6 +86,28 @@ export default function TutorDashboard() {
     }
   }, [refreshDashboard])
 
+  async function handleCapacitySave(event) {
+    event.preventDefault()
+    const value = Number(capacityInput)
+    if (!capacityInput.trim() || !isValidWeeklyCapacity(value)) {
+      setCapacityError('Enter a valid weekly capacity above 0 and no more than 168 hours.')
+      return
+    }
+    setCapacitySaving(true)
+    setCapacityError('')
+    setCapacitySuccess('')
+    try {
+      await saveWeeklyCapacity(value, getAccessTokenSilently)
+      setCapacitySuccess('Weekly work capacity updated.')
+      setCapacityInput('')
+      await loadDashboard()
+    } catch {
+      setCapacityError('Weekly capacity could not be saved. Please try again.')
+    } finally {
+      setCapacitySaving(false)
+    }
+  }
+
   function handleInitialRetry() {
     setStatus('loading')
     loadDashboard()
@@ -140,23 +166,65 @@ export default function TutorDashboard() {
       )}
 
       <section className="role-card hours-summary" aria-labelledby="weekly-hours-heading">
-        <h2 id="weekly-hours-heading">Weekly hours</h2>
+        <h2 id="weekly-hours-heading">Weekly work capacity</h2>
         {weeklyLimit === null || remainingHours === null ? (
           <>
-            <p><strong>Weekly hour limit not set yet</strong></p>
+            <p><strong>Weekly work capacity not set</strong></p>
             <p className="helper-text">
               {usedHours > 0
-                ? `${usedHours} hours are currently allocated this week.`
-                : 'You can still use your tutor workspace. Your weekly limit can be configured later.'}
+                ? `${usedHours} hours are allocated this week, but your weekly capacity has not been set.`
+                : 'Set your weekly work capacity in Work Preferences so organisers can allocate sessions.'}
             </p>
           </>
         ) : (
           <>
             <p>
-              <strong>{remainingHours} of {weeklyLimit} hours remaining</strong>
+              <strong>{remainingHours} of {weeklyLimit} hours remaining capacity</strong>
             </p>
-            <p className="helper-text">{usedHours} hours are currently allocated this week.</p>
+            <p className="helper-text">{usedHours} hours are allocated this week.</p>
           </>
+        )}
+      </section>
+
+      <section className="role-card" aria-labelledby="work-preferences-heading">
+        <h2 id="work-preferences-heading">Work preferences</h2>
+        <p className="helper-text">
+          Set how many hours per week you are available for tutoring work. Organisers will see this when allocating sessions.
+        </p>
+        <form className="inline-form" onSubmit={handleCapacitySave} noValidate>
+          <div className="field-group">
+            <label htmlFor="weekly-capacity-input">Weekly work capacity (hours)</label>
+            <input
+              id="weekly-capacity-input"
+              type="number"
+              min="0.5"
+              max="168"
+              step="0.5"
+              value={capacityInput}
+              onChange={(event) => {
+                setCapacityInput(event.target.value)
+                setCapacityError('')
+                setCapacitySuccess('')
+              }}
+              disabled={capacitySaving}
+              placeholder={data?.weeklyLimit != null ? String(data.weeklyLimit) : 'e.g. 10'}
+              aria-invalid={Boolean(capacityError)}
+              aria-describedby={capacityError ? 'weekly-capacity-error' : undefined}
+            />
+            {capacityError && (
+              <p id="weekly-capacity-error" className="error-text">
+                {capacityError}
+              </p>
+            )}
+          </div>
+          <button className="primary-button" type="submit" disabled={capacitySaving}>
+            {capacitySaving ? 'Saving...' : 'Save capacity'}
+          </button>
+        </form>
+        {capacitySuccess && (
+          <p className="status-note" role="status">
+            {capacitySuccess}
+          </p>
         )}
       </section>
 

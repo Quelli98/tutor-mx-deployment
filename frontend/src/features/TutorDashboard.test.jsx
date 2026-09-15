@@ -106,7 +106,7 @@ describe('TutorDashboard', () => {
 
     render(<TutorDashboard />)
 
-    expect(await screen.findByText(/weekly hour limit not set yet/i)).toBeInTheDocument()
+    expect(await screen.findByText(/Weekly work capacity not set/i)).toBeInTheDocument()
     expect(screen.getByText(/no work assigned/i)).toBeInTheDocument()
     expect(screen.queryByText(/dashboard unavailable/i)).not.toBeInTheDocument()
   })
@@ -205,12 +205,12 @@ describe('TutorDashboard', () => {
       .mockResolvedValueOnce(allocationB)
 
     render(<TutorDashboard />)
-    expect(await screen.findByText(/weekly hour limit not set yet/i)).toBeInTheDocument()
+    expect(await screen.findByText(/Weekly work capacity not set/i)).toBeInTheDocument()
     expect(screen.getByText(/no work assigned/i)).toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: 'Refresh' }))
 
-    expect(await screen.findByText(/weekly hour limit not set yet/i)).toBeInTheDocument()
+    expect(await screen.findByText(/Weekly work capacity not set/i)).toBeInTheDocument()
     expect(screen.getByText(/no work assigned/i)).toBeInTheDocument()
     expect(screen.queryByText(/dashboard unavailable/i)).not.toBeInTheDocument()
     expect(mockFetchTutorDashboard).toHaveBeenCalledTimes(2)

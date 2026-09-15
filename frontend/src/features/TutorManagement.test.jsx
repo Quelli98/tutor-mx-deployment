@@ -72,7 +72,7 @@ describe('TutorManagement', () => {
     expect(screen.getByText('Ash Tutor')).toBeInTheDocument()
     expect(screen.getAllByText('Not set').length).toBeGreaterThanOrEqual(1)
     expect(screen.getByText(/available for more work/i)).toBeInTheDocument()
-    expect(screen.getByText(/weekly limit not set/i)).toBeInTheDocument()
+    expect(screen.getByText(/weekly capacity not set/i)).toBeInTheDocument()
   })
 
   it('never asks the organiser for an Auth0 subject', async () => {

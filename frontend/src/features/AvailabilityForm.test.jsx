@@ -35,10 +35,10 @@ describe('AvailabilityForm', () => {
 
   it('associates missing-field errors and does not send a request', async () => {
     render(<AvailabilityForm tokenOrGetter={tokenGetter} />)
-    fireEvent.click(screen.getByRole('button', { name: /add busy time/i }))
+    fireEvent.click(screen.getByRole('button', { name: /add schedule entry/i }))
 
-    const start = screen.getByLabelText(/start.*first occurrence/i)
-    const end = screen.getByLabelText(/end.*first occurrence/i)
+    const start = screen.getByLabelText(/from.*date and time/i)
+    const end = screen.getByLabelText(/until.*date and time/i)
     expect(start).toHaveAccessibleDescription(/start time is required/i)
     expect(end).toHaveAccessibleDescription(/end time is required/i)
     expect(mockSubmitTimeSlot).not.toHaveBeenCalled()
@@ -46,13 +46,13 @@ describe('AvailabilityForm', () => {
 
   it('rejects an impossible time range before sending a request', async () => {
     render(<AvailabilityForm tokenOrGetter={tokenGetter} />)
-    fireEvent.change(screen.getByLabelText(/start.*first occurrence/i), {
+    fireEvent.change(screen.getByLabelText(/from.*date and time/i), {
       target: { value: '2030-09-04T16:00' },
     })
-    fireEvent.change(screen.getByLabelText(/end.*first occurrence/i), {
+    fireEvent.change(screen.getByLabelText(/until.*date and time/i), {
       target: { value: '2030-09-04T14:00' },
     })
-    fireEvent.click(screen.getByRole('button', { name: /add busy time/i }))
+    fireEvent.click(screen.getByRole('button', { name: /add schedule entry/i }))
 
     expect(screen.getByText(/end time must be after the start time/i)).toBeInTheDocument()
     expect(mockSubmitTimeSlot).not.toHaveBeenCalled()
@@ -60,14 +60,14 @@ describe('AvailabilityForm', () => {
 
   it('submits ISO dates with the repeat-weekly flag', async () => {
     render(<AvailabilityForm tokenOrGetter={tokenGetter} />)
-    fireEvent.change(screen.getByLabelText(/start.*first occurrence/i), {
+    fireEvent.change(screen.getByLabelText(/from.*date and time/i), {
       target: { value: '2030-09-04T14:00' },
     })
-    fireEvent.change(screen.getByLabelText(/end.*first occurrence/i), {
+    fireEvent.change(screen.getByLabelText(/until.*date and time/i), {
       target: { value: '2030-09-04T16:00' },
     })
     fireEvent.click(screen.getByLabelText(/repeat weekly/i))
-    fireEvent.click(screen.getByRole('button', { name: /add busy time/i }))
+    fireEvent.click(screen.getByRole('button', { name: /add schedule entry/i }))
 
     await waitFor(() => {
       expect(mockSubmitTimeSlot).toHaveBeenCalledWith(
@@ -82,6 +82,6 @@ describe('AvailabilityForm', () => {
         tokenGetter,
       )
     })
-    expect(await screen.findByText(/busy time added/i)).toBeInTheDocument()
+    expect(await screen.findByText(/schedule entry added/i)).toBeInTheDocument()
   })
 })

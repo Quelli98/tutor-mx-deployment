@@ -22,13 +22,13 @@ function validate(form) {
   if (!form.endsAt || !Number.isFinite(end.valueOf())) errors.endsAt = 'End time is required.'
   else if (!errors.startsAt && end <= start) errors.endsAt = 'End time must be after the start time.'
   else if (form.weekly && end - start > 7 * 24 * 60 * 60 * 1000) {
-    errors.endsAt = 'A weekly busy time must last no more than 7 days.'
+    errors.endsAt = 'A weekly schedule entry must last no more than 7 days.'
   }
-  if (form.label.length > 120) errors.label = 'Use 120 characters or fewer for the label.'
+  if (form.label.length > 120) errors.label = 'Use 120 characters or fewer for the description.'
   if (form.weekly && form.recurrenceUntil) {
     const until = new Date(form.recurrenceUntil)
     if (!Number.isFinite(until.valueOf()) || (!errors.startsAt && until < start)) {
-      errors.recurrenceUntil = 'The last recurrence start must be on or after the first start.'
+      errors.recurrenceUntil = 'The repeat-until date must be on or after the start date.'
     }
   }
   return errors
@@ -106,10 +106,10 @@ export default function AvailabilityForm({ tokenOrGetter }) {
         ? await updateOwnTimeSlot(editingId, payload, tokenOrGetter)
         : await submitTimeSlot(payload, tokenOrGetter)
       setSlots((current) => [...current.filter((item) => item.id !== slot.id), slot])
-      setMessage(editingId ? 'Busy time updated.' : 'Busy time added.')
+      setMessage(editingId ? 'Schedule entry updated.' : 'Schedule entry added.')
       reset()
     } catch {
-      setError('Busy time could not be saved. Check your details and try again.')
+      setError('Schedule entry could not be saved. Check your details and try again.')
     } finally {
       setPending(false)
     }
@@ -124,9 +124,9 @@ export default function AvailabilityForm({ tokenOrGetter }) {
       await deleteOwnTimeSlot(slotToDelete.id, tokenOrGetter)
       setSlots((current) => current.filter((slot) => slot.id !== slotToDelete.id))
       if (editingId === slotToDelete.id) reset()
-      setMessage('Busy time deleted.')
+      setMessage('Schedule entry deleted.')
     } catch {
-      setError('Busy time could not be deleted. Try again.')
+      setError('Schedule entry could not be deleted. Try again.')
     } finally {
       setPending(false)
       setSlotToDelete(null)
@@ -140,29 +140,29 @@ export default function AvailabilityForm({ tokenOrGetter }) {
   return (
     <section className="role-card tutor-form-card" aria-labelledby="own-schedule-heading">
       <div>
-        <h2 id="own-schedule-heading">Your busy / class schedule</h2>
+        <h2 id="own-schedule-heading">Your schedule (classes, study, unavailable)</h2>
         <p className="helper-text" id="schedule-help">
-          Start and end are the FIRST occurrence, in your local time. Repeat weekly continues until
-          the last recurrence start (inclusive), or indefinitely when blank. Each weekly occurrence
-          can last up to 7 days. Busy times block allocations; they are not available hours.
+          Enter the date and time for the first occurrence. If you repeat weekly, the pattern continues until the repeat-until date (or indefinitely if blank). Schedule entries block allocations during those times.
         </p>
       </div>
       <form className="tutor-form" onSubmit={handleSubmit} noValidate aria-describedby="schedule-help">
-        <h3>{editingId ? 'Edit busy time' : 'Add busy time'}</h3>
-        {[
-          ['startsAt', 'starts-at', 'Start (first occurrence)'],
-          ['endsAt', 'ends-at', 'End (first occurrence)'],
-        ].map(([name, id, label]) => (
-          <div className="field-group" key={name}>
-            <label htmlFor={id}>{label}</label>
-            <input id={id} type="datetime-local" value={form[name]} disabled={pending}
-              onChange={(event) => field(name, event.target.value)}
-              aria-invalid={Boolean(errors[name])} aria-describedby={errors[name] ? `${id}-error` : undefined} />
-            {errors[name] && <p id={`${id}-error`} className="error-text">{errors[name]}</p>}
-          </div>
-        ))}
+        <h3>{editingId ? 'Edit schedule entry' : 'Add schedule entry'}</h3>
         <div className="field-group">
-          <label htmlFor="slot-label">Class or busy label (optional)</label>
+          <label htmlFor="starts-at">From (date and time)</label>
+          <input id="starts-at" type="datetime-local" value={form.startsAt} disabled={pending}
+            onChange={(event) => field('startsAt', event.target.value)}
+            aria-invalid={Boolean(errors.startsAt)} aria-describedby={errors.startsAt ? 'starts-at-error' : undefined} />
+          {errors.startsAt && <p id="starts-at-error" className="error-text">{errors.startsAt}</p>}
+        </div>
+        <div className="field-group">
+          <label htmlFor="ends-at">Until (date and time)</label>
+          <input id="ends-at" type="datetime-local" value={form.endsAt} disabled={pending}
+            onChange={(event) => field('endsAt', event.target.value)}
+            aria-invalid={Boolean(errors.endsAt)} aria-describedby={errors.endsAt ? 'ends-at-error' : undefined} />
+          {errors.endsAt && <p id="ends-at-error" className="error-text">{errors.endsAt}</p>}
+        </div>
+        <div className="field-group">
+          <label htmlFor="slot-label">Description (optional)</label>
           <input id="slot-label" value={form.label} maxLength={120} disabled={pending}
             onChange={(event) => field('label', event.target.value)}
             aria-invalid={Boolean(errors.label)} aria-describedby={errors.label ? 'slot-label-error' : undefined} />
@@ -175,7 +175,7 @@ export default function AvailabilityForm({ tokenOrGetter }) {
         </label>
         {form.weekly && (
           <div className="field-group">
-            <label htmlFor="slot-until">Last recurrence start (optional, inclusive)</label>
+            <label htmlFor="slot-until">Repeat until (optional)</label>
             <input id="slot-until" type="datetime-local" value={form.recurrenceUntil} disabled={pending}
               onChange={(event) => field('recurrenceUntil', event.target.value)}
               aria-invalid={Boolean(errors.recurrenceUntil)}
@@ -185,31 +185,31 @@ export default function AvailabilityForm({ tokenOrGetter }) {
         )}
         <div className="button-row">
           <button className="primary-button" type="submit" disabled={pending}>
-            {pending ? 'Saving...' : editingId ? 'Save busy time' : 'Add busy time'}
+            {pending ? 'Saving...' : editingId ? 'Save schedule entry' : 'Add schedule entry'}
           </button>
           {editingId && <button className="secondary-button" type="button" disabled={pending} onClick={reset}>Cancel edit</button>}
         </div>
       </form>
       {message && <p className="status-note" role="status">{message}</p>}
       {error && <p className="status-note danger" role="alert">{error}</p>}
-      {loadStatus === 'loading' && <LoadingState title="Loading your schedule" message="Checking your saved busy times." />}
-      {loadStatus === 'error' && <ErrorState title="Schedule unavailable" message="Your busy times could not be loaded safely." onRetry={() => load()} />}
+      {loadStatus === 'loading' && <LoadingState title="Loading your schedule" message="Checking your saved schedule entries." />}
+      {loadStatus === 'error' && <ErrorState title="Schedule unavailable" message="Your schedule entries could not be loaded safely." onRetry={() => load()} />}
       {loadStatus === 'success' && (slots.length === 0
-        ? <p>No busy times have been added by you.</p>
-        : <ul className="detail-record-list" aria-label="Your busy times">
+        ? <p>No schedule entries have been added yet.</p>
+        : <ul className="detail-record-list" aria-label="Your schedule entries">
           {slots.map((slot) => <li key={slot.id}>
             <TimeSlotDetails slot={slot} />
             <div className="button-row">
               <button type="button" className="secondary-button" disabled={pending}
-                onClick={() => edit(slot)} aria-label={`Edit busy time ${slot.label || new Date(slot.startsAt).toLocaleString()}`}>Edit</button>
+                onClick={() => edit(slot)} aria-label={`Edit schedule entry ${slot.label || new Date(slot.startsAt).toLocaleString()}`}>Edit</button>
               <button type="button" className="danger-button" disabled={pending}
-                onClick={() => setSlotToDelete(slot)} aria-label={`Delete busy time ${slot.label || new Date(slot.startsAt).toLocaleString()}`}>Delete</button>
+                onClick={() => setSlotToDelete(slot)} aria-label={`Delete schedule entry ${slot.label || new Date(slot.startsAt).toLocaleString()}`}>Delete</button>
             </div>
           </li>)}
         </ul>)}
-      <ConfirmationDialog open={Boolean(slotToDelete)} title="Delete busy time?" confirmLabel="Delete busy time"
+      <ConfirmationDialog open={Boolean(slotToDelete)} title="Delete schedule entry?" confirmLabel="Delete schedule entry"
         isPending={pending} onConfirm={remove} onCancel={() => { if (!pending) setSlotToDelete(null) }}>
-        <p>This removes the busy time and all of its weekly occurrences. This cannot be undone.</p>
+        <p>This removes the schedule entry and all of its weekly occurrences. This cannot be undone.</p>
       </ConfirmationDialog>
     </section>
   )

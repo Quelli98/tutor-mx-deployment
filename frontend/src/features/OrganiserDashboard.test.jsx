@@ -35,6 +35,7 @@ const eligibleCandidate = {
   hasClash: false,
   isEligible: true,
   reasonCodes: [],
+  clashDetails: [],
 }
 const ineligibleCandidate = {
   tutorId: 8,
@@ -46,6 +47,15 @@ const ineligibleCandidate = {
   hasClash: true,
   isEligible: false,
   reasonCodes: ['insufficient-mark', 'schedule-clash', 'hour-limit-exceeded'],
+  clashDetails: [
+    {
+      kind: 'busy',
+      label: 'COMS3011A Lecture',
+      startsAt: '2030-09-03T14:00:00.000Z',
+      endsAt: '2030-09-03T16:00:00.000Z',
+      recurrence: 'WEEKLY',
+    },
+  ],
 }
 const allocation = {
   id: 11,
@@ -110,13 +120,13 @@ describe('OrganiserDashboard', () => {
 
     const blockedCard = await screen.findByRole('heading', { name: 'Blocked Tutor' })
     const blockedArticle = blockedCard.closest('article')
-    expect(within(blockedArticle).getByText(/mark eligibility: fail/i)).toBeInTheDocument()
-    expect(within(blockedArticle).getByText(/timetable clash: fail/i)).toBeInTheDocument()
-    expect(within(blockedArticle).getByText(/weekly hours: fail/i)).toBeInTheDocument()
-    expect(within(blockedArticle).getByText(/1 hours remain; 2 hours are required/i)).toBeInTheDocument()
+    expect(within(blockedArticle).getByText(/mark: fail/i)).toBeInTheDocument()
+    expect(within(blockedArticle).getByText(/timetable conflict: fail/i)).toBeInTheDocument()
+    expect(within(blockedArticle).getByText(/weekly capacity: fail/i)).toBeInTheDocument()
+    expect(within(blockedArticle).getByText(/1 hours of capacity remain; 2 hours are required/i)).toBeInTheDocument()
 
     const boundaryCard = screen.getByRole('heading', { name: 'Boundary Tutor' }).closest('article')
-    expect(within(boundaryCard).getByText(/mark eligibility: pass/i)).toBeInTheDocument()
+    expect(within(boundaryCard).getByText(/mark: pass/i)).toBeInTheDocument()
     expect(within(boundaryCard).getByText(/65% meets the required 65%/i)).toBeInTheDocument()
 
     expect(listAllocationCandidates).toHaveBeenCalledWith(
@@ -147,7 +157,7 @@ describe('OrganiserDashboard', () => {
     fillBoard()
     fireEvent.click(screen.getByRole('button', { name: /check candidates/i }))
 
-    expect(await screen.findByText(/set a weekly hour limit before allocating 2 hours/i)).toBeInTheDocument()
+    expect(await screen.findByText(/weekly work capacity not set; set it before allocating 2 hours/i)).toBeInTheDocument()
     expect(screen.queryByText(/0 hours remain/i)).not.toBeInTheDocument()
   })
 

@@ -64,7 +64,21 @@ function isAllocationCandidate(value) {
     typeof value.hasClash === 'boolean' &&
     typeof value.isEligible === 'boolean' &&
     Array.isArray(value.reasonCodes) &&
-    value.reasonCodes.every((code) => ALLOCATION_REASON_CODES.has(code))
+    value.reasonCodes.every((code) => ALLOCATION_REASON_CODES.has(code)) &&
+    Array.isArray(value.clashDetails) &&
+    value.clashDetails.every(isClashDetail)
+  )
+}
+
+function isClashDetail(value) {
+  return (
+    !!value &&
+    typeof value === 'object' &&
+    ['busy', 'allocation'].includes(value.kind) &&
+    (value.label === null || typeof value.label === 'string') &&
+    typeof value.startsAt === 'string' &&
+    typeof value.endsAt === 'string' &&
+    (value.recurrence === null || value.recurrence === 'WEEKLY')
   )
 }
 
@@ -154,14 +168,6 @@ function courseFrom(body) {
   return course
 }
 
-function tutorFrom(body) {
-  const tutor = body?.data?.tutor
-  if (!isTutor(tutor)) {
-    throw new Error('The tutor response did not match the agreed contract.')
-  }
-  return tutor
-}
-
 function allocationFrom(body) {
   const allocation = body?.data?.allocation
   if (!isAllocation(allocation)) {
@@ -218,41 +224,6 @@ export async function listTutors(tokenOrGetter) {
     throw new Error('The tutor response did not match the agreed contract.')
   }
   return tutors
-}
-
-export async function createTutor(input, tokenOrGetter) {
-  const payload = {
-    auth0Id: input.auth0Id,
-    email: input.email,
-    fullName: input.fullName,
-  }
-  if (input.weeklyHours !== undefined) {
-    payload.weeklyHours = input.weeklyHours
-  }
-
-  const body = await fetchWithBearerToken(
-    '/api/tutors',
-    {
-      method: 'POST',
-      body: JSON.stringify(payload),
-    },
-    tokenOrGetter,
-  )
-  return tutorFrom(body)
-}
-
-export async function updateTutor(input, tokenOrGetter) {
-  const { tutorId, ...fields } = input
-
-  const body = await fetchWithBearerToken(
-    `/api/tutors/${tutorId}`,
-    {
-      method: 'PATCH',
-      body: JSON.stringify(fields),
-    },
-    tokenOrGetter,
-  )
-  return tutorFrom(body)
 }
 
 export async function listAllocationCandidates(input, tokenOrGetter) {
