@@ -119,34 +119,6 @@ export function toNaiveUtcText(value: Date): string {
   return value.toISOString().replace("T", " ").replace("Z", "");
 }
 
-/**
- * The one definition of an allocation clash: a BUSY time slot or a CONFIRMED
- * allocation whose interval overlaps the requested one. `timeRangesOverlap` is the
- * same predicate for the in-transaction path, which cannot share this SQL because
- * it must run on the transaction's own connection. `allocation-clash.test.ts` pins
- * the two implementations to identical verdicts.
- *
- * Overlap is half-open: touching intervals do not clash. `$6` is the allocation
- * being edited, if any, so it is never reported as clashing with itself.
- */
-export const clashExistsSql = `(
-      EXISTS (
-        SELECT 1 FROM "TimeSlot" ts
-        WHERE ts."tutorId" = p."id"
-          AND ts."type" = 'BUSY'
-          AND ts."startsAt" < $3::timestamp
-          AND ts."endsAt" > $2::timestamp
-      )
-      OR EXISTS (
-        SELECT 1 FROM "Allocation" clash
-        WHERE clash."tutorId" = p."id"
-          AND clash."status" = 'CONFIRMED'
-          AND ($6::integer IS NULL OR clash."id" <> $6)
-          AND clash."startsAt" < $3::timestamp
-          AND clash."endsAt" > $2::timestamp
-      )
-    )`;
-
 export const candidateQuerySql = `
 WITH tutor_hours AS (
   SELECT
@@ -171,7 +143,23 @@ WITH tutor_hours AS (
     th."weeklyLimit",
     th."usedHours",
     GREATEST(th."weeklyLimit" - th."usedHours", 0)::double precision AS "remainingHours",
-    ${clashExistsSql} AS "hasClash"
+    (
+      EXISTS (
+        SELECT 1 FROM "TimeSlot" ts
+        WHERE ts."tutorId" = p."id"
+          AND ts."type" = 'BUSY'
+          AND ts."startsAt" < $3::timestamp
+          AND ts."endsAt" > $2::timestamp
+      )
+      OR EXISTS (
+        SELECT 1 FROM "Allocation" clash
+        WHERE clash."tutorId" = p."id"
+          AND clash."status" = 'CONFIRMED'
+          AND ($6::integer IS NULL OR clash."id" <> $6)
+          AND clash."startsAt" < $3::timestamp
+          AND clash."endsAt" > $2::timestamp
+      )
+    ) AS "hasClash"
   FROM "Profile" p
   JOIN "TutorMark" tm ON tm."tutorId" = p."id" AND tm."courseId" = $1
   JOIN tutor_hours th ON th."tutorId" = p."id"

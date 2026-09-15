@@ -17,7 +17,6 @@ import type { VerificationEmailSender } from "./auth/management-api.js";
 import type { ExternalApiResult } from "./integrations/external-api.js";
 import type { PublicHoliday } from "./integrations/public-holidays.js";
 import type { CandidateReasonCode } from "./services/allocation-queries.js";
-import { logUnhandledError } from "./unhandled-error-log.js";
 
 type ReadinessCheck = () => Promise<void>;
 
@@ -611,8 +610,6 @@ function sendRouteError(response: express.Response, value: unknown) {
     });
     return;
   }
-
-  logUnhandledError("route", response.req, value);
 
   const result = error(
     500,
@@ -2464,7 +2461,7 @@ export function createApp(
   app.use(
     (
       thrown: unknown,
-      request: express.Request,
+      _request: express.Request,
       response: express.Response,
       _next: express.NextFunction,
     ) => {
@@ -2483,8 +2480,6 @@ export function createApp(
         response.status(result.status).json(result.body);
         return;
       }
-
-      logUnhandledError("final_error_handler", request, thrown);
 
       const result = error(
         500,

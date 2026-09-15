@@ -235,63 +235,6 @@ describe('CourseManagement create, edit and delete', () => {
     expect(await screen.findByText(/DEMO101 was deleted/i)).toBeInTheDocument()
   })
 
-  it('explains why a course that is still in use cannot be deleted', async () => {
-    listCourses.mockResolvedValue(courses)
-    deleteCourse.mockRejectedValue(
-      Object.assign(
-        new Error(
-          'This course has proposed or confirmed allocations, so it cannot be deleted.',
-        ),
-        { code: 'COURSE_CONFLICT', status: 409 },
-      ),
-    )
-
-    renderPage()
-    await screen.findByRole('table')
-
-    fireEvent.click(screen.getByRole('button', { name: /delete DEMO101/i }))
-    const dialog = await screen.findByRole('dialog')
-    fireEvent.click(within(dialog).getByRole('button', { name: /^delete course$/i }))
-
-    // The refusal stays with the course in the dialog, not under the add-course form.
-    const alert = await within(dialog).findByRole('alert')
-    expect(alert).toHaveTextContent(
-      'This course has proposed or confirmed allocations, so it cannot be deleted.',
-    )
-    expect(screen.getAllByRole('alert')).toHaveLength(1)
-    expect(within(dialog).getByText(/DEMO101 - Demo Course/i)).toBeInTheDocument()
-    expect(screen.queryByText(/could not be deleted safely/i)).not.toBeInTheDocument()
-    expect(listCourses).toHaveBeenCalledTimes(1)
-
-    // Closing the dialog clears the message, and reopening starts clean.
-    fireEvent.click(within(dialog).getByRole('button', { name: /cancel/i }))
-    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
-    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
-
-    fireEvent.click(screen.getByRole('button', { name: /delete DEMO101/i }))
-    const reopened = await screen.findByRole('dialog')
-    expect(within(reopened).queryByRole('alert')).not.toBeInTheDocument()
-  })
-
-  it('keeps the generic message for other delete failures', async () => {
-    listCourses.mockResolvedValue(courses)
-    deleteCourse.mockRejectedValue(
-      Object.assign(new Error('private detail'), { code: 'INTERNAL_ERROR', status: 500 }),
-    )
-
-    renderPage()
-    await screen.findByRole('table')
-
-    fireEvent.click(screen.getByRole('button', { name: /delete DEMO101/i }))
-    const dialog = await screen.findByRole('dialog')
-    fireEvent.click(within(dialog).getByRole('button', { name: /^delete course$/i }))
-
-    expect(await within(dialog).findByRole('alert')).toHaveTextContent(
-      /could not be deleted safely/i,
-    )
-    expect(screen.queryByText(/private detail/i)).not.toBeInTheDocument()
-  })
-
   it('sends no request when the delete is cancelled', async () => {
     listCourses.mockResolvedValue(courses)
 

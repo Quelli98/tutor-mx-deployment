@@ -1300,23 +1300,6 @@ a:focus-visible {
   justify-self: start;
 }
 
-.calculated-value {
-  display: flex;
-  align-items: center;
-  min-height: 46px;
-  box-sizing: border-box;
-  padding: 12px 14px;
-  border-radius: 11px;
-  background: var(--surface-muted);
-  color: var(--text-h);
-  font-weight: 650;
-}
-
-.calculated-value-hint {
-  margin: 0;
-  font-size: 0.82rem;
-}
-
 .candidate-results {
   display: grid;
   gap: 20px;
@@ -1327,24 +1310,12 @@ a:focus-visible {
   box-shadow: 0 12px 24px rgba(73, 82, 134, 0.08);
 }
 
-.candidate-results-header {
+.candidate-results-header,
+.candidate-card-header {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
   gap: 16px;
-}
-
-/* Stacked at every width: the select button repeats the tutor's name, so a
-   side-by-side header needs the name's width twice and squeezes both. */
-.candidate-card-header {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 12px;
-}
-
-.candidate-card-header .secondary-button {
-  max-width: 100%;
 }
 
 .candidate-results-header h2,
@@ -1358,21 +1329,14 @@ a:focus-visible {
   color: #5e6784;
 }
 
-/* Cards keep a 300px minimum and wrap onto new rows; min(100%, ...) stops that
-   minimum overflowing a container narrower than 300px. */
 .candidate-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
   gap: 16px;
 }
 
-/* min-width and the minmax column keep the card inside its grid track, and
-   overflow-wrap breaks a long unbroken name instead of letting it spill out. */
 .candidate-card {
   display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  min-width: 0;
-  overflow-wrap: anywhere;
   gap: 18px;
   padding: 18px;
   border: 1px solid #dfe5ef;

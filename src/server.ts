@@ -21,7 +21,6 @@ import {
   findAllocationCandidates,
   getTutorHourSummary,
 } from "./services/allocation-queries.js";
-import { deleteCourseAndDependents } from "./services/course-deletion.js";
 import { createExcuseWorkflowService } from "./services/excuse-workflows.js";
 import { createOrganiserService } from "./services/organiser-service.js";
 import { createStudentWorkflowService } from "./services/student-workflows.js";
@@ -286,7 +285,25 @@ const app = createApp(
       }
     },
     async deleteCourse(courseId) {
-      await deleteCourseAndDependents(prisma, courseId);
+      try {
+        await prisma.course.delete({ where: { id: courseId } });
+      } catch (error) {
+        if (isPrismaErrorCode(error, "P2025")) {
+          throw createRouteError(
+            404,
+            "COURSE_NOT_FOUND",
+            "The requested course could not be found.",
+          );
+        }
+        if (isPrismaErrorCode(error, "P2003")) {
+          throw createRouteError(
+            409,
+            "COURSE_CONFLICT",
+            "The course is still referenced by existing records.",
+          );
+        }
+        throw error;
+      }
     },
     async listTutors() {
       const tutors = await prisma.profile.findMany({
@@ -692,19 +709,6 @@ const app = createApp(
     getTutorExcuseStatus: excuseWorkflowService.getStatus,
     decideExcuse: excuseWorkflowService.decide,
     async listAllocationCandidates(input) {
-      // The candidate query joins through tutor marks, so a course that no longer
-      // exists would come back as an empty list and read as "no tutor has a mark".
-      const course = await prisma.course.findUnique({
-        where: { id: input.courseId },
-        select: { id: true },
-      });
-      if (!course) {
-        throw createRouteError(
-          404,
-          "COURSE_NOT_FOUND",
-          "The requested course could not be found.",
-        );
-      }
       return findAllocationCandidates(queryClient, input);
     },
     listOrganiserAllocations: organiserService.listAllocations,
