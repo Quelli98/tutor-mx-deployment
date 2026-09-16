@@ -456,6 +456,94 @@ describe("allocation queries", () => {
     expect(candidates[0]?.clashDetails[0]?.recurrence).toBeNull();
   });
 
+  it("makes a candidate eligible when the only clash is the excluded allocation", async () => {
+    const { client } = queryClientWith([
+      {
+        tutorId: 7,
+        fullName: "Self-Conflict Tutor",
+        mark: 80,
+        weeklyLimit: 15,
+        usedHours: 0,
+        remainingHours: 15,
+        hasClash: false,
+        isEligible: true,
+        clashDetails: [],
+      },
+    ]);
+
+    const candidates = await findAllocationCandidates(client, {
+      courseId: 3,
+      startsAt: new Date("2026-09-21T08:00:00.000Z"),
+      endsAt: new Date("2026-09-21T10:00:00.000Z"),
+      minimumMark: 65,
+      requestedHours: 2,
+      excludeAllocationId: 42,
+    });
+
+    expect(candidates[0]?.isEligible).toBe(true);
+    expect(candidates[0]?.reasonCodes).toEqual([]);
+  });
+
+  it("still flags other clashes when excludeAllocationId removes only one conflict", async () => {
+    const { client } = queryClientWith([
+      {
+        tutorId: 9,
+        fullName: "Partial Exclude Tutor",
+        mark: 80,
+        weeklyLimit: 15,
+        usedHours: 0,
+        remainingHours: 15,
+        hasClash: true,
+        isEligible: false,
+        clashDetails: [
+          {
+            kind: "busy",
+            label: "Other Lecture",
+            startsAt: "2026-09-21T08:00:00.000Z",
+            endsAt: "2026-09-21T09:45:00.000Z",
+            recurrence: "ONCE",
+          },
+        ],
+      },
+    ]);
+
+    const candidates = await findAllocationCandidates(client, {
+      courseId: 3,
+      startsAt: new Date("2026-09-21T08:00:00.000Z"),
+      endsAt: new Date("2026-09-21T10:00:00.000Z"),
+      minimumMark: 65,
+      requestedHours: 2,
+      excludeAllocationId: 42,
+    });
+
+    expect(candidates[0]?.hasClash).toBe(true);
+    expect(candidates[0]?.isEligible).toBe(false);
+    expect(candidates[0]?.reasonCodes).toEqual(["schedule-clash"]);
+  });
+
+  it.each([
+    { excludeAllocationId: 0, message: "excludeAllocationId" },
+    { excludeAllocationId: -1, message: "excludeAllocationId" },
+    { excludeAllocationId: 1.5, message: "excludeAllocationId" },
+  ])(
+    "rejects invalid excludeAllocationId ($excludeAllocationId)",
+    async (invalid) => {
+      const { client, query } = queryClientWith([]);
+
+      await expect(
+        findAllocationCandidates(client, {
+          courseId: 1,
+          startsAt,
+          endsAt,
+          minimumMark: 50,
+          requestedHours: 2,
+          excludeAllocationId: invalid.excludeAllocationId,
+        }),
+      ).rejects.toThrow(invalid.message);
+      expect(query).not.toHaveBeenCalled();
+    },
+  );
+
   it.each([
     { courseId: 0, minimumMark: 50, requestedHours: 2, message: "courseId" },
     { courseId: 1, minimumMark: -1, requestedHours: 2, message: "minimumMark" },

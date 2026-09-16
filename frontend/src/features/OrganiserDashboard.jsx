@@ -336,13 +336,14 @@ export default function OrganiserDashboard() {
     setSaveError('')
   }
 
-  async function refreshAfterMutation(input, preferredTutorId) {
+  async function refreshAfterMutation(input, preferredTutorId, excludeAllocationId) {
     const liveInput = {
       courseId: input.courseId,
       startsAt: input.startsAt,
       endsAt: input.endsAt,
       minimumMark: input.minimumMark,
       requestedHours: input.requestedHours,
+      ...(excludeAllocationId ? { excludeAllocationId } : {}),
     }
     const [allocationResult, candidateResult] = await Promise.allSettled([
       listAllocations(getAccessTokenSilently),
@@ -387,15 +388,16 @@ export default function OrganiserDashboard() {
         tutorId: selectedCandidate.tutorId,
         status: editingAllocation?.status ?? 'CONFIRMED',
       }
+      let savedAllocation
       if (editingAllocation) {
-        await updateAllocation(
+        savedAllocation = await updateAllocation(
           { ...payload, allocationId: editingAllocation.id },
           getAccessTokenSilently,
         )
       } else {
-        await createAllocation(payload, getAccessTokenSilently)
+        savedAllocation = await createAllocation(payload, getAccessTokenSilently)
       }
-      const refreshed = await refreshAfterMutation(input, selectedCandidate.tutorId)
+      const refreshed = await refreshAfterMutation(input, selectedCandidate.tutorId, savedAllocation?.id)
       setSaveMessage(
         refreshed
           ? editingAllocation
@@ -740,25 +742,33 @@ export default function OrganiserDashboard() {
             </button>
           </div>
 
-          {eligibleCandidates.length > 0 && (
+          {(eligibleCandidates.length > 0 || ineligibleCandidates.length > 0) && (
             <>
               <h3 className="candidate-section-heading">Eligible tutors</h3>
-              <p className="helper-text">
-                These tutors meet all allocation rules. Select one to assign.
-              </p>
-              <div className="candidate-grid">
-                {eligibleCandidates.map((candidate) => (
-                  <CandidateCard
-                    key={candidate.tutorId}
-                    candidate={candidate}
-                    minimumMark={Number(form.minimumMark)}
-                    requestedHours={Number(form.requestedHours)}
-                    selected={candidate.tutorId === selectedTutorId}
-                    onSelect={() => setSelectedTutorId(candidate.tutorId)}
-                    disabled={isMutating}
-                  />
-                ))}
-              </div>
+              {eligibleCandidates.length > 0 ? (
+                <>
+                  <p className="helper-text">
+                    These tutors meet all allocation rules. Select one to assign.
+                  </p>
+                  <div className="candidate-grid">
+                    {eligibleCandidates.map((candidate) => (
+                      <CandidateCard
+                        key={candidate.tutorId}
+                        candidate={candidate}
+                        minimumMark={Number(form.minimumMark)}
+                        requestedHours={Number(form.requestedHours)}
+                        selected={candidate.tutorId === selectedTutorId}
+                        onSelect={() => setSelectedTutorId(candidate.tutorId)}
+                        disabled={isMutating}
+                      />
+                    ))}
+                  </div>
+                </>
+              ) : (
+                <p className="empty-inline" role="status">
+                  No tutors currently available.
+                </p>
+              )}
             </>
           )}
 
