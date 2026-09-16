@@ -332,7 +332,7 @@ export interface AppDependencies {
     input: CourseWriteInput,
   ) => Promise<CourseSummary>;
   deleteCourse: (courseId: number) => Promise<void>;
-  listTutors: () => Promise<TutorSummary[]>;
+  listTutors: (weekStart?: Date) => Promise<TutorSummary[]>;
   getTutorDashboard: (auth0Id: string) => Promise<TutorDashboardSummary>;
   listOwnTutorTimeSlots: (auth0Id: string) => Promise<TutorTimeSlotSummary[]>;
   updateTutorTimeSlot: (
@@ -688,6 +688,13 @@ function parseDateOnly(value: unknown) {
     parsed.toISOString().slice(0, 10) === value
     ? value
     : null;
+}
+
+function parseWeekStart(value: unknown): Date | null {
+  const text = parseDateOnly(firstQueryParam(value));
+  if (!text) return null;
+  const date = new Date(`${text}T00:00:00.000Z`);
+  return date.getUTCDay() === 1 ? date : null;
 }
 
 function parsePositiveInteger(value: unknown) {
@@ -1439,9 +1446,23 @@ export function createApp(
     authenticate,
     resolveProfileRole,
     requireRole("ORGANISER"),
-    async (_request, response) => {
+    async (request, response) => {
+      const hasWeekStart = request.query.weekStart !== undefined;
+      const weekStart = hasWeekStart
+        ? parseWeekStart(request.query.weekStart)
+        : null;
+      if (hasWeekStart && weekStart === null) {
+        const result = error(
+          400,
+          "VALIDATION_ERROR",
+          "weekStart must be a Monday in YYYY-MM-DD format.",
+        );
+        response.status(result.status).json(result.body);
+        return;
+      }
+
       try {
-        const tutors = await dependencies.listTutors();
+        const tutors = await dependencies.listTutors(weekStart ?? undefined);
         response.status(200).json({ data: { tutors } });
       } catch (value) {
         sendRouteError(response, value);

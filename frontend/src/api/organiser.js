@@ -218,8 +218,9 @@ export async function deleteCourse(input, tokenOrGetter) {
   )
 }
 
-export async function listTutors(tokenOrGetter) {
-  const body = await fetchWithBearerToken('/api/tutors', {}, tokenOrGetter)
+export async function listTutors(tokenOrGetter, weekStart) {
+  const url = weekStart ? `/api/tutors?weekStart=${encodeURIComponent(weekStart)}` : '/api/tutors'
+  const body = await fetchWithBearerToken(url, {}, tokenOrGetter)
   const tutors = body?.data?.tutors
   if (!Array.isArray(tutors) || !tutors.every(isTutor)) {
     throw new Error('The tutor response did not match the agreed contract.')

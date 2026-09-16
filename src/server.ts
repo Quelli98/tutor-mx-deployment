@@ -320,13 +320,13 @@ const app = createApp(
       // database detail never reaches the client.
       await courseService.deleteCourse(courseId);
     },
-    async listTutors() {
+    async listTutors(weekStart?: Date) {
       const tutors = await prisma.profile.findMany({
         where: { role: "TUTOR" },
         orderBy: { fullName: "asc" },
         select: { id: true, email: true, fullName: true, role: true },
       });
-      const workloads = await getTutorWorkloads(queryClient, mondayUtcFor(new Date()));
+      const workloads = await getTutorWorkloads(queryClient, weekStart ?? mondayUtcFor(new Date()));
       const byTutorId = new Map(workloads.map((workload) => [workload.tutorId, workload]));
       return tutors.map((tutor) => {
         const workload = byTutorId.get(tutor.id);

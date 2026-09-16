@@ -680,3 +680,74 @@ describe("organiser decision routes", () => {
     });
   });
 });
+
+describe("organiser tutor weekly navigation", () => {
+  const tutorSummary = {
+    id: 7,
+    email: "tutor@tutormx.example",
+    fullName: "Demo Tutor",
+    role: "TUTOR" as const,
+    weeklyHours: 10,
+    usedHours: 4,
+    remainingHours: 6,
+    workedHours: 3,
+    weekStart: "2026-09-21",
+    weekEnd: "2026-09-27",
+    capacityStatus: "available" as const,
+  };
+
+  it("forwards a valid Monday weekStart to listTutors", async () => {
+    const listTutors = vi.fn().mockResolvedValue([tutorSummary]);
+    const app = makeApp({ listTutors });
+
+    const response = await request(app)
+      .get("/api/tutors")
+      .query({ weekStart: "2026-09-21" })
+      .set("Authorization", "Bearer valid-token");
+
+    expect(response.status).toBe(200);
+    expect(response.body.data.tutors).toEqual([tutorSummary]);
+    expect(listTutors).toHaveBeenCalledTimes(1);
+    const passedDate = listTutors.mock.calls[0][0] as Date;
+    expect(passedDate.toISOString().slice(0, 10)).toBe("2026-09-21");
+  });
+
+  it("rejects a weekStart that is not a Monday", async () => {
+    const listTutors = vi.fn();
+    const app = makeApp({ listTutors });
+
+    const response = await request(app)
+      .get("/api/tutors")
+      .query({ weekStart: "2026-09-22" })
+      .set("Authorization", "Bearer valid-token");
+
+    expect(response.status).toBe(400);
+    expect(response.body.error.code).toBe("VALIDATION_ERROR");
+    expect(listTutors).not.toHaveBeenCalled();
+  });
+
+  it("rejects a malformed weekStart", async () => {
+    const listTutors = vi.fn();
+    const app = makeApp({ listTutors });
+
+    const response = await request(app)
+      .get("/api/tutors")
+      .query({ weekStart: "not-a-date" })
+      .set("Authorization", "Bearer valid-token");
+
+    expect(response.status).toBe(400);
+    expect(listTutors).not.toHaveBeenCalled();
+  });
+
+  it("defaults to the current week when weekStart is omitted", async () => {
+    const listTutors = vi.fn().mockResolvedValue([tutorSummary]);
+    const app = makeApp({ listTutors });
+
+    const response = await request(app)
+      .get("/api/tutors")
+      .set("Authorization", "Bearer valid-token");
+
+    expect(response.status).toBe(200);
+    expect(listTutors).toHaveBeenCalledWith(undefined);
+  });
+});
