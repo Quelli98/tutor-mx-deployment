@@ -160,6 +160,24 @@ describe('organiser tutor API contract', () => {
       'The tutor response did not match the agreed contract.',
     )
   })
+
+  it('forwards weekStart as a query parameter when provided', async () => {
+    fetchWithBearerToken.mockResolvedValue({ data: { tutors: [tutor] } })
+
+    await expect(listTutors(tokenGetter, '2026-09-21')).resolves.toEqual([tutor])
+    expect(fetchWithBearerToken).toHaveBeenCalledWith(
+      '/api/tutors?weekStart=2026-09-21',
+      {},
+      tokenGetter,
+    )
+  })
+
+  it('omits the query string when weekStart is not provided', async () => {
+    fetchWithBearerToken.mockResolvedValue({ data: { tutors: [tutor] } })
+
+    await listTutors(tokenGetter)
+    expect(fetchWithBearerToken).toHaveBeenCalledWith('/api/tutors', {}, tokenGetter)
+  })
 })
 
 describe('organiser allocation and tutor-detail API contracts', () => {

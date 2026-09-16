@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import TutorManagement from './TutorManagement'
@@ -79,7 +79,7 @@ describe('TutorManagement', () => {
     listTutors.mockResolvedValue([{ ...tutorWithHours, weeklyHours: 15, usedHours: 0, remainingHours: 15, workedHours: 0, weekStart: '2026-09-14T00:00:00.000Z', weekEnd: '2026-09-21T00:00:00.000Z' }])
     renderPage()
     await screen.findByText('Sam Tutor')
-    expect(screen.getByText('This week')).toBeVisible()
+    expect(screen.getAllByText('This week').length).toBeGreaterThanOrEqual(1)
     expect(screen.getByText('14–20 September 2026')).toBeVisible()
     for (const label of ['Weekly capacity', 'Allocated', 'Remaining', 'Worked this week', 'Status']) {
       expect(screen.getByText(label)).toBeVisible()
@@ -148,5 +148,82 @@ describe('TutorManagement', () => {
       screen.getByText(/tutor accounts will appear here after registration/i),
     ).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /add tutor/i })).not.toBeInTheDocument()
+  })
+
+  it('renders Previous week, This week, and Next week navigation buttons', async () => {
+    listTutors.mockResolvedValue(tutors)
+    renderPage()
+    await screen.findByText('Sam Tutor')
+
+    expect(screen.getByRole('button', { name: /previous week/i })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /^this week$/i })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /next week/i })).toBeInTheDocument()
+  })
+
+  it('requests the following week after clicking Next week', async () => {
+    listTutors.mockResolvedValue(tutors)
+    renderPage()
+    await screen.findByText('Sam Tutor')
+
+    const initialCallCount = listTutors.mock.calls.length
+    const currentMonday = new Date()
+    currentMonday.setHours(0, 0, 0, 0)
+    currentMonday.setDate(currentMonday.getDate() - ((currentMonday.getDay() + 6) % 7))
+    const nextMonday = new Date(currentMonday)
+    nextMonday.setDate(nextMonday.getDate() + 7)
+    const expectedIso = `${nextMonday.getFullYear()}-${String(nextMonday.getMonth() + 1).padStart(2, '0')}-${String(nextMonday.getDate()).padStart(2, '0')}`
+
+    fireEvent.click(screen.getByRole('button', { name: /next week/i }))
+
+    await waitFor(() => {
+      expect(listTutors.mock.calls.length).toBeGreaterThan(initialCallCount)
+    })
+    const lastCall = listTutors.mock.calls[listTutors.mock.calls.length - 1]
+    expect(lastCall[1]).toBe(expectedIso)
+  })
+
+  it('requests the prior week after clicking Previous week', async () => {
+    listTutors.mockResolvedValue(tutors)
+    renderPage()
+    await screen.findByText('Sam Tutor')
+
+    const initialCallCount = listTutors.mock.calls.length
+    const currentMonday = new Date()
+    currentMonday.setHours(0, 0, 0, 0)
+    currentMonday.setDate(currentMonday.getDate() - ((currentMonday.getDay() + 6) % 7))
+    const prevMonday = new Date(currentMonday)
+    prevMonday.setDate(prevMonday.getDate() - 7)
+    const expectedIso = `${prevMonday.getFullYear()}-${String(prevMonday.getMonth() + 1).padStart(2, '0')}-${String(prevMonday.getDate()).padStart(2, '0')}`
+
+    fireEvent.click(screen.getByRole('button', { name: /previous week/i }))
+
+    await waitFor(() => {
+      expect(listTutors.mock.calls.length).toBeGreaterThan(initialCallCount)
+    })
+    const lastCall = listTutors.mock.calls[listTutors.mock.calls.length - 1]
+    expect(lastCall[1]).toBe(expectedIso)
+  })
+
+  it('resets to the current week when clicking This week from another week', async () => {
+    listTutors.mockResolvedValue(tutors)
+    renderPage()
+    await screen.findByText('Sam Tutor')
+
+    const currentMonday = new Date()
+    currentMonday.setHours(0, 0, 0, 0)
+    currentMonday.setDate(currentMonday.getDate() - ((currentMonday.getDay() + 6) % 7))
+    const currentIso = `${currentMonday.getFullYear()}-${String(currentMonday.getMonth() + 1).padStart(2, '0')}-${String(currentMonday.getDate()).padStart(2, '0')}`
+
+    fireEvent.click(screen.getByRole('button', { name: /next week/i }))
+    await waitFor(() => {
+      const lastCall = listTutors.mock.calls[listTutors.mock.calls.length - 1]
+      expect(lastCall[1]).not.toBe(currentIso)
+    })
+
+    fireEvent.click(screen.getByRole('button', { name: /^this week$/i }))
+    await waitFor(() => {
+      const lastCall = listTutors.mock.calls[listTutors.mock.calls.length - 1]
+      expect(lastCall[1]).toBe(currentIso)
+    })
   })
 })

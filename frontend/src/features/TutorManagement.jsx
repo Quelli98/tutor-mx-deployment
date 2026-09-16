@@ -3,7 +3,7 @@ import { useAuth0 } from '@auth0/auth0-react'
 import { listTutors } from '../api/organiser'
 import { EmptyState, ErrorState, LoadingState } from '../components/shared/StatusMessage'
 import TutorAllocationDetails from './TutorAllocationDetails'
-import { weekRangeLabel } from '../components/shared/scheduleWeek'
+import { addDays, localMonday, weekRangeLabel } from '../components/shared/scheduleWeek'
 
 const CAPACITY_TEXT = {
   available: 'Available for more work',
@@ -20,6 +20,13 @@ function safeErrorMessage(error) {
   return 'Unable to load tutors. Please try again.'
 }
 
+function toIsoDate(date) {
+  const y = date.getFullYear()
+  const m = String(date.getMonth() + 1).padStart(2, '0')
+  const d = String(date.getDate()).padStart(2, '0')
+  return `${y}-${m}-${d}`
+}
+
 export default function TutorManagement() {
   const { getAccessTokenSilently } = useAuth0()
   const [status, setStatus] = useState('loading')
@@ -27,12 +34,16 @@ export default function TutorManagement() {
   const [errorMessage, setErrorMessage] = useState('')
   const [searchText, setSearchText] = useState('')
   const [detailsTutor, setDetailsTutor] = useState(null)
+  const [selectedMonday, setSelectedMonday] = useState(() => localMonday(new Date()))
+
+  const weekStartIso = toIsoDate(selectedMonday)
+  const isCurrentWeek = localMonday(new Date()).valueOf() === selectedMonday.valueOf()
 
   const loadTutors = useCallback(async (isActive = () => true) => {
     setStatus('loading')
     setErrorMessage('')
     try {
-      const result = await listTutors(getAccessTokenSilently)
+      const result = await listTutors(getAccessTokenSilently, weekStartIso)
       if (!isActive()) return
       setTutors(result)
       setStatus('success')
@@ -42,7 +53,7 @@ export default function TutorManagement() {
       setErrorMessage(safeErrorMessage(error))
       setStatus('error')
     }
-  }, [getAccessTokenSilently])
+  }, [getAccessTokenSilently, weekStartIso])
 
   useEffect(() => {
     let active = true
@@ -84,6 +95,17 @@ export default function TutorManagement() {
             </div>
           </div>
           <p className="helper-text">Worked hours are recorded worklogs, not necessarily approved. All workload figures and capacity statuses are supplied by the server.</p>
+          <div className="calendar-toolbar">
+            <div>
+              <strong>{isCurrentWeek ? 'This week' : 'Selected week'}</strong>
+              <span>{weekRangeLabel(selectedMonday)}</span>
+            </div>
+            <div className="button-row">
+              <button className="secondary-button" type="button" onClick={() => setSelectedMonday(addDays(selectedMonday, -7))}>Previous week</button>
+              <button className="secondary-button" type="button" onClick={() => setSelectedMonday(localMonday(new Date()))}>This week</button>
+              <button className="secondary-button" type="button" onClick={() => setSelectedMonday(addDays(selectedMonday, 7))}>Next week</button>
+            </div>
+          </div>
           {filteredTutors.length === 0 ? <p className="empty-inline" role="status">No tutors found.</p> : (
             <div className="tutor-workload-grid">
               {filteredTutors.map((tutor) => (
@@ -92,7 +114,6 @@ export default function TutorManagement() {
                     <h3 id={`tutor-${tutor.id}`}>{tutor.fullName?.trim() || tutor.email}</h3>
                     {tutor.fullName?.trim() && tutor.fullName.trim() !== tutor.email && <p>{tutor.email}</p>}
                   </div>
-                  <div className="workload-period"><strong>This week</strong><span>{weekRangeLabel(new Date(`${tutor.weekStart.slice(0, 10)}T00:00:00`))}</span></div>
                   <dl className="workload-facts">
                     <div><dt>Weekly capacity</dt><dd>{tutor.weeklyHours == null ? 'Not set — setup incomplete' : `${tutor.weeklyHours} h`}</dd></div>
                     <div><dt>Allocated</dt><dd>{tutor.usedHours} h</dd></div>
