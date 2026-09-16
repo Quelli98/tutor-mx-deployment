@@ -498,6 +498,7 @@ describe("server-side API persistence", () => {
     mocks.allocationFindFirst.mockResolvedValueOnce({
       id: 4,
       startsAt: new Date("2030-09-04T14:00:00.000Z"),
+      endsAt: new Date("2020-09-04T17:00:00.000Z"),
       status: "CONFIRMED",
     });
     mocks.timesheetUpsert.mockResolvedValueOnce({ id: 3, status: "DRAFT" });
@@ -606,6 +607,23 @@ describe("server-side API persistence", () => {
     mocks.allocationFindFirst.mockResolvedValueOnce({
       id: 4,
       startsAt: new Date("2030-09-04T14:00:00.000Z"),
+      endsAt: new Date("2030-09-04T17:00:00.000Z"),
+      status: "CONFIRMED",
+    });
+    await expect(
+      dependencies.createTutorWorkLog("auth0|current-tutor", {
+        allocationId: 4,
+        workDate: "2030-09-04",
+        hours: 2,
+        description: "Session still running",
+      }),
+    ).rejects.toMatchObject({ status: 400, code: "SESSION_NOT_ENDED" });
+
+    mocks.profileFindUnique.mockResolvedValueOnce({ id: 7, role: "TUTOR" });
+    mocks.allocationFindFirst.mockResolvedValueOnce({
+      id: 4,
+      startsAt: new Date("2030-09-04T14:00:00.000Z"),
+      endsAt: new Date("2020-09-04T17:00:00.000Z"),
       status: "CONFIRMED",
     });
     mocks.timesheetUpsert.mockResolvedValueOnce({
@@ -625,6 +643,7 @@ describe("server-side API persistence", () => {
     mocks.allocationFindFirst.mockResolvedValueOnce({
       id: 4,
       startsAt: new Date("2030-09-04T14:00:00.000Z"),
+      endsAt: new Date("2020-09-04T17:00:00.000Z"),
       status: "CONFIRMED",
     });
     mocks.timesheetUpsert.mockResolvedValueOnce({ id: 3, status: "DRAFT" });
@@ -676,6 +695,7 @@ describe("server-side API persistence", () => {
     mocks.allocationFindFirst.mockResolvedValueOnce({
       id: 4,
       startsAt: new Date("2030-09-04T14:00:00.000Z"),
+      endsAt: new Date("2020-09-04T17:00:00.000Z"),
       status: "CONFIRMED",
     });
     mocks.timesheetUpsert.mockResolvedValueOnce({ id: 3, status: "DRAFT" });
@@ -959,6 +979,7 @@ describe("server-side API persistence", () => {
       id: 4,
       status: "CONFIRMED",
       startsAt: new Date("2030-09-04T14:00:00.000Z"),
+      endsAt: new Date("2020-09-04T17:00:00.000Z"),
     });
     mocks.transaction.mockRejectedValueOnce({ code: "P2004" });
     await expect(

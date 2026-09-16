@@ -37,6 +37,10 @@ function sessionLabel(allocation) {
   return `${allocation.courseCode} - ${new Date(allocation.startsAt).toLocaleString()}`
 }
 
+function hasSessionEnded(allocation) {
+  return new Date() > new Date(allocation.endsAt)
+}
+
 export default function WorkLogForm({ allocations = [], tokenOrGetter, storageScope = null }) {
   const [allocationId, setAllocationId] = useState('')
   const [workDate, setWorkDate] = useState('')
@@ -133,9 +137,14 @@ export default function WorkLogForm({ allocations = [], tokenOrGetter, storageSc
           aria-describedby={errors.allocationId ? 'work-allocation-error' : undefined}
         >
           <option value="">Select a confirmed session</option>
-          {allocations.map((allocation) => (
-            <option key={allocation.id} value={allocation.id}>{sessionLabel(allocation)}</option>
-          ))}
+          {allocations.map((allocation) => {
+            const ended = hasSessionEnded(allocation)
+            return (
+              <option key={allocation.id} value={allocation.id} disabled={!ended}>
+                {sessionLabel(allocation)}{ended ? '' : ' — Session not completed yet'}
+              </option>
+            )
+          })}
         </select>
         {errors.allocationId && (
           <p id="work-allocation-error" className="error-text">{errors.allocationId}</p>

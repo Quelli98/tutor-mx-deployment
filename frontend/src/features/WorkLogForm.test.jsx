@@ -192,4 +192,42 @@ describe('WorkLogForm', () => {
       /DEMO101.*2030-09-04.*2h.*Tutorial session/i,
     )
   })
+
+  it('disables sessions that have not ended yet', () => {
+    const futureAllocations = [
+      {
+        id: 1,
+        courseCode: 'FUTURE101',
+        courseName: 'Future Course',
+        startsAt: '2030-09-04T14:00:00.000Z',
+        endsAt: '2030-09-04T16:00:00.000Z',
+        allocatedHours: 2,
+        status: 'CONFIRMED',
+      },
+    ]
+    render(<WorkLogForm allocations={futureAllocations} tokenOrGetter={tokenGetter} />)
+    const select = screen.getByLabelText(/^session$/i)
+    const option = within(select).getByText(/FUTURE101/i).closest('option')
+    expect(option).toBeDisabled()
+    expect(option).toHaveTextContent(/session not completed yet/i)
+  })
+
+  it('enables sessions that have already ended', () => {
+    const pastAllocations = [
+      {
+        id: 2,
+        courseCode: 'PAST101',
+        courseName: 'Past Course',
+        startsAt: '2020-09-04T14:00:00.000Z',
+        endsAt: '2020-09-04T16:00:00.000Z',
+        allocatedHours: 2,
+        status: 'CONFIRMED',
+      },
+    ]
+    render(<WorkLogForm allocations={pastAllocations} tokenOrGetter={tokenGetter} />)
+    const select = screen.getByLabelText(/^session$/i)
+    const option = within(select).getByText(/PAST101/i).closest('option')
+    expect(option).not.toBeDisabled()
+    expect(option).not.toHaveTextContent(/session not completed yet/i)
+  })
 })

@@ -457,7 +457,7 @@ const app = createApp(
       const tutorId = await findTutorProfileId(auth0Id);
       const allocation = await prisma.allocation.findFirst({
         where: { id: input.allocationId, tutorId },
-        select: { id: true, startsAt: true, status: true },
+        select: { id: true, startsAt: true, endsAt: true, status: true },
       });
       if (!allocation) {
         throw createRouteError(
@@ -474,6 +474,13 @@ const app = createApp(
           409,
           "WORK_LOG_CONFLICT",
           "Worked hours must match a confirmed session owned by the tutor.",
+        );
+      }
+      if (new Date() <= allocation.endsAt) {
+        throw createRouteError(
+          400,
+          "SESSION_NOT_ENDED",
+          "Worked hours can only be logged after the session has ended.",
         );
       }
 
