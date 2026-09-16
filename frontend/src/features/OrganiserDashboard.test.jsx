@@ -368,4 +368,98 @@ describe('OrganiserDashboard', () => {
     expect(screen.queryByRole('button', { name: /select Boundary Tutor/i })).not.toBeInTheDocument()
     expect(screen.getByRole('heading', { name: /^not eligible$/i })).toBeInTheDocument()
   })
+
+  it('passes the new allocation ID as excludeAllocationId when refreshing after create', async () => {
+    listCourses.mockResolvedValue(courses)
+    listAllocationCandidates.mockResolvedValue([eligibleCandidate])
+    createAllocation.mockResolvedValue({ id: 99 })
+
+    render(<OrganiserDashboard />)
+    await screen.findByRole('option', { name: /COMS3011/i })
+    fillBoard()
+    fireEvent.click(screen.getByRole('button', { name: /check candidates/i }))
+    fireEvent.click(await screen.findByRole('button', { name: /select Boundary Tutor/i }))
+    fireEvent.click(screen.getByRole('button', { name: /save allocation/i }))
+
+    await waitFor(() => {
+      expect(createAllocation).toHaveBeenCalled()
+    })
+    await waitFor(() => {
+      const refreshCall = listAllocationCandidates.mock.calls.find(
+        (call) => call[0]?.excludeAllocationId === 99,
+      )
+      expect(refreshCall).toBeTruthy()
+    })
+  })
+
+  it('passes the allocation ID as excludeAllocationId when refreshing after update', async () => {
+    listCourses.mockResolvedValue(courses)
+    listAllocations.mockResolvedValue([allocation])
+    listAllocationCandidates.mockResolvedValue([eligibleCandidate])
+
+    render(<OrganiserDashboard />)
+    fireEvent.click(await screen.findByRole('button', { name: /edit allocation/i }))
+    fireEvent.click(screen.getByRole('button', { name: /check candidates/i }))
+    fireEvent.click(await screen.findByRole('button', { name: /update allocation/i }))
+
+    await waitFor(() => {
+      expect(updateAllocation).toHaveBeenCalled()
+    })
+    await waitFor(() => {
+      const refreshCall = listAllocationCandidates.mock.calls.find(
+        (call) => call[0]?.excludeAllocationId === 11,
+      )
+      expect(refreshCall).toBeTruthy()
+    })
+  })
+
+  it('shows "No tutors currently available" under Eligible tutors when all candidates are ineligible', async () => {
+    listCourses.mockResolvedValue(courses)
+    listAllocationCandidates.mockResolvedValue([ineligibleCandidate])
+
+    render(<OrganiserDashboard />)
+    await screen.findByRole('option', { name: /COMS3011/i })
+    fillBoard()
+    fireEvent.click(screen.getByRole('button', { name: /check candidates/i }))
+
+    expect(await screen.findByRole('heading', { name: /^eligible tutors$/i })).toBeVisible()
+    expect(screen.getByText(/no tutors currently available/i)).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: /^not eligible$/i })).toBeVisible()
+  })
+
+  it('keeps the saved tutor eligible after refresh (no self-conflict)', async () => {
+    listCourses.mockResolvedValue(courses)
+    listAllocationCandidates
+      .mockResolvedValueOnce([eligibleCandidate])
+      .mockResolvedValueOnce([eligibleCandidate])
+    createAllocation.mockResolvedValue({ id: 99 })
+
+    render(<OrganiserDashboard />)
+    await screen.findByRole('option', { name: /COMS3011/i })
+    fillBoard()
+    fireEvent.click(screen.getByRole('button', { name: /check candidates/i }))
+    fireEvent.click(await screen.findByRole('button', { name: /select Boundary Tutor/i }))
+    fireEvent.click(screen.getByRole('button', { name: /save allocation/i }))
+
+    expect(await screen.findByText(/was allocated and weekly hours were refreshed/i)).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: /^eligible tutors$/i })).toBeVisible()
+    const selectButton = screen.getByRole('button', { name: /^selected$/i })
+    expect(selectButton).toBeEnabled()
+    expect(selectButton).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.queryByText(/availability: fail/i)).not.toBeInTheDocument()
+  })
+
+  it('shows "No tutors found" only when there are zero candidates total', async () => {
+    listCourses.mockResolvedValue(courses)
+    listAllocationCandidates.mockResolvedValue([])
+
+    render(<OrganiserDashboard />)
+    await screen.findByRole('option', { name: /COMS3011/i })
+    fillBoard()
+    fireEvent.click(screen.getByRole('button', { name: /check candidates/i }))
+
+    expect(await screen.findByText(/no tutors have marks recorded for this course yet/i)).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: /^eligible tutors$/i })).not.toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: /^not eligible$/i })).not.toBeInTheDocument()
+  })
 })
