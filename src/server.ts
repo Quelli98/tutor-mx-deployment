@@ -629,6 +629,7 @@ const app = createApp(
         hasClash: candidate.hasClash,
         isEligible: candidate.isEligible,
         reasonCodes: candidate.reasonCodes,
+        clashDetails: candidate.clashDetails,
       }));
     },
     listOrganiserAllocations: organiserService.listAllocations,
