@@ -39,6 +39,14 @@ export default function TutorManagement() {
   const weekStartIso = toIsoDate(selectedMonday)
   const isCurrentWeek = localMonday(new Date()).valueOf() === selectedMonday.valueOf()
 
+  function handleGoToDate(event) {
+    const value = event.target.value
+    if (!value) return
+    const chosen = new Date(`${value}T00:00:00`)
+    if (Number.isNaN(chosen.getTime())) return
+    setSelectedMonday(localMonday(chosen))
+  }
+
   const loadTutors = useCallback(async (isActive = () => true) => {
     setStatus('loading')
     setErrorMessage('')
@@ -104,6 +112,10 @@ export default function TutorManagement() {
               <button className="secondary-button" type="button" onClick={() => setSelectedMonday(addDays(selectedMonday, -7))}>Previous week</button>
               <button className="secondary-button" type="button" onClick={() => setSelectedMonday(localMonday(new Date()))}>This week</button>
               <button className="secondary-button" type="button" onClick={() => setSelectedMonday(addDays(selectedMonday, 7))}>Next week</button>
+              <label className="week-date-picker">
+                <span>Go to week</span>
+                <input type="date" value={weekStartIso} onChange={handleGoToDate} aria-label="Go to week" />
+              </label>
             </div>
           </div>
           {filteredTutors.length === 0 ? <p className="empty-inline" role="status">No tutors found.</p> : (

@@ -160,6 +160,22 @@ describe('TutorManagement', () => {
     expect(screen.getByRole('button', { name: /next week/i })).toBeInTheDocument()
   })
 
+  it('jumps to the week containing a chosen date, resolving Sunday to its Monday', async () => {
+    listTutors.mockResolvedValue(tutors)
+    renderPage()
+    await screen.findByText('Sam Tutor')
+
+    const initialCallCount = listTutors.mock.calls.length
+    const picker = screen.getByLabelText(/go to week/i)
+    fireEvent.change(picker, { target: { value: '2026-11-15' } })
+
+    await waitFor(() => {
+      expect(listTutors.mock.calls.length).toBeGreaterThan(initialCallCount)
+    })
+    const lastCall = listTutors.mock.calls[listTutors.mock.calls.length - 1]
+    expect(lastCall[1]).toBe('2026-11-09')
+  })
+
   it('requests the following week after clicking Next week', async () => {
     listTutors.mockResolvedValue(tutors)
     renderPage()

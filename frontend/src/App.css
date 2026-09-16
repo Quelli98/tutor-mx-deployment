@@ -2138,6 +2138,8 @@ textarea:focus {
 .calendar-toolbar p { margin-top: 4px; color: #54657c; }
 .calendar-toolbar .button-row { flex-wrap: wrap; gap: 6px; }
 .calendar-toolbar button { min-height: 36px; padding: 7px 10px; font-size: 0.8rem; }
+.week-date-picker { display: inline-flex; align-items: center; gap: 6px; font-size: 0.8rem; color: var(--text-secondary, #54657c); }
+.week-date-picker input[type="date"] { min-height: 36px; padding: 6px 8px; font-size: 0.8rem; border: 1px solid var(--border, #d5dbe5); border-radius: 6px; background: #fff; }
 .calendar-scroll { max-width: 100%; overflow-x: auto; border: 1px solid var(--border); border-radius: 12px; background: #fff; }
 .calendar-scroll:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
 .calendar-grid { display: grid; grid-template-columns: 54px repeat(7, minmax(130px, 1fr)); min-width: 964px; }
