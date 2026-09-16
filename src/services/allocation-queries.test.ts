@@ -338,6 +338,124 @@ describe("allocation queries", () => {
     ]);
   });
 
+  it("returns an eligible candidate with clashDetails when no conflicts exist", async () => {
+    const { client } = queryClientWith([
+      {
+        tutorId: 7,
+        fullName: "Raquel",
+        mark: 80,
+        weeklyLimit: 15,
+        usedHours: 0,
+        remainingHours: 15,
+        hasClash: false,
+        isEligible: true,
+        clashDetails: [],
+      },
+    ]);
+
+    const candidates = await findAllocationCandidates(client, {
+      courseId: 3,
+      startsAt: new Date("2026-09-21T08:00:00.000Z"),
+      endsAt: new Date("2026-09-21T10:00:00.000Z"),
+      minimumMark: 65,
+      requestedHours: 2,
+    });
+
+    expect(candidates).toEqual([
+      {
+        tutorId: 7,
+        fullName: "Raquel",
+        mark: 80,
+        weeklyLimit: 15,
+        usedHours: 0,
+        remainingHours: 15,
+        hasClash: false,
+        isEligible: true,
+        reasonCodes: [],
+        clashDetails: [],
+      },
+    ]);
+  });
+
+  it("returns clashDetails with specific conflict information", async () => {
+    const { client } = queryClientWith([
+      {
+        tutorId: 7,
+        fullName: "Raquel",
+        mark: 80,
+        weeklyLimit: 15,
+        usedHours: 0,
+        remainingHours: 15,
+        hasClash: true,
+        isEligible: false,
+        clashDetails: [
+          {
+            kind: "busy",
+            label: "Lecture",
+            startsAt: "2026-09-21T08:00:00.000Z",
+            endsAt: "2026-09-21T09:45:00.000Z",
+            recurrence: "WEEKLY",
+          },
+        ],
+      },
+    ]);
+
+    const candidates = await findAllocationCandidates(client, {
+      courseId: 3,
+      startsAt: new Date("2026-09-21T08:00:00.000Z"),
+      endsAt: new Date("2026-09-21T10:00:00.000Z"),
+      minimumMark: 65,
+      requestedHours: 2,
+    });
+
+    expect(candidates[0]?.hasClash).toBe(true);
+    expect(candidates[0]?.isEligible).toBe(false);
+    expect(candidates[0]?.reasonCodes).toEqual(["schedule-clash"]);
+    expect(candidates[0]?.clashDetails).toEqual([
+      {
+        kind: "busy",
+        label: "Lecture",
+        startsAt: "2026-09-21T08:00:00.000Z",
+        endsAt: "2026-09-21T09:45:00.000Z",
+        recurrence: "WEEKLY",
+      },
+    ]);
+  });
+
+  it("handles null recurrence in clashDetails", async () => {
+    const { client } = queryClientWith([
+      {
+        tutorId: 7,
+        fullName: "Raquel",
+        mark: 80,
+        weeklyLimit: 15,
+        usedHours: 0,
+        remainingHours: 15,
+        hasClash: true,
+        isEligible: false,
+        clashDetails: [
+          {
+            kind: "allocation",
+            label: "COMS3011",
+            startsAt: "2026-09-21T08:00:00.000Z",
+            endsAt: "2026-09-21T10:00:00.000Z",
+            recurrence: null,
+          },
+        ],
+      },
+    ]);
+
+    const candidates = await findAllocationCandidates(client, {
+      courseId: 3,
+      startsAt: new Date("2026-09-21T08:00:00.000Z"),
+      endsAt: new Date("2026-09-21T10:00:00.000Z"),
+      minimumMark: 65,
+      requestedHours: 2,
+    });
+
+    expect(candidates[0]?.clashDetails[0]?.recurrence).toBeNull();
+  });
+
   it.each([
     { courseId: 0, minimumMark: 50, requestedHours: 2, message: "courseId" },
     { courseId: 1, minimumMark: -1, requestedHours: 2, message: "minimumMark" },
