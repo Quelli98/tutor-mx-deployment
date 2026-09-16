@@ -1,7 +1,7 @@
 import { readFile, readdir } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { PGlite } from "@electric-sql/pglite";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import {
   findAllocationCandidates,
   listOpenWork,
@@ -322,6 +322,96 @@ describe("Basic workflow migrations", () => {
       await secondDatabase.close();
     }
   }, 30_000);
+});
+
+describe("Calendar candidate SQL regression", () => {
+  let database: PGlite;
+  let tutorId: number;
+  let courseId: number;
+  let organiserId: number;
+  const instant = (date: string) => new Date(`${date}:00+02:00`);
+  const timestamp = (date: string) => instant(date).toISOString().replace("T", " ").replace("Z", "");
+
+  beforeAll(async () => {
+    database = new PGlite();
+    await applyMigrations(database);
+    await seed(database);
+    const ids = await database.query<{ tutor: number; course: number; organiser: number }>(`SELECT
+      (SELECT "id" FROM "Profile" WHERE "auth0Id" = 'demo|tutor-pass') AS tutor,
+      (SELECT "id" FROM "Course" WHERE "code" = 'DEMO101') AS course,
+      (SELECT "id" FROM "Profile" WHERE "auth0Id" = 'demo|organiser') AS organiser`);
+    ({ tutor: tutorId, course: courseId, organiser: organiserId } = ids.rows[0]!);
+  }, 30_000);
+  beforeEach(async () => {
+    await database.exec('BEGIN');
+    await database.query('UPDATE "TutorHourLimit" SET "weeklyHours" = 15 WHERE "tutorId" = $1', [tutorId]);
+  });
+  afterEach(async () => { await database.exec('ROLLBACK'); });
+  afterAll(async () => { await database.close(); });
+
+  async function busy(start: string, end: string, recurrence: string | null = "WEEKLY", until: string | null = null) {
+    await database.query(`INSERT INTO "TimeSlot" ("tutorId", "type", "startsAt", "endsAt", "recurrence", "label", "recurrenceUntil")
+      VALUES ($1, 'BUSY', $2, $3, $4, 'COMS3011 Lecture', $5)`,
+    [tutorId, timestamp(start), timestamp(end), recurrence, until ? timestamp(until) : null]);
+  }
+
+  async function candidate(start = "2026-09-14T08:00", end = "2026-09-14T10:45", excludeAllocationId?: number) {
+    const rows = await findAllocationCandidates(asQueryClient(database), {
+      courseId, startsAt: instant(start), endsAt: instant(end), minimumMark: 65, requestedHours: 2.75,
+      ...(excludeAllocationId === undefined ? {} : { excludeAllocationId }),
+    });
+    return rows.find((row) => row.tutorId === tutorId);
+  }
+
+  it("passes Monday 08:00–10:45 with the exact seven-block busy timetable", async () => {
+    for (const [day, start, end] of [
+      ['14', '14:15', '17:00'], ['15', '14:15', '17:00'], ['16', '08:00', '09:45'],
+      ['17', '08:00', '09:45'], ['17', '10:15', '12:00'], ['18', '10:15', '12:00'], ['18', '12:30', '13:15'],
+    ]) await busy(`2026-09-${day}T${start}`, `2026-09-${day}T${end}`);
+    expect(await candidate()).toMatchObject({ hasClash: false, isEligible: true, reasonCodes: [], clashDetails: [] });
+    expect(await candidate('2026-09-21T08:00', '2026-09-21T10:45')).toMatchObject({ hasClash: false, isEligible: true, reasonCodes: [] });
+    expect(await candidate('2026-09-24T08:00', '2026-09-24T09:00')).toMatchObject({
+      hasClash: true, isEligible: false, reasonCodes: ['schedule-clash'],
+      clashDetails: [{ kind: 'busy', label: 'COMS3011 Lecture', startsAt: '2026-09-24T06:00:00.000Z', endsAt: '2026-09-24T07:45:00.000Z', recurrence: 'WEEKLY' }],
+    });
+  });
+
+  it.each([
+    ['same-day overlap', '2026-09-14T09:00', '2026-09-14T11:00', null, null, true],
+    ['touching end', '2026-09-14T10:45', '2026-09-14T12:00', 'WEEKLY', null, false],
+    ['touching start', '2026-09-14T07:00', '2026-09-14T08:00', 'WEEKLY', null, false],
+    ['different weekday', '2026-09-15T08:00', '2026-09-15T10:00', 'WEEKLY', null, false],
+    ['once-off other date', '2026-09-07T08:00', '2026-09-07T10:00', 'ONCE', null, false],
+    ['once-off same date', '2026-09-14T08:00', '2026-09-14T10:00', 'ONCE', null, true],
+    ['weekly same weekday', '2026-09-07T08:00', '2026-09-07T10:00', 'WEEKLY', null, true],
+    ['outside recurrence end', '2026-09-07T08:00', '2026-09-07T10:00', 'WEEKLY', '2026-09-07T08:00', false],
+    ['inclusive recurrence end', '2026-09-07T08:00', '2026-09-07T10:00', 'WEEKLY', '2026-09-14T08:00', true],
+    ['before recurrence start', '2026-09-21T08:00', '2026-09-21T10:00', 'WEEKLY', null, false],
+  ] as const)('%s uses half-open timetable intervals', async (_name, start, end, recurrence, until, clash) => {
+    await busy(start, end, recurrence, until);
+    expect(await candidate()).toMatchObject({ hasClash: clash, isEligible: !clash, reasonCodes: clash ? ['schedule-clash'] : [] });
+  });
+
+  it.each(['PROPOSED', 'CONFIRMED', 'CANCELLED'] as const)('%s allocations only hard-block when confirmed and exclude themselves on edit', async (status) => {
+    const inserted = await database.query<{ id: number }>(`INSERT INTO "Allocation" ("tutorId", "courseId", "startsAt", "endsAt", "allocatedHours")
+      VALUES ($1, $2, $3, $4, 2.75) RETURNING "id"`, [tutorId, courseId, timestamp('2026-09-14T08:00'), timestamp('2026-09-14T10:45')]);
+    const id = inserted.rows[0]!.id;
+    if (status !== 'PROPOSED') await database.query(`UPDATE "Allocation" SET "status" = $2::"AllocationStatus", "reviewedAt" = CURRENT_TIMESTAMP, "reviewedById" = $3 WHERE "id" = $1`, [id, status, organiserId]);
+    expect(await candidate()).toMatchObject({ hasClash: status === 'CONFIRMED', isEligible: status !== 'CONFIRMED' });
+    expect(await candidate('2026-09-14T08:00', '2026-09-14T10:45', id)).toMatchObject({ hasClash: false, isEligible: true, usedHours: 0, reasonCodes: [] });
+  });
+
+  it('keeps missing and insufficient marks separate from schedule and capacity', async () => {
+    await database.query('UPDATE "TutorMark" SET "mark" = 64 WHERE "tutorId" = $1 AND "courseId" = $2', [tutorId, courseId]);
+    expect(await candidate()).toMatchObject({ hasClash: false, isEligible: false, reasonCodes: ['insufficient-mark'] });
+    await database.query('DELETE FROM "TutorMark" WHERE "tutorId" = $1 AND "courseId" = $2', [tutorId, courseId]);
+    expect(await candidate()).toBeUndefined();
+  });
+
+  it('fails capacity independently on a free timetable', async () => {
+    await database.query('UPDATE "TutorHourLimit" SET "weeklyHours" = 2 WHERE "tutorId" = $1', [tutorId]);
+    expect(await candidate()).toMatchObject({ hasClash: false, isEligible: false, reasonCodes: ['hour-limit-exceeded'] });
+  });
 });
 
 describe("Sprint 2 stability corrections", () => {

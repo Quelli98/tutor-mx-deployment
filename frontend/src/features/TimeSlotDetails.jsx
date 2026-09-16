@@ -8,10 +8,9 @@ function formatDate(value) {
 }
 
 function formatTime(value) {
-  return new Date(value).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+  return new Date(value).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', hour12: false })
 }
 
-// Shared wording keeps the tutor editor and organiser read-only view consistent.
 export default function TimeSlotDetails({ slot }) {
   const start = new Date(slot.startsAt)
   const dayName = start.toLocaleDateString(undefined, { weekday: 'long' })

@@ -75,6 +75,29 @@ describe('TutorManagement', () => {
     expect(screen.getByText(/weekly capacity not set/i)).toBeInTheDocument()
   })
 
+  it('shows workload metric cards and a clear inclusive week without UTC jargon', async () => {
+    listTutors.mockResolvedValue([{ ...tutorWithHours, weeklyHours: 15, usedHours: 0, remainingHours: 15, workedHours: 0, weekStart: '2026-09-14T00:00:00.000Z', weekEnd: '2026-09-21T00:00:00.000Z' }])
+    renderPage()
+    await screen.findByText('Sam Tutor')
+    expect(screen.getByText('This week')).toBeVisible()
+    expect(screen.getByText('14–20 September 2026')).toBeVisible()
+    for (const label of ['Weekly capacity', 'Allocated', 'Remaining', 'Worked this week', 'Status']) {
+      expect(screen.getByText(label)).toBeVisible()
+    }
+    expect(screen.getAllByText('15 h')).toHaveLength(2)
+    expect(screen.getAllByText('0 h')).toHaveLength(2)
+    expect(screen.queryByText(/UTC Monday week/)).not.toBeInTheDocument()
+  })
+
+  it.each([null, '', 'sam@tutormx.example'])('does not repeat email when fullName is %s', async (fullName) => {
+    listTutors.mockResolvedValue([{ ...tutorWithHours, fullName }])
+    renderPage()
+    expect(await screen.findByRole('heading', { name: tutorWithHours.email })).toBeVisible()
+    expect(screen.getAllByText(tutorWithHours.email)).toHaveLength(1)
+    fireEvent.change(screen.getByLabelText(/search tutors/i), { target: { value: 'sam@' } })
+    expect(screen.getByRole('heading', { name: tutorWithHours.email })).toBeVisible()
+  })
+
   it('never asks the organiser for an Auth0 subject', async () => {
     listTutors.mockResolvedValue(tutors)
 

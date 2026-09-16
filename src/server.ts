@@ -128,7 +128,8 @@ function toTimeSlotSummary(timeSlot: {
     type: timeSlot.type,
     startsAt: timeSlot.startsAt.toISOString(),
     endsAt: timeSlot.endsAt.toISOString(),
-    recurrence: timeSlot.recurrence === "WEEKLY" ? "WEEKLY" : null,
+    recurrence: timeSlot.recurrence === "WEEKLY" || timeSlot.recurrence === "ONCE"
+      ? timeSlot.recurrence : null,
     label: timeSlot.label,
     recurrenceUntil: timeSlot.recurrenceUntil?.toISOString() ?? null,
   };

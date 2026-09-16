@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useAuth0 } from '@auth0/auth0-react'
 import {
+  canSelectCandidate,
   createAllocation,
   listAllocationCandidates,
   listAllocations,
@@ -125,20 +126,19 @@ function CandidateCard({ candidate, minimumMark, requestedHours, selected, onSel
       : `${candidate.remainingHours} hours of capacity remain; ${requestedHours} hours are required.`
 
   const clashMessage = (() => {
-    if (clashState !== 'fail' || !Array.isArray(candidate.clashDetails) || candidate.clashDetails.length === 0) {
-      return 'No overlapping schedule or confirmed allocation was found.'
-    }
+    if (clashState !== 'fail') return 'No overlapping schedule or confirmed allocation was found.'
+    if (!candidate.clashDetails.length) return 'Timetable conflict; refresh to load the conflicting schedule details.'
     const details = candidate.clashDetails.slice(0, 3)
     const descriptions = details.map((detail) => {
       const start = new Date(detail.startsAt)
       const end = new Date(detail.endsAt)
       const dayName = start.toLocaleDateString(undefined, { weekday: 'long' })
-      const timeRange = `${start.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}–${end.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
+      const timeRange = `${start.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', hour12: false })}–${end.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', hour12: false })}`
       const label = detail.label || (detail.kind === 'busy' ? 'Busy time' : 'Allocation')
       return `${label}, ${dayName} ${timeRange}`
     })
     const suffix = candidate.clashDetails.length > 3 ? ` and ${candidate.clashDetails.length - 3} more` : ''
-    return `Overlaps: ${descriptions.join('; ')}${suffix}.`
+    return `Overlaps ${descriptions.join('; ')}${suffix}.`
   })()
 
   return (
@@ -146,17 +146,17 @@ function CandidateCard({ candidate, minimumMark, requestedHours, selected, onSel
       <header className="candidate-card-header">
         <div>
           <h3>{candidate.fullName}</h3>
-          <p>{candidate.isEligible ? 'Eligible for selection' : 'Not currently eligible'}</p>
+          <p>{canSelectCandidate(candidate) ? 'Eligible for selection' : 'Not currently eligible'}</p>
         </div>
-        <button
+        {canSelectCandidate(candidate) && <button
           type="button"
           className="secondary-button"
           onClick={onSelect}
-          disabled={!candidate.isEligible || disabled}
+          disabled={disabled}
           aria-pressed={selected}
         >
           {selected ? 'Selected' : `Select ${candidate.fullName}`}
-        </button>
+        </button>}
       </header>
 
       <ul className="rule-result-list" aria-label={`Allocation checks for ${candidate.fullName}`}>
@@ -166,12 +166,12 @@ function CandidateCard({ candidate, minimumMark, requestedHours, selected, onSel
           message={markMessage}
         />
         <RuleResult
-          label="Timetable conflict"
+          label="Availability"
           state={clashState}
           message={clashMessage}
         />
         <RuleResult
-          label="Weekly capacity"
+          label="Capacity"
           state={hoursState}
           message={hoursMessage}
         />
@@ -242,8 +242,8 @@ export default function OrganiserDashboard() {
   )
 
   const { eligibleCandidates, ineligibleCandidates } = useMemo(() => {
-    const eligible = candidates.filter((candidate) => candidate.isEligible)
-    const ineligible = candidates.filter((candidate) => !candidate.isEligible)
+    const eligible = candidates.filter((candidate) => canSelectCandidate(candidate))
+    const ineligible = candidates.filter((candidate) => !canSelectCandidate(candidate))
     return { eligibleCandidates: eligible, ineligibleCandidates: ineligible }
   }, [candidates])
 
@@ -284,7 +284,7 @@ export default function OrganiserDashboard() {
       const result = await listAllocationCandidates(boardInput(), getAccessTokenSilently)
       setCandidates(result)
       setSelectedTutorId(
-        result.some((candidate) => candidate.tutorId === preferredTutorId && candidate.isEligible)
+        result.some((candidate) => candidate.tutorId === preferredTutorId && canSelectCandidate(candidate))
           ? preferredTutorId
           : null,
       )
@@ -360,7 +360,7 @@ export default function OrganiserDashboard() {
       setCandidateStatus('success')
       setSelectedTutorId(
         candidateResult.value.some(
-          (candidate) => candidate.tutorId === preferredTutorId && candidate.isEligible,
+          (candidate) => candidate.tutorId === preferredTutorId && canSelectCandidate(candidate),
         )
           ? preferredTutorId
           : null,
@@ -375,7 +375,7 @@ export default function OrganiserDashboard() {
   }
 
   async function handleSaveAllocation() {
-    if (!selectedCandidate?.isEligible) return
+    if (!canSelectCandidate(selectedCandidate)) return
     const input = boardInput()
     setMutationStatus('saving')
     setSaveMessage('')
@@ -418,7 +418,7 @@ export default function OrganiserDashboard() {
         setSelectedTutorId(
           latestCandidates.some(
             (candidate) =>
-              candidate.tutorId === selectedCandidate.tutorId && candidate.isEligible,
+              candidate.tutorId === selectedCandidate.tutorId && canSelectCandidate(candidate),
           )
             ? selectedCandidate.tutorId
             : null,
@@ -715,8 +715,8 @@ export default function OrganiserDashboard() {
       )}
       {candidateStatus === 'success' && candidates.length === 0 && (
         <EmptyState
-          title="No candidates found"
-          message="No tutor has a mark record for this course yet. Open Tutor management, add the tutor's course mark, and check again."
+          title="No tutors have marks recorded for this course yet."
+          message="Add a course mark in Tutor Management before checking allocation eligibility."
         />
       )}
       {candidateStatus === 'success' && candidates.length > 0 && (
@@ -729,7 +729,7 @@ export default function OrganiserDashboard() {
             <button
               type="button"
               className="primary-button"
-              disabled={!selectedCandidate?.isEligible || isMutating}
+              disabled={!canSelectCandidate(selectedCandidate) || isMutating}
               onClick={handleSaveAllocation}
             >
               {mutationStatus === 'saving'

@@ -11,6 +11,7 @@ import {
   listCourses,
   listOrganiserApprovals,
   listTutorMarks,
+  listTutorTimeSlots,
   listTutors,
   saveTutorMark,
   updateCourse,
@@ -45,6 +46,18 @@ describe('organiser course API contract', () => {
   beforeEach(() => {
     fetchWithBearerToken.mockReset()
     tokenGetter.mockReset()
+  })
+
+  it.each(['WEEKLY', 'ONCE', null])('requests a selected tutor schedule with recurrence %s and null optional fields', async (recurrence) => {
+    const slot = { id: 4, type: 'BUSY', startsAt: '2026-09-17T06:00:00.000Z', endsAt: '2026-09-17T07:45:00.000Z', recurrence, label: null, recurrenceUntil: null }
+    fetchWithBearerToken.mockResolvedValue({ data: { timeSlots: [slot] } })
+    await expect(listTutorTimeSlots(7, tokenGetter)).resolves.toEqual([slot])
+    expect(fetchWithBearerToken).toHaveBeenCalledWith('/api/tutors/7/time-slots', {}, tokenGetter)
+  })
+
+  it('rejects a malformed selected-tutor schedule without changing the marks contract', async () => {
+    fetchWithBearerToken.mockResolvedValue({ data: { timeSlots: [{ id: 1, startsAt: 'invalid' }] } })
+    await expect(listTutorTimeSlots(7, tokenGetter)).rejects.toThrow('tutor-schedule response')
   })
 
   it('returns the unwrapped course list for a valid payload', async () => {
@@ -190,6 +203,12 @@ describe('organiser allocation and tutor-detail API contracts', () => {
       {},
       tokenGetter,
     )
+  })
+
+  it.each(['WEEKLY', 'ONCE', null])('accepts specific clash details with %s recurrence', async (recurrence) => {
+    const candidate = { tutorId: 7, fullName: 'Sam Tutor', mark: 90, weeklyLimit: 15, usedHours: 0, remainingHours: 15, hasClash: true, isEligible: false, reasonCodes: ['schedule-clash'], clashDetails: [{ kind: 'busy', label: 'Lecture', startsAt: '2026-09-17T06:00:00.000Z', endsAt: '2026-09-17T07:45:00.000Z', recurrence }] }
+    fetchWithBearerToken.mockResolvedValue({ data: { candidates: [candidate] } })
+    await expect(listAllocationCandidates({ courseId: 3, startsAt: candidate.clashDetails[0].startsAt, endsAt: candidate.clashDetails[0].endsAt, minimumMark: 65, requestedHours: 1.75 }, tokenGetter)).resolves.toEqual([candidate])
   })
 
   it('excludes the allocation being edited from candidate checks', async () => {

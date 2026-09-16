@@ -8,9 +8,9 @@ export function isTimeSlotSummary(value) {
     ['BUSY', 'AVAILABLE'].includes(value.type) &&
     isDate(value.startsAt) && isDate(value.endsAt) &&
     new Date(value.endsAt) > new Date(value.startsAt) &&
-    (value.recurrence === null || value.recurrence === 'WEEKLY') &&
-    (value.label === null || (typeof value.label === 'string' && value.label.length <= 120)) &&
-    (value.recurrenceUntil === null || isDate(value.recurrenceUntil))
+    (value.recurrence == null || ['WEEKLY', 'ONCE'].includes(value.recurrence)) &&
+    (value.label == null || typeof value.label === 'string') &&
+    (value.recurrenceUntil == null || isDate(value.recurrenceUntil))
 }
 
 function slotPayload(input) {

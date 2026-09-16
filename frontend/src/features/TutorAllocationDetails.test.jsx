@@ -6,7 +6,7 @@ const listCourses = vi.fn()
 const listTutorMarks = vi.fn()
 const saveTutorMark = vi.fn()
 const deleteTutorMark = vi.fn()
-const listOwnTimeSlots = vi.fn()
+const listTutorTimeSlots = vi.fn()
 const getAccessTokenSilently = vi.fn()
 
 vi.mock('../api/organiser', () => ({
@@ -14,10 +14,7 @@ vi.mock('../api/organiser', () => ({
   listTutorMarks: (...args) => listTutorMarks(...args),
   saveTutorMark: (...args) => saveTutorMark(...args),
   deleteTutorMark: (...args) => deleteTutorMark(...args),
-}))
-
-vi.mock('../api/availability', () => ({
-  listOwnTimeSlots: (...args) => listOwnTimeSlots(...args),
+  listTutorTimeSlots: (...args) => listTutorTimeSlots(...args),
 }))
 
 vi.mock('@auth0/auth0-react', () => ({
@@ -36,7 +33,7 @@ describe('TutorAllocationDetails', () => {
     listTutorMarks.mockReset().mockResolvedValue([])
     saveTutorMark.mockReset()
     deleteTutorMark.mockReset().mockResolvedValue(undefined)
-    listOwnTimeSlots.mockReset().mockResolvedValue([])
+    listTutorTimeSlots.mockReset().mockResolvedValue([])
     getAccessTokenSilently.mockReset()
   })
 

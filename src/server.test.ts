@@ -874,6 +874,35 @@ describe("server-side API persistence", () => {
     );
   });
 
+  it.each(["WEEKLY", "ONCE", null])("serializes selected tutor schedules with %s and nullable optional fields", async (recurrence) => {
+    await import("./server.js");
+    const dependencies = capturedDependencies();
+    mocks.timeSlotFindMany.mockImplementation(async ({ where }) => where.tutorId === 7 ? [{
+      id: 15, type: "BUSY", startsAt: new Date("2026-09-17T06:00:00Z"), endsAt: new Date("2026-09-17T07:45:00Z"),
+      recurrence, label: null, recurrenceUntil: null,
+    }] : []);
+    await expect(dependencies.listTutorTimeSlots(7)).resolves.toEqual([{
+      id: 15, type: "BUSY", startsAt: "2026-09-17T06:00:00.000Z", endsAt: "2026-09-17T07:45:00.000Z",
+      recurrence, label: null, recurrenceUntil: null,
+    }]);
+    await expect(dependencies.listTutorTimeSlots(8)).resolves.toEqual([]);
+    expect(mocks.timeSlotFindMany).toHaveBeenCalledWith(expect.objectContaining({ where: { tutorId: 7 }, select: expect.objectContaining({ label: true, recurrenceUntil: true }) }));
+    expect(mocks.profileFindUnique).not.toHaveBeenCalled();
+  });
+
+  it("isolates marks by internal tutor ID without email or Auth0 matching", async () => {
+    await import("./server.js");
+    const dependencies = capturedDependencies();
+    mocks.tutorMarkFindMany.mockImplementation(async ({ where }) => where.tutorId === 7
+      ? [{ id: 41, courseId: 3, course: { code: "COMS3010A", name: "Computer Science" }, mark: "90.00" }] : []);
+    mocks.allocationGroupBy.mockResolvedValue([]);
+    await expect(dependencies.listTutorMarks(7)).resolves.toMatchObject([{ courseCode: "COMS3010A", mark: 90 }]);
+    await expect(dependencies.listTutorMarks(8)).resolves.toEqual([]);
+    expect(mocks.tutorMarkFindMany).toHaveBeenNthCalledWith(2, expect.objectContaining({ where: { tutorId: 8 } }));
+    expect(mocks.profileFindUnique).not.toHaveBeenCalled();
+    expect(mocks.timeSlotFindMany).not.toHaveBeenCalled();
+  });
+
   it("removes organiser-managed marks with tutor scoping", async () => {
     await import("./server.js");
     const dependencies = capturedDependencies();

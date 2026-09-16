@@ -300,6 +300,39 @@ describe("organiser live-board query routes", () => {
   });
 });
 
+describe("organiser tutor-detail reads", () => {
+  it("loads marks and schedule independently using the selected Profile ID", async () => {
+    const mark = { id: 41, courseId: 3, courseCode: "COMS3010A", courseName: "Computer Science", mark: 90, activeAllocationCount: 0 };
+    const slot = { id: 12, type: "BUSY" as const, startsAt: "2026-09-17T06:00:00.000Z", endsAt: "2026-09-17T07:45:00.000Z", recurrence: "ONCE" as const, label: null, recurrenceUntil: null };
+    const listTutorMarks = vi.fn(async (id: number) => id === 7 ? [mark] : []);
+    const listTutorTimeSlots = vi.fn(async (id: number) => id === 7 ? [slot] : []);
+    const app = makeApp({ listTutorMarks, listTutorTimeSlots });
+    for (const id of [7, 9]) {
+      const marks = await request(app).get(`/api/tutors/${id}/marks`).set("Authorization", "Bearer valid-token");
+      const schedule = await request(app).get(`/api/tutors/${id}/time-slots`).set("Authorization", "Bearer valid-token");
+      expect(marks.status).toBe(200);
+      expect(marks.body).toEqual({ data: { marks: id === 7 ? [mark] : [] } });
+      expect(schedule.status).toBe(200);
+      expect(schedule.body).toEqual({ data: { timeSlots: id === 7 ? [slot] : [] } });
+      expect(listTutorMarks).toHaveBeenCalledWith(id);
+      expect(listTutorTimeSlots).toHaveBeenCalledWith(id);
+    }
+  });
+
+  it.each(["marks", "time-slots"])("protects organiser %s reads and validates numeric IDs", async (resource) => {
+    const listTutorMarks = vi.fn();
+    const listTutorTimeSlots = vi.fn();
+    const dependencies = { listTutorMarks, listTutorTimeSlots };
+    expect((await request(makeApp(dependencies)).get(`/api/tutors/7/${resource}`)).status).toBe(401);
+    for (const role of ["TUTOR", "STUDENT"] as const) {
+      expect((await request(makeApp(dependencies, role)).get(`/api/tutors/7/${resource}`).set("Authorization", "Bearer valid-token")).status).toBe(403);
+    }
+    expect((await request(makeApp(dependencies)).get(`/api/tutors/0/${resource}`).set("Authorization", "Bearer valid-token")).status).toBe(400);
+    expect(listTutorMarks).not.toHaveBeenCalled();
+    expect(listTutorTimeSlots).not.toHaveBeenCalled();
+  });
+});
+
 describe("organiser tutor-rule deletion routes", () => {
   it("removes a tutor mark by database identifiers", async () => {
     const deleteTutorMark = vi.fn().mockResolvedValue(undefined);

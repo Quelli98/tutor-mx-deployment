@@ -1428,7 +1428,7 @@ a:focus-visible {
 
 .tutor-detail-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: minmax(0, 1fr);
   gap: 22px;
 }
 
@@ -2061,6 +2061,101 @@ textarea:focus {
     align-items: stretch;
     flex-direction: column-reverse;
   }
+}
+
+.tutor-workload-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 330px), 1fr));
+  gap: 18px;
+  align-items: start;
+}
+
+.tutor-workload-card {
+  display: grid;
+  gap: 16px;
+  padding: 20px;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: var(--surface);
+}
+
+.tutor-workload-card h3,
+.tutor-workload-card p,
+.calendar-toolbar h4,
+.calendar-toolbar p,
+.course-mark-list p {
+  margin: 0;
+}
+
+.tutor-workload-card,
+.tutor-allocation-details,
+.tutor-form-card,
+.weekly-schedule,
+.candidate-card,
+.candidate-card-header > div,
+.tutor-list-card {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.workload-period {
+  display: grid;
+  gap: 4px;
+  color: #54657c;
+  font-size: 0.88rem;
+}
+
+.workload-facts {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin: 0;
+}
+
+.workload-facts > div {
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: #f6f8fc;
+}
+
+.workload-facts dt { color: #54657c; font-size: 0.8rem; }
+.workload-facts dd { margin: 6px 0 0; font-size: 1.3rem; font-weight: 700; }
+.workload-facts .workload-status { grid-column: 1 / -1; }
+.workload-status dd { font-size: 0.9rem; }
+.capacity-available { color: #17603d; }
+.capacity-near-limit, .capacity-not-set { color: #80501b; }
+.capacity-limit-reached { color: #9c3030; }
+
+.course-mark-list {
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr));
+}
+.course-mark-value { font-size: 1.6rem; font-weight: 750; color: #263b52; }
+
+.weekly-schedule { display: grid; gap: 12px; }
+.calendar-toolbar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; }
+.calendar-toolbar h4 { font-size: 1rem; }
+.calendar-toolbar p { margin-top: 4px; color: #54657c; }
+.calendar-toolbar .button-row { flex-wrap: wrap; gap: 6px; }
+.calendar-toolbar button { min-height: 36px; padding: 7px 10px; font-size: 0.8rem; }
+.calendar-scroll { max-width: 100%; overflow-x: auto; border: 1px solid var(--border); border-radius: 12px; background: #fff; }
+.calendar-scroll:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+.calendar-grid { display: grid; grid-template-columns: 54px repeat(7, minmax(130px, 1fr)); min-width: 964px; }
+.calendar-day-heading { display: grid; align-content: center; gap: 4px; padding: 10px 6px; background: #f0f4fa; border-bottom: 1px solid var(--border); font-size: 0.8rem; }
+.calendar-day-heading span { color: #54657c; }
+.calendar-hour { padding: 3px 4px; font-size: 0.72rem; color: #54657c; border-top: 1px solid #e9edf3; }
+.calendar-day { display: grid; grid-template-rows: subgrid; gap: 0 2px; padding: 0 2px; border-left: 1px solid #e9edf3; background: repeating-linear-gradient(to bottom, transparent 0, transparent 47px, #eef1f6 47px, #eef1f6 48px); }
+.calendar-block { display: flex; flex-direction: column; gap: 2px; min-width: 0; margin: 1px 0; padding: 5px; border-left: 3px solid #536bb2; border-radius: 5px; background: #e7edff; color: #253967; font-size: 0.74rem; line-height: 1.3; overflow-wrap: anywhere; }
+.calendar-block strong { font-weight: 750; }
+.schedule-editor { grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; }
+.schedule-editor > h3, .schedule-editor > .button-row { grid-column: 1 / -1; }
+.candidate-section-heading { text-transform: uppercase; letter-spacing: 0.06em; font-size: 0.95rem; margin: 22px 0 8px; }
+
+@media (max-width: 640px) {
+  .tutor-workload-card { padding: 14px; }
+  .tutor-detail-grid > section { padding: 12px; }
+  .schedule-editor { grid-template-columns: minmax(0, 1fr); }
+  .calendar-toolbar { align-items: flex-start; }
 }
 
 @media (prefers-reduced-motion: reduce) {

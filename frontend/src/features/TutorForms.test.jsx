@@ -73,6 +73,10 @@ describe('TutorForms accessibility', () => {
     await screen.findByRole('heading', { name: /forms and submissions/i })
 
     const expectedControls = [
+      await screen.findByRole('button', { name: /previous week/i }),
+      screen.getByRole('button', { name: /^this week$/i }),
+      screen.getByRole('button', { name: /next week/i }),
+      document.querySelector('.calendar-scroll'),
       screen.getByLabelText(/from.*date and time/i),
       screen.getByLabelText(/until.*date and time/i),
       screen.getByLabelText(/description \(optional\)/i),

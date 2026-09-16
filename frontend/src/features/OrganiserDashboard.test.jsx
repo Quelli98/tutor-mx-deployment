@@ -2,6 +2,7 @@ import { fireEvent, render, screen, waitFor, within } from '@testing-library/rea
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import OrganiserDashboard from './OrganiserDashboard'
+import { allocationReasonCodesFor, busySlotClashes } from '../../../src/services/allocation-queries'
 
 const listCourses = vi.fn()
 const listAllocationCandidates = vi.fn()
@@ -11,7 +12,8 @@ const updateAllocation = vi.fn()
 const removeAllocation = vi.fn()
 const getAccessTokenSilently = vi.fn()
 
-vi.mock('../api/organiser', () => ({
+vi.mock('../api/organiser', async (importOriginal) => ({
+  ...(await importOriginal()),
   listCourses: (...args) => listCourses(...args),
   listAllocationCandidates: (...args) => listAllocationCandidates(...args),
   listAllocations: (...args) => listAllocations(...args),
@@ -121,8 +123,8 @@ describe('OrganiserDashboard', () => {
     const blockedCard = await screen.findByRole('heading', { name: 'Blocked Tutor' })
     const blockedArticle = blockedCard.closest('article')
     expect(within(blockedArticle).getByText(/mark: fail/i)).toBeInTheDocument()
-    expect(within(blockedArticle).getByText(/timetable conflict: fail/i)).toBeInTheDocument()
-    expect(within(blockedArticle).getByText(/weekly capacity: fail/i)).toBeInTheDocument()
+    expect(within(blockedArticle).getByText(/availability: fail/i)).toBeInTheDocument()
+    expect(within(blockedArticle).getByText(/capacity: fail/i)).toBeInTheDocument()
     expect(within(blockedArticle).getByText(/1 hours of capacity remain; 2 hours are required/i)).toBeInTheDocument()
 
     const boundaryCard = screen.getByRole('heading', { name: 'Boundary Tutor' }).closest('article')
@@ -139,6 +141,66 @@ describe('OrganiserDashboard', () => {
       },
       getAccessTokenSilently,
     )
+  })
+
+  it('puts Monday 08:00–10:45 under Eligible tutors for the exact seven busy blocks', async () => {
+    const busy = [
+      ['14', '14:15', '17:00'], ['15', '14:15', '17:00'], ['16', '08:00', '09:45'],
+      ['17', '08:00', '09:45'], ['17', '10:15', '12:00'], ['18', '10:15', '12:00'], ['18', '12:30', '13:15'],
+    ]
+    listCourses.mockResolvedValue(courses)
+    listAllocationCandidates.mockImplementation(async (input) => {
+      const hasClash = busy.some(([day, start, end]) => busySlotClashes(
+        new Date(`2026-09-${day}T${start}`), new Date(`2026-09-${day}T${end}`), 'WEEKLY', new Date(input.startsAt), new Date(input.endsAt),
+      ))
+      const reasonCodes = allocationReasonCodesFor({ mark: 90, minimumMark: input.minimumMark, hasClash, remainingHours: 15, requestedHours: input.requestedHours })
+      return [{ ...eligibleCandidate, mark: 90, weeklyLimit: 15, usedHours: 0, remainingHours: 15, hasClash, reasonCodes, isEligible: reasonCodes.length === 0 }]
+    })
+    render(<OrganiserDashboard />)
+    await screen.findByRole('option', { name: /COMS3011/i })
+    fillBoard()
+    fireEvent.change(screen.getByLabelText(/session starts/i), { target: { value: '2026-09-14T08:00' } })
+    fireEvent.change(screen.getByLabelText(/session ends/i), { target: { value: '2026-09-14T10:45' } })
+    fireEvent.change(screen.getByLabelText(/required hours/i), { target: { value: '2.75' } })
+    fireEvent.click(screen.getByRole('button', { name: /check candidates/i }))
+    expect(await screen.findByRole('heading', { name: /^eligible tutors$/i })).toBeVisible()
+    const card = screen.getByRole('heading', { name: 'Boundary Tutor' }).closest('article')
+    for (const rule of ['Mark: Pass', 'Availability: Pass', 'Capacity: Pass']) expect(within(card).getByText(rule)).toBeVisible()
+    expect(within(card).getByRole('button', { name: /select/i })).toBeEnabled()
+    expect(screen.queryByRole('heading', { name: /^not eligible$/i })).not.toBeInTheDocument()
+  })
+
+  it.each([
+    ['schedule-clash', 'Availability: Fail', { hasClash: true, clashDetails: [{ kind: 'busy', label: 'COMS3011 Lecture', startsAt: new Date('2026-09-17T08:00').toISOString(), endsAt: new Date('2026-09-17T09:45').toISOString(), recurrence: 'ONCE' }] }],
+    ['hour-limit-exceeded', 'Capacity: Fail', { remainingHours: 1 }],
+    ['insufficient-mark', 'Mark: Fail', { mark: 50 }],
+  ])('shows %s separately and never offers a failed tutor selection', async (reason, text, overrides) => {
+    listCourses.mockResolvedValue(courses)
+    listAllocationCandidates.mockResolvedValue([{ ...eligibleCandidate, ...overrides, isEligible: false, reasonCodes: [reason] }])
+    render(<OrganiserDashboard />)
+    await screen.findByRole('option', { name: /COMS3011/i })
+    fillBoard()
+    fireEvent.click(screen.getByRole('button', { name: /check candidates/i }))
+    expect(await screen.findByRole('heading', { name: /^not eligible$/i })).toBeVisible()
+    expect(screen.getByText(text)).toBeVisible()
+    expect(screen.queryByRole('button', { name: /select Boundary Tutor/i })).not.toBeInTheDocument()
+    if (reason === 'schedule-clash') {
+      expect(screen.getByText('Overlaps COMS3011 Lecture, Thursday 08:00–09:45.')).toBeVisible()
+      expect(screen.getByText('Mark: Pass')).toBeVisible()
+      expect(screen.getByText('Capacity: Pass')).toBeVisible()
+    } else expect(screen.getByText('Availability: Pass')).toBeVisible()
+  })
+
+  it('explains missing course marks without blaming availability', async () => {
+    listCourses.mockResolvedValue(courses)
+    listAllocationCandidates.mockResolvedValue([])
+    render(<OrganiserDashboard />)
+    await screen.findByRole('option', { name: /COMS3011/i })
+    fillBoard()
+    fireEvent.click(screen.getByRole('button', { name: /check candidates/i }))
+    expect(await screen.findByRole('heading', { name: 'No tutors have marks recorded for this course yet.' })).toBeVisible()
+    expect(screen.getByText('Add a course mark in Tutor Management before checking allocation eligibility.')).toBeVisible()
+    expect(screen.queryByText(/availability: fail/i)).not.toBeInTheDocument()
   })
 
   it('explains a missing hour limit instead of showing an unexplained zero', async () => {
@@ -172,7 +234,7 @@ describe('OrganiserDashboard', () => {
 
     const saveButton = await screen.findByRole('button', { name: /save allocation/i })
     expect(saveButton).toBeDisabled()
-    expect(screen.getByRole('button', { name: /select Blocked Tutor/i })).toBeDisabled()
+    expect(screen.queryByRole('button', { name: /select Blocked Tutor/i })).not.toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: /select Boundary Tutor/i }))
     expect(saveButton).toBeEnabled()
@@ -238,7 +300,7 @@ describe('OrganiserDashboard', () => {
     fireEvent.click(screen.getByRole('button', { name: /retry/i }))
 
     await waitFor(() => expect(listAllocationCandidates).toHaveBeenCalledTimes(2))
-    expect(await screen.findByRole('heading', { name: /no candidates found/i })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: /no tutors have marks recorded for this course yet/i })).toBeInTheDocument()
   })
 
   it('edits an allocation with the current row excluded from server checks', async () => {
@@ -303,6 +365,7 @@ describe('OrganiserDashboard', () => {
 
     expect(await screen.findByRole('alert')).toHaveTextContent(/no longer meets the required mark/i)
     expect(listAllocationCandidates).toHaveBeenCalledTimes(2)
-    expect(screen.getByRole('button', { name: /select Boundary Tutor/i })).toBeDisabled()
+    expect(screen.queryByRole('button', { name: /select Boundary Tutor/i })).not.toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: /^not eligible$/i })).toBeInTheDocument()
   })
 })
