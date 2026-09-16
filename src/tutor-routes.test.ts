@@ -35,20 +35,6 @@ function makeApp(overrides: Partial<AppDependencies> = {}) {
     updateCourse: async (id, input) => ({ id, ...input }),
     deleteCourse: async () => undefined,
     listTutors: async () => [],
-    createTutor: async (input) => ({
-      id: 1,
-      role: "TUTOR",
-      weeklyHours: input.weeklyHours ?? null,
-      ...input,
-    }),
-    updateTutor: async (id, input) => ({
-      id,
-      auth0Id: "auth0|tutor",
-      email: input.email ?? "tutor@tutormx.example",
-      fullName: input.fullName ?? "Tutor",
-      role: "TUTOR",
-      weeklyHours: input.weeklyHours ?? 10,
-    }),
     getTutorDashboard: async () => ({
       allocations: [],
       weeklyLimit: 10,
@@ -61,7 +47,21 @@ function makeApp(overrides: Partial<AppDependencies> = {}) {
       startsAt: input.startsAt.toISOString(),
       endsAt: input.endsAt.toISOString(),
       recurrence: input.recurrence ?? null,
+      label: input.label ?? null,
+      recurrenceUntil: input.recurrenceUntil?.toISOString() ?? null,
     }),
+    listOwnTutorTimeSlots: async () => [],
+    updateTutorTimeSlot: async (_auth0Id, _timeSlotId, input) => ({
+      id: 1,
+      type: input.type,
+      startsAt: input.startsAt.toISOString(),
+      endsAt: input.endsAt.toISOString(),
+      recurrence: input.recurrence ?? null,
+      label: input.label ?? null,
+      recurrenceUntil: input.recurrenceUntil?.toISOString() ?? null,
+    }),
+    deleteTutorTimeSlot: async () => undefined,
+    updateTutorWeeklyCapacity: async (_auth0Id, input) => input,
     createTutorWorkLog: async (_auth0Id, input) => ({
       id: 1,
       timesheetId: 2,
@@ -183,14 +183,6 @@ function makeApp(overrides: Partial<AppDependencies> = {}) {
     listTutorMarks: async () => [],
     deleteTutorMark: async () => undefined,
     listTutorTimeSlots: async () => [],
-    deleteTutorBusyTimeSlot: async () => undefined,
-    createTutorTimeSlotForTutor: async (_tutorId, input) => ({
-      id: 1,
-      type: input.type,
-      startsAt: input.startsAt.toISOString(),
-      endsAt: input.endsAt.toISOString(),
-      recurrence: input.recurrence ?? null,
-    }),
     requestPasswordReset: async () => undefined,
     verifyAccessToken: async () => auth(),
     ...overrides,
@@ -262,51 +254,6 @@ describe("own-tutor dashboard route", () => {
 });
 
 describe("own-tutor form routes", () => {
-  it("validates and creates availability without accepting a tutor id", async () => {
-    const createTutorTimeSlot = vi.fn().mockResolvedValue({
-      id: 8,
-      type: "BUSY",
-      startsAt: "2030-09-04T14:00:00.000Z",
-      endsAt: "2030-09-04T16:00:00.000Z",
-      recurrence: "WEEKLY",
-    });
-    const app = makeApp({ createTutorTimeSlot });
-
-    const invalid = await request(app)
-      .post("/api/tutor/time-slots")
-      .set("Authorization", "Bearer valid-token")
-      .send({
-        type: "BUSY",
-        startsAt: "2030-09-04T16:00:00.000Z",
-        endsAt: "2030-09-04T14:00:00.000Z",
-        recurrence: "DAILY",
-      });
-    expect(invalid.status).toBe(400);
-    expect(createTutorTimeSlot).not.toHaveBeenCalled();
-
-    const created = await request(app)
-      .post("/api/tutor/time-slots")
-      .set("Authorization", "Bearer valid-token")
-      .send({
-        type: "BUSY",
-        startsAt: "2030-09-04T14:00:00.000Z",
-        endsAt: "2030-09-04T16:00:00.000Z",
-        recurrence: "weekly",
-        tutorId: 999,
-      });
-
-    expect(created.status).toBe(201);
-    expect(createTutorTimeSlot).toHaveBeenCalledWith(
-      "auth0|current-tutor",
-      {
-        type: "BUSY",
-        startsAt: new Date("2030-09-04T14:00:00.000Z"),
-        endsAt: new Date("2030-09-04T16:00:00.000Z"),
-        recurrence: "WEEKLY",
-      },
-    );
-  });
-
   it("rejects invalid work logs and creates a valid draft entry", async () => {
     const createTutorWorkLog = vi.fn().mockResolvedValue({
       id: 9,

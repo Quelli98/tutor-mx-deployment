@@ -1,19 +1,17 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useAuth0 } from '@auth0/auth0-react'
 import {
-  createTutorTimeSlot,
   deleteTutorMark,
-  deleteTutorTimeSlot,
   listCourses,
   listTutorMarks,
-  listTutorTimeSlots,
   saveTutorMark,
 } from '../api/organiser'
+import { listOwnTimeSlots } from '../api/availability'
 import { EmptyState, ErrorState, LoadingState } from '../components/shared/StatusMessage'
 import { ConfirmationDialog } from '../components/shared/ConfirmationDialog'
+import TimeSlotDetails from './TimeSlotDetails'
 
 const EMPTY_MARK_FORM = { courseId: '', mark: '' }
-const EMPTY_BUSY_FORM = { startsAt: '', endsAt: '', weekly: false }
 
 function safeErrorMessage(error, fallback) {
   if (error?.code === 'TUTOR_NOT_FOUND') {
@@ -22,12 +20,6 @@ function safeErrorMessage(error, fallback) {
   if (error?.code === 'COURSE_NOT_FOUND') {
     return 'That course no longer exists. Refresh the course list and try again.'
   }
-  if (error?.code === 'TIME_SLOT_CONFLICT') {
-    return 'That busy time conflicts with an existing tutor record.'
-  }
-  if (error?.code === 'TIME_SLOT_NOT_FOUND') {
-    return 'That busy time no longer exists. Refresh the tutor details and try again.'
-  }
   if (error?.code === 'TUTOR_MARK_NOT_FOUND') {
     return 'That mark no longer exists. Refresh the tutor details and try again.'
   }
@@ -35,12 +27,6 @@ function safeErrorMessage(error, fallback) {
     return 'Check the entered details and try again.'
   }
   return fallback
-}
-
-function formatDateTime(value) {
-  const parsed = new Date(value)
-  if (Number.isNaN(parsed.valueOf())) return 'Invalid date'
-  return parsed.toLocaleString()
 }
 
 function validateMark(form) {
@@ -56,60 +42,41 @@ function validateMark(form) {
   return errors
 }
 
-function validateBusyTime(form) {
-  const errors = {}
-  const startsAt = new Date(form.startsAt)
-  const endsAt = new Date(form.endsAt)
-  if (!form.startsAt || Number.isNaN(startsAt.valueOf())) {
-    errors.startsAt = 'Choose a valid start date and time.'
-  }
-  if (!form.endsAt || Number.isNaN(endsAt.valueOf())) {
-    errors.endsAt = 'Choose a valid end date and time.'
-  } else if (!errors.startsAt && endsAt <= startsAt) {
-    errors.endsAt = 'The end time must be later than the start time.'
-  }
-  return errors
-}
-
 export default function TutorAllocationDetails({ tutor, onClose }) {
   const { getAccessTokenSilently } = useAuth0()
   const [status, setStatus] = useState('loading')
   const [errorMessage, setErrorMessage] = useState('')
   const [courses, setCourses] = useState([])
   const [marks, setMarks] = useState([])
-  const [timeSlots, setTimeSlots] = useState([])
   const [markForm, setMarkForm] = useState(EMPTY_MARK_FORM)
   const [markErrors, setMarkErrors] = useState({})
-  const [busyForm, setBusyForm] = useState(EMPTY_BUSY_FORM)
-  const [busyErrors, setBusyErrors] = useState({})
   const [saving, setSaving] = useState(null)
   const [formError, setFormError] = useState('')
   const [successMessage, setSuccessMessage] = useState('')
-  const [slotToRemove, setSlotToRemove] = useState(null)
-  const [removeStatus, setRemoveStatus] = useState('idle')
   const [markToRemove, setMarkToRemove] = useState(null)
   const [markRemoveStatus, setMarkRemoveStatus] = useState('idle')
+  const [schedule, setSchedule] = useState([])
 
   const loadDetails = useCallback(
     async (isActive = () => true) => {
       setStatus('loading')
       setErrorMessage('')
       try {
-        const [courseResult, markResult, timeSlotResult] = await Promise.all([
+        const [courseResult, markResult, scheduleResult] = await Promise.all([
           listCourses(getAccessTokenSilently),
           listTutorMarks(tutor.id, getAccessTokenSilently),
-          listTutorTimeSlots(tutor.id, getAccessTokenSilently),
+          listOwnTimeSlots(getAccessTokenSilently),
         ])
         if (!isActive()) return
         setCourses(courseResult)
         setMarks(markResult)
-        setTimeSlots(timeSlotResult)
+        setSchedule(scheduleResult.filter((slot) => slot.type === 'BUSY'))
         setStatus('success')
       } catch (error) {
         if (!isActive()) return
         setCourses([])
         setMarks([])
-        setTimeSlots([])
+        setSchedule([])
         setErrorMessage(safeErrorMessage(error, 'Unable to load tutor details. Please try again.'))
         setStatus('error')
       }
@@ -158,36 +125,6 @@ export default function TutorAllocationDetails({ tutor, onClose }) {
     }
   }
 
-  async function handleBusySubmit(event) {
-    event.preventDefault()
-    const errors = validateBusyTime(busyForm)
-    setBusyErrors(errors)
-    setFormError('')
-    setSuccessMessage('')
-    if (Object.keys(errors).length > 0 || saving) return
-
-    setSaving('busy')
-    try {
-      const savedSlot = await createTutorTimeSlot(
-        {
-          tutorId: tutor.id,
-          type: 'BUSY',
-          startsAt: new Date(busyForm.startsAt).toISOString(),
-          endsAt: new Date(busyForm.endsAt).toISOString(),
-          ...(busyForm.weekly ? { recurrence: 'WEEKLY' } : {}),
-        },
-        getAccessTokenSilently,
-      )
-      setTimeSlots((current) => [...current, savedSlot])
-      setBusyForm(EMPTY_BUSY_FORM)
-      setSuccessMessage(`Busy time was added for ${tutor.fullName}.`)
-    } catch (error) {
-      setFormError(safeErrorMessage(error, 'Unable to save the busy time. Please try again.'))
-    } finally {
-      setSaving(null)
-    }
-  }
-
   function handleCancelMarkRemove() {
     if (markRemoveStatus === 'pending') return
     setMarkToRemove(null)
@@ -215,38 +152,11 @@ export default function TutorAllocationDetails({ tutor, onClose }) {
     }
   }
 
-  function handleCancelRemove() {
-    if (removeStatus === 'pending') return
-    setSlotToRemove(null)
-  }
-
-  async function handleConfirmRemove() {
-    if (!slotToRemove || removeStatus === 'pending') return
-
-    setRemoveStatus('pending')
-    setFormError('')
-    setSuccessMessage('')
-    try {
-      await deleteTutorTimeSlot(
-        { tutorId: tutor.id, timeSlotId: slotToRemove.id },
-        getAccessTokenSilently,
-      )
-      setTimeSlots((current) => current.filter((slot) => slot.id !== slotToRemove.id))
-      setSuccessMessage(`Busy time was removed for ${tutor.fullName}.`)
-      setSlotToRemove(null)
-    } catch (error) {
-      setFormError(safeErrorMessage(error, 'Unable to remove the busy time. Please try again.'))
-      setSlotToRemove(null)
-    } finally {
-      setRemoveStatus('idle')
-    }
-  }
-
   return (
     <section className="role-card tutor-allocation-details" aria-labelledby="tutor-details-heading">
       <div className="candidate-results-header">
         <div>
-          <h2 id="tutor-details-heading">Marks & availability</h2>
+          <h2 id="tutor-details-heading">Marks & schedule</h2>
           <p className="section-intro">{tutor.fullName}</p>
         </div>
         {onClose && (
@@ -257,7 +167,7 @@ export default function TutorAllocationDetails({ tutor, onClose }) {
       </div>
 
       {status === 'loading' && (
-        <LoadingState title="Loading tutor details" message="Loading marks and availability." />
+        <LoadingState title="Loading tutor details" message="Loading marks and schedule." />
       )}
       {status === 'error' && (
         <ErrorState title="Tutor details unavailable" message={errorMessage} onRetry={() => loadDetails()} />
@@ -341,82 +251,18 @@ export default function TutorAllocationDetails({ tutor, onClose }) {
             )}
           </section>
 
-          <section aria-labelledby="busy-form-heading">
-            <h3 id="busy-form-heading">Busy times</h3>
-            <form className="inline-form" onSubmit={handleBusySubmit} noValidate>
-              <div className="field-group">
-                <label htmlFor="busy-start">Busy from</label>
-                <input
-                  id="busy-start"
-                  type="datetime-local"
-                  value={busyForm.startsAt}
-                  onChange={(event) =>
-                    setBusyForm((current) => ({ ...current, startsAt: event.target.value }))
-                  }
-                  aria-invalid={Boolean(busyErrors.startsAt)}
-                  aria-describedby={busyErrors.startsAt ? 'busy-start-error' : undefined}
-                />
-                {busyErrors.startsAt && (
-                  <p id="busy-start-error" className="error-text">
-                    {busyErrors.startsAt}
-                  </p>
-                )}
-              </div>
-              <div className="field-group">
-                <label htmlFor="busy-end">Busy until</label>
-                <input
-                  id="busy-end"
-                  type="datetime-local"
-                  value={busyForm.endsAt}
-                  onChange={(event) =>
-                    setBusyForm((current) => ({ ...current, endsAt: event.target.value }))
-                  }
-                  aria-invalid={Boolean(busyErrors.endsAt)}
-                  aria-describedby={busyErrors.endsAt ? 'busy-end-error' : undefined}
-                />
-                {busyErrors.endsAt && (
-                  <p id="busy-end-error" className="error-text">
-                    {busyErrors.endsAt}
-                  </p>
-                )}
-              </div>
-              <label className="checkbox-field" htmlFor="busy-weekly">
-                <input
-                  id="busy-weekly"
-                  type="checkbox"
-                  checked={busyForm.weekly}
-                  onChange={(event) =>
-                    setBusyForm((current) => ({ ...current, weekly: event.target.checked }))
-                  }
-                />
-                Repeat weekly
-              </label>
-              <button className="primary-button" type="submit" disabled={Boolean(saving)}>
-                {saving === 'busy' ? 'Saving busy time...' : 'Add busy time'}
-              </button>
-            </form>
-
-            {timeSlots.length === 0 ? (
-              <EmptyState title="No busy times recorded" message="Add a busy time above." />
+          <section aria-labelledby="schedule-display-heading">
+            <h3 id="schedule-display-heading">Schedule (classes, study, unavailable)</h3>
+            <p className="helper-text">
+              This tutor's busy schedule is managed by the tutor. Schedule entries block allocations during those times.
+            </p>
+            {schedule.length === 0 ? (
+              <EmptyState title="No schedule entries" message="This tutor has not added any schedule entries." />
             ) : (
-              <ul className="detail-record-list" aria-label={`Time slots for ${tutor.fullName}`}>
-                {timeSlots.map((slot) => (
+              <ul className="detail-record-list" aria-label={`Schedule for ${tutor.fullName}`}>
+                {schedule.map((slot) => (
                   <li key={slot.id}>
-                    <strong>{slot.type === 'BUSY' ? 'Busy' : 'Available'}</strong>
-                    <span>
-                      {formatDateTime(slot.startsAt)} to {formatDateTime(slot.endsAt)}
-                    </span>
-                    <span>{slot.recurrence === 'WEEKLY' ? 'Repeats weekly' : 'Once-off'}</span>
-                    {slot.type === 'BUSY' && (
-                      <button
-                        className="danger-button"
-                        type="button"
-                        onClick={() => setSlotToRemove(slot)}
-                        aria-label={`Remove busy time from ${formatDateTime(slot.startsAt)}`}
-                      >
-                        Remove
-                      </button>
-                    )}
+                    <TimeSlotDetails slot={slot} />
                   </li>
                 ))}
               </ul>
@@ -456,23 +302,6 @@ export default function TutorAllocationDetails({ tutor, onClose }) {
             appear as a candidate for that course until a mark is recorded again.
           </p>
         )}
-      </ConfirmationDialog>
-
-      <ConfirmationDialog
-        open={Boolean(slotToRemove)}
-        title="Remove busy time?"
-        confirmLabel="Remove busy time"
-        onConfirm={handleConfirmRemove}
-        onCancel={handleCancelRemove}
-        isPending={removeStatus === 'pending'}
-      >
-        <p>
-          Remove the busy time
-          {slotToRemove
-            ? ` from ${formatDateTime(slotToRemove.startsAt)} to ${formatDateTime(slotToRemove.endsAt)}`
-            : ''}{' '}
-          for {tutor.fullName}? This cannot be undone.
-        </p>
       </ConfirmationDialog>
     </section>
   )

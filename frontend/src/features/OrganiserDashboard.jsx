@@ -121,8 +121,25 @@ function CandidateCard({ candidate, minimumMark, requestedHours, selected, onSel
         : `${candidate.mark}% meets the required ${minimumMark}%.`
   const hoursMessage =
     candidate.weeklyLimit === 0 || candidate.remainingHours === null
-      ? `Set a weekly hour limit before allocating ${requestedHours} hours.`
-      : `${candidate.remainingHours} hours remain; ${requestedHours} hours are required.`
+      ? `Weekly work capacity not set; set it before allocating ${requestedHours} hours.`
+      : `${candidate.remainingHours} hours of capacity remain; ${requestedHours} hours are required.`
+
+  const clashMessage = (() => {
+    if (clashState !== 'fail' || !Array.isArray(candidate.clashDetails) || candidate.clashDetails.length === 0) {
+      return 'No overlapping schedule or confirmed allocation was found.'
+    }
+    const details = candidate.clashDetails.slice(0, 3)
+    const descriptions = details.map((detail) => {
+      const start = new Date(detail.startsAt)
+      const end = new Date(detail.endsAt)
+      const dayName = start.toLocaleDateString(undefined, { weekday: 'long' })
+      const timeRange = `${start.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}–${end.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
+      const label = detail.label || (detail.kind === 'busy' ? 'Busy time' : 'Allocation')
+      return `${label}, ${dayName} ${timeRange}`
+    })
+    const suffix = candidate.clashDetails.length > 3 ? ` and ${candidate.clashDetails.length - 3} more` : ''
+    return `Overlaps: ${descriptions.join('; ')}${suffix}.`
+  })()
 
   return (
     <article className={`candidate-card${selected ? ' selected' : ''}`}>
@@ -144,21 +161,17 @@ function CandidateCard({ candidate, minimumMark, requestedHours, selected, onSel
 
       <ul className="rule-result-list" aria-label={`Allocation checks for ${candidate.fullName}`}>
         <RuleResult
-          label="Mark eligibility"
+          label="Mark"
           state={markState}
           message={markMessage}
         />
         <RuleResult
-          label="Timetable clash"
+          label="Timetable conflict"
           state={clashState}
-          message={
-            clashState === 'fail'
-              ? 'A busy time or confirmed allocation overlaps this session.'
-              : 'No overlapping busy time or confirmed allocation was found.'
-          }
+          message={clashMessage}
         />
         <RuleResult
-          label="Weekly hours"
+          label="Weekly capacity"
           state={hoursState}
           message={hoursMessage}
         />
@@ -227,6 +240,12 @@ export default function OrganiserDashboard() {
     () => candidates.find((candidate) => candidate.tutorId === selectedTutorId) || null,
     [candidates, selectedTutorId],
   )
+
+  const { eligibleCandidates, ineligibleCandidates } = useMemo(() => {
+    const eligible = candidates.filter((candidate) => candidate.isEligible)
+    const ineligible = candidates.filter((candidate) => !candidate.isEligible)
+    return { eligibleCandidates: eligible, ineligibleCandidates: ineligible }
+  }, [candidates])
 
   const isMutating = mutationStatus !== 'idle'
 
@@ -721,19 +740,55 @@ export default function OrganiserDashboard() {
             </button>
           </div>
 
-          <div className="candidate-grid">
-            {candidates.map((candidate) => (
-              <CandidateCard
-                key={candidate.tutorId}
-                candidate={candidate}
-                minimumMark={Number(form.minimumMark)}
-                requestedHours={Number(form.requestedHours)}
-                selected={candidate.tutorId === selectedTutorId}
-                onSelect={() => setSelectedTutorId(candidate.tutorId)}
-                disabled={isMutating}
-              />
-            ))}
-          </div>
+          {eligibleCandidates.length > 0 && (
+            <>
+              <h3 className="candidate-section-heading">Eligible tutors</h3>
+              <p className="helper-text">
+                These tutors meet all allocation rules. Select one to assign.
+              </p>
+              <div className="candidate-grid">
+                {eligibleCandidates.map((candidate) => (
+                  <CandidateCard
+                    key={candidate.tutorId}
+                    candidate={candidate}
+                    minimumMark={Number(form.minimumMark)}
+                    requestedHours={Number(form.requestedHours)}
+                    selected={candidate.tutorId === selectedTutorId}
+                    onSelect={() => setSelectedTutorId(candidate.tutorId)}
+                    disabled={isMutating}
+                  />
+                ))}
+              </div>
+            </>
+          )}
+
+          {ineligibleCandidates.length > 0 && (
+            <>
+              <h3 className="candidate-section-heading">Not eligible</h3>
+              <p className="helper-text">
+                These tutors do not meet one or more allocation rules. See the reasons below each card.
+              </p>
+              <div className="candidate-grid">
+                {ineligibleCandidates.map((candidate) => (
+                  <CandidateCard
+                    key={candidate.tutorId}
+                    candidate={candidate}
+                    minimumMark={Number(form.minimumMark)}
+                    requestedHours={Number(form.requestedHours)}
+                    selected={false}
+                    onSelect={() => {}}
+                    disabled={true}
+                  />
+                ))}
+              </div>
+            </>
+          )}
+
+          {eligibleCandidates.length === 0 && ineligibleCandidates.length === 0 && (
+            <p className="empty-inline" role="status">
+              No tutors found for this course and time slot.
+            </p>
+          )}
         </section>
       )}
 

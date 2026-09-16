@@ -10,11 +10,9 @@ import {
   type VolunteerClaimDecisionInput,
   type VolunteerClaimDecisionSummary,
 } from "../app.js";
-import { Prisma, type PrismaClient } from "../generated/prisma/client.js";
+import type { Prisma, PrismaClient } from "../generated/prisma/client.js";
 import {
-  allocationReasonCodesFor,
-  busySlotClashes,
-  timeRangesOverlap,
+  findAllocationCandidates,
   type CandidateReasonCode,
 } from "./allocation-queries.js";
 
@@ -154,20 +152,6 @@ function isRouteError(value: unknown): value is RouteError {
   );
 }
 
-function mondayUtcFor(value: Date) {
-  const monday = new Date(
-    Date.UTC(value.getUTCFullYear(), value.getUTCMonth(), value.getUTCDate()),
-  );
-  monday.setUTCDate(monday.getUTCDate() - ((monday.getUTCDay() + 6) % 7));
-  return monday;
-}
-
-function addUtcDays(value: Date, days: number) {
-  const result = new Date(value);
-  result.setUTCDate(result.getUTCDate() + days);
-  return result;
-}
-
 function toAllocationSummary(row: AllocationRow): AllocationSummary {
   return {
     id: row.id,
@@ -224,105 +208,19 @@ async function validateAllocationRules(
     );
   }
 
-  const weekStart = mondayUtcFor(input.startsAt);
-  const nextWeekStart = addUtcDays(weekStart, 7);
-  const withoutCurrentAllocation =
-    excludeAllocationId === undefined
-      ? {}
-      : { id: { not: excludeAllocationId } };
-
-  const mark = await transaction.tutorMark.findUnique({
-    where: {
-      tutorId_courseId: {
-        tutorId: input.tutorId,
-        courseId: input.courseId,
-      },
+  const candidates = await findAllocationCandidates({
+    async query<Row>(sql: string, parameters: unknown[] = []) {
+      // SQL is internal and all user values remain bound parameters inside this transaction.
+      const rows = await transaction.$queryRawUnsafe<Row[]>(sql, ...parameters);
+      return { rows };
     },
-    select: { mark: true },
-  });
-  const hourLimit = await transaction.tutorHourLimit.findUnique({
-    where: { tutorId: input.tutorId },
-    select: { weeklyHours: true },
-  });
-  // Non-recurring busy slots only matter when their absolute window overlaps
-  // the request, but a WEEKLY slot can sit in any week and still clash on a
-  // later occurrence, so those must be fetched regardless of their base window
-  // and evaluated with the same recurrence-aware rule as the candidate board.
-  const busySlots = await transaction.timeSlot.findMany({
-    where: {
-      tutorId: input.tutorId,
-      type: "BUSY",
-      OR: [
-        { recurrence: "WEEKLY" },
-        {
-          startsAt: { lt: input.endsAt },
-          endsAt: { gt: input.startsAt },
-        },
-      ],
-    },
-    select: { startsAt: true, endsAt: true, recurrence: true },
-  });
-  const confirmedAllocations = await transaction.allocation.findMany({
-    where: {
-      tutorId: input.tutorId,
-      status: "CONFIRMED",
-      startsAt: { lt: input.endsAt },
-      endsAt: { gt: input.startsAt },
-      ...withoutCurrentAllocation,
-    },
-    select: { startsAt: true, endsAt: true },
-  });
-  const usedHours = await transaction.allocation.aggregate({
-    where: {
-      tutorId: input.tutorId,
-      status: "CONFIRMED",
-      startsAt: { gte: weekStart, lt: nextWeekStart },
-      ...withoutCurrentAllocation,
-    },
-    _sum: { allocatedHours: true },
-  });
-
-  // Use === true / recurrence-aware helpers so a degenerate range never yields
-  // a false clash, keeping create/update verdicts identical to the candidate
-  // board's SQL.
-  const hasBusyClash = busySlots.some((slot) =>
-    busySlotClashes(
-      slot.startsAt,
-      slot.endsAt,
-      slot.recurrence,
-      input.startsAt,
-      input.endsAt,
-    ),
-  );
-  const hasAllocationClash = confirmedAllocations.some(
-    (range) =>
-      timeRangesOverlap(
-        input.startsAt,
-        input.endsAt,
-        range.startsAt,
-        range.endsAt,
-      ) === true,
-  );
-  const hasClash = hasBusyClash || hasAllocationClash;
-  const weeklyLimit =
-    hourLimit?.weeklyHours === undefined
-      ? null
-      : new Prisma.Decimal(hourLimit.weeklyHours);
-  const used = new Prisma.Decimal(usedHours._sum.allocatedHours ?? 0);
-  const remainingHours =
-    weeklyLimit === null
-      ? null
-      : Prisma.Decimal.max(weeklyLimit.minus(used), 0).toNumber();
-
-  throwFirstAllocationRuleViolation(
-    allocationReasonCodesFor({
-      mark: mark?.mark === undefined ? null : Number(mark.mark),
-      minimumMark: input.minimumMark,
-      hasClash,
-      remainingHours,
-      requestedHours: input.requestedHours,
-    }),
-  );
+  }, { ...input, ...(excludeAllocationId === undefined ? {} : { excludeAllocationId }) });
+  const candidate = candidates.find((row) => row.tutorId === input.tutorId);
+  if (candidate?.reasonCodes[0] === "hour-limit-exceeded") {
+    throw createRouteError(409, "hour-limit-exceeded",
+      `Only ${candidate.remainingHours} hours remain; this allocation requires ${input.requestedHours} hours.`);
+  }
+  throwFirstAllocationRuleViolation(candidate?.reasonCodes ?? ["insufficient-mark"]);
 }
 
 function mapAllocationFailure(value: unknown): never {

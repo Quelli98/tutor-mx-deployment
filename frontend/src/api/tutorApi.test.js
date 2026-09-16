@@ -103,14 +103,38 @@ describe('tutor API contract', () => {
   })
 
   it('posts availability, work logs and excuses with the shared bearer helper', async () => {
-    const timeSlot = { id: 2, type: 'BUSY' }
+    const timeSlot = {
+      id: 2,
+      type: 'BUSY',
+      startsAt: '2030-09-04T14:00:00.000Z',
+      endsAt: '2030-09-04T16:00:00.000Z',
+      recurrence: null,
+      label: null,
+      recurrenceUntil: null,
+    }
     fetchWithBearerToken.mockResolvedValueOnce({ data: { timeSlot } })
     await expect(
-      submitTimeSlot({ type: 'BUSY' }, tokenGetter),
+      submitTimeSlot(
+        {
+          type: 'BUSY',
+          startsAt: '2030-09-04T14:00:00.000Z',
+          endsAt: '2030-09-04T16:00:00.000Z',
+        },
+        tokenGetter,
+      ),
     ).resolves.toEqual(timeSlot)
     expect(fetchWithBearerToken).toHaveBeenLastCalledWith(
       '/api/tutor/time-slots',
-      { method: 'POST', body: JSON.stringify({ type: 'BUSY' }) },
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          type: 'BUSY',
+          startsAt: '2030-09-04T14:00:00.000Z',
+          endsAt: '2030-09-04T16:00:00.000Z',
+          label: null,
+          recurrenceUntil: null,
+        }),
+      },
       tokenGetter,
     )
 
@@ -141,8 +165,13 @@ describe('tutor API contract', () => {
   })
 
   it('rejects malformed mutation responses', async () => {
+    const validSlotInput = {
+      type: 'BUSY',
+      startsAt: '2030-09-04T14:00:00.000Z',
+      endsAt: '2030-09-04T16:00:00.000Z',
+    }
     fetchWithBearerToken.mockResolvedValue({ data: {} })
-    await expect(submitTimeSlot({}, tokenGetter)).rejects.toThrow(/agreed contract/i)
+    await expect(submitTimeSlot(validSlotInput, tokenGetter)).rejects.toThrow(/agreed contract/i)
     await expect(submitWorkLog({}, tokenGetter)).rejects.toThrow(/agreed contract/i)
     await expect(submitExcuse({}, tokenGetter)).rejects.toThrow(/agreed contract/i)
   })

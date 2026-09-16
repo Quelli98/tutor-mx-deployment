@@ -37,11 +37,16 @@ export interface CourseSummary {
 
 export interface TutorSummary {
   id: number;
-  auth0Id: string;
   email: string;
   fullName: string;
   role: TutorRole;
   weeklyHours: number | null;
+  usedHours: number;
+  remainingHours: number | null;
+  workedHours: number;
+  weekStart: string;
+  weekEnd: string;
+  capacityStatus: "available" | "near-limit" | "limit-reached" | "not-set";
 }
 
 export interface CourseWriteInput {
@@ -49,17 +54,8 @@ export interface CourseWriteInput {
   name: string;
 }
 
-export interface TutorWriteInput {
-  auth0Id: string;
-  email: string;
-  fullName: string;
-  weeklyHours?: number;
-}
-
-export interface TutorUpdateInput {
-  email?: string;
-  fullName?: string;
-  weeklyHours?: number | null;
+export interface TutorWeeklyCapacity {
+  weeklyHours: number | null;
 }
 
 export interface TutorAllocationSummary {
@@ -84,6 +80,9 @@ export interface TutorTimeSlotWriteInput {
   startsAt: Date;
   endsAt: Date;
   recurrence?: "WEEKLY";
+  label?: string | null;
+  // Inclusive last occurrence START; null means repeat indefinitely.
+  recurrenceUntil?: Date | null;
 }
 
 export interface TutorTimeSlotSummary {
@@ -92,6 +91,8 @@ export interface TutorTimeSlotSummary {
   startsAt: string;
   endsAt: string;
   recurrence: "WEEKLY" | null;
+  label: string | null;
+  recurrenceUntil: string | null;
 }
 
 export interface TutorWorkLogWriteInput {
@@ -332,12 +333,18 @@ export interface AppDependencies {
   ) => Promise<CourseSummary>;
   deleteCourse: (courseId: number) => Promise<void>;
   listTutors: () => Promise<TutorSummary[]>;
-  createTutor: (input: TutorWriteInput) => Promise<TutorSummary>;
-  updateTutor: (
-    tutorId: number,
-    input: TutorUpdateInput,
-  ) => Promise<TutorSummary>;
   getTutorDashboard: (auth0Id: string) => Promise<TutorDashboardSummary>;
+  listOwnTutorTimeSlots: (auth0Id: string) => Promise<TutorTimeSlotSummary[]>;
+  updateTutorTimeSlot: (
+    auth0Id: string,
+    timeSlotId: number,
+    input: TutorTimeSlotWriteInput,
+  ) => Promise<TutorTimeSlotSummary>;
+  deleteTutorTimeSlot: (auth0Id: string, timeSlotId: number) => Promise<void>;
+  updateTutorWeeklyCapacity: (
+    auth0Id: string,
+    input: TutorWeeklyCapacity,
+  ) => Promise<TutorWeeklyCapacity>;
   createTutorTimeSlot: (
     auth0Id: string,
     input: TutorTimeSlotWriteInput,
@@ -418,14 +425,6 @@ export interface AppDependencies {
   listTutorMarks: (tutorId: number) => Promise<TutorMarkSummary[]>;
   deleteTutorMark: (tutorId: number, courseId: number) => Promise<void>;
   listTutorTimeSlots: (tutorId: number) => Promise<TutorTimeSlotSummary[]>;
-  createTutorTimeSlotForTutor: (
-    tutorId: number,
-    input: TutorTimeSlotWriteInput,
-  ) => Promise<TutorTimeSlotSummary>;
-  deleteTutorBusyTimeSlot: (
-    tutorId: number,
-    timeSlotId: number,
-  ) => Promise<void>;
   requestPasswordReset: PasswordResetRequester;
   requestVerificationEmail?: VerificationEmailSender;
   deleteAccount?: (auth0Id: string) => Promise<void>;
@@ -458,11 +457,17 @@ const unavailableDependencies: AppDependencies = {
   async listTutors() {
     throw new Error("Backend course and tutor endpoints are not configured");
   },
-  async createTutor() {
-    throw new Error("Backend course and tutor endpoints are not configured");
+  async listOwnTutorTimeSlots() {
+    throw new Error("Tutor schedule endpoints are not configured");
   },
-  async updateTutor() {
-    throw new Error("Backend course and tutor endpoints are not configured");
+  async updateTutorTimeSlot() {
+    throw new Error("Tutor schedule endpoints are not configured");
+  },
+  async deleteTutorTimeSlot() {
+    throw new Error("Tutor schedule endpoints are not configured");
+  },
+  async updateTutorWeeklyCapacity() {
+    throw new Error("Tutor capacity endpoint is not configured");
   },
   async getTutorDashboard() {
     throw new Error("Tutor workflow endpoints are not configured");
@@ -537,12 +542,6 @@ const unavailableDependencies: AppDependencies = {
     throw new Error("Tutor mark endpoint is not configured");
   },
   async listTutorTimeSlots() {
-    throw new Error("Tutor workflow endpoints are not configured");
-  },
-  async createTutorTimeSlotForTutor() {
-    throw new Error("Tutor workflow endpoints are not configured");
-  },
-  async deleteTutorBusyTimeSlot() {
     throw new Error("Tutor workflow endpoints are not configured");
   },
   async deleteAccount() {
@@ -636,26 +635,23 @@ function parseRequiredText(
   return trimmed;
 }
 
-type WeeklyHoursField =
-  | { kind: "absent" }
-  | { kind: "clear" }
-  | { kind: "value"; value: number }
-  | { kind: "invalid" };
+function hasOnlyFields(body: unknown, fields: string[]): body is Record<string, unknown> {
+  return typeof body === "object" && body !== null && !Array.isArray(body) &&
+    Object.keys(body).every((key) => fields.includes(key));
+}
 
-function parseOptionalWeeklyHours(value: unknown): WeeklyHoursField {
-  if (value === undefined || value === "") {
-    return { kind: "absent" };
+function parseTutorWeeklyCapacity(body: unknown) {
+  if (!hasOnlyFields(body, ["weeklyHours"])) {
+    return { error: "Provide only weeklyHours." } as const;
   }
-  if (value === null) {
-    return { kind: "clear" };
+  const weeklyHours = body.weeklyHours;
+  if (weeklyHours !== null && (
+    typeof weeklyHours !== "number" || !Number.isFinite(weeklyHours) ||
+    weeklyHours <= 0 || weeklyHours > 168 || !hasAtMostTwoDecimalPlaces(weeklyHours)
+  )) {
+    return { error: "Weekly hours must be null or a number above 0 and at most 168 with at most two decimals." } as const;
   }
-
-  const numeric = Number(value);
-  if (!Number.isFinite(numeric) || numeric <= 0 || numeric > 168) {
-    return { kind: "invalid" };
-  }
-
-  return { kind: "value", value: numeric };
+  return { value: { weeklyHours } } as const;
 }
 
 function parseCourseInput(body: unknown) {
@@ -668,92 +664,6 @@ function parseCourseInput(body: unknown) {
   }
 
   return { value: { code, name } } as const;
-}
-
-function parseTutorCreateInput(body: unknown) {
-  const payload = body as {
-    auth0Id?: unknown;
-    email?: unknown;
-    fullName?: unknown;
-    weeklyHours?: unknown;
-  } | null;
-  const auth0Id = parseRequiredText(payload?.auth0Id, "auth0Id", 100);
-  const email = parseRequiredText(payload?.email, "email", 254);
-  const fullName = parseRequiredText(payload?.fullName, "fullName", 120);
-  const weeklyHours = parseOptionalWeeklyHours(payload?.weeklyHours);
-
-  if (
-    !auth0Id ||
-    !email ||
-    !isValidEmail(email) ||
-    !fullName ||
-    weeklyHours.kind === "invalid"
-  ) {
-    return {
-      error:
-        "Enter an Auth0 subject, email, full name and a valid weekly-hours value.",
-    } as const;
-  }
-
-  const value: TutorWriteInput = {
-    auth0Id,
-    email,
-    fullName,
-  };
-
-  if (weeklyHours.kind === "value") {
-    value.weeklyHours = weeklyHours.value;
-  }
-
-  return { value } as const;
-}
-
-function parseTutorUpdateInput(body: unknown) {
-  const payload = body as {
-    email?: unknown;
-    fullName?: unknown;
-    weeklyHours?: unknown;
-  } | null;
-  const email =
-    payload?.email === undefined
-      ? undefined
-      : parseRequiredText(payload.email, "email", 254);
-  const fullName =
-    payload?.fullName === undefined
-      ? undefined
-      : parseRequiredText(payload.fullName, "fullName", 120);
-  const weeklyHours = parseOptionalWeeklyHours(payload?.weeklyHours);
-
-  if (
-    (payload?.email !== undefined &&
-      (email === null || !isValidEmail(email))) ||
-    (payload?.fullName !== undefined && fullName === null) ||
-    weeklyHours.kind === "invalid" ||
-    (payload?.email === undefined &&
-      payload?.fullName === undefined &&
-      payload?.weeklyHours === undefined)
-  ) {
-    return {
-      error: "Provide at least one valid tutor field to update.",
-    } as const;
-  }
-
-  const value: TutorUpdateInput = {};
-
-  if (email !== undefined && email !== null) {
-    value.email = email;
-  }
-  if (fullName !== undefined && fullName !== null) {
-    value.fullName = fullName;
-  }
-  if (weeklyHours.kind === "value") {
-    value.weeklyHours = weeklyHours.value;
-  }
-  if (weeklyHours.kind === "clear") {
-    value.weeklyHours = null;
-  }
-
-  return { value } as const;
 }
 
 function parseIsoDateTime(value: unknown) {
@@ -805,41 +715,38 @@ function hasAtMostTwoDecimalPlaces(value: number) {
 }
 
 function parseTutorTimeSlotInput(body: unknown) {
-  const payload = body as {
-    type?: unknown;
-    startsAt?: unknown;
-    endsAt?: unknown;
-    recurrence?: unknown;
-  } | null;
-  const type = payload?.type;
-  const startsAt = parseIsoDateTime(payload?.startsAt);
-  const endsAt = parseIsoDateTime(payload?.endsAt);
-  const recurrence =
-    payload?.recurrence === undefined ||
-    payload?.recurrence === null ||
-    payload?.recurrence === ""
-      ? undefined
-      : typeof payload.recurrence === "string"
-        ? payload.recurrence.trim().toUpperCase()
-        : null;
+  if (!hasOnlyFields(body, ["type", "startsAt", "endsAt", "recurrence", "label", "recurrenceUntil"])) {
+    return { error: "Provide only schedule fields, without an ownership identifier." } as const;
+  }
+  const { type, recurrence } = body;
+  // Schedule timestamps must be ISO date-times with an explicit UTC/offset zone.
+  const scheduleDate = (value: unknown) =>
+    typeof value === "string" && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d{1,3})?)?(?:Z|[+-]\d{2}:\d{2})$/.test(value) &&
+    parseDateOnly(value.slice(0, 10))
+      ? parseIsoDateTime(value)
+      : null;
+  const startsAt = scheduleDate(body.startsAt);
+  const endsAt = scheduleDate(body.endsAt);
+  const label = typeof body.label === "string" ? body.label.trim() : body.label;
+  const recurrenceUntil = body.recurrenceUntil == null ? null : scheduleDate(body.recurrenceUntil);
 
   if (
     (type !== "AVAILABLE" && type !== "BUSY") ||
-    !startsAt ||
-    !endsAt ||
-    endsAt <= startsAt ||
-    (recurrence !== undefined && recurrence !== "WEEKLY")
+    !startsAt || !endsAt || endsAt <= startsAt ||
+    (recurrence !== undefined && recurrence !== "WEEKLY") ||
+    (recurrence === "WEEKLY" && endsAt.valueOf() - startsAt.valueOf() > 7 * 24 * 60 * 60 * 1000) ||
+    (label !== undefined && label !== null && (typeof label !== "string" || label.length > 120)) ||
+    (body.recurrenceUntil != null && (!recurrenceUntil || recurrence !== "WEEKLY" || recurrenceUntil < startsAt))
   ) {
-    return {
-      error:
-        "Enter a valid slot type, start, end and supported recurrence.",
-    } as const;
+    return { error: "Enter a valid schedule interval, label (up to 120 characters) and weekly recurrence end." } as const;
   }
 
-  const value: TutorTimeSlotWriteInput = { type, startsAt, endsAt };
-  if (recurrence === "WEEKLY") {
-    value.recurrence = recurrence;
-  }
+  const value: TutorTimeSlotWriteInput = {
+    type, startsAt, endsAt,
+    ...(recurrence === "WEEKLY" ? { recurrence } : {}),
+    ...(label !== undefined ? { label } : {}),
+    ...(body.recurrenceUntil !== undefined ? { recurrenceUntil } : {}),
+  };
   return { value } as const;
 }
 
@@ -1542,73 +1449,6 @@ export function createApp(
     },
   );
 
-  app.post(
-    "/api/tutors",
-    authenticate,
-    resolveProfileRole,
-    requireRole("ORGANISER"),
-    async (request, response) => {
-      const parsed = parseTutorCreateInput(request.body);
-      if ("error" in parsed) {
-        const result = error(
-          400,
-          "VALIDATION_ERROR",
-          parsed.error ??
-            "Enter an Auth0 subject, email, full name and a valid weekly-hours value.",
-        );
-        response.status(result.status).json(result.body);
-        return;
-      }
-
-      try {
-        const tutor = await dependencies.createTutor(parsed.value);
-        response.status(201).json({ data: { tutor } });
-      } catch (value) {
-        sendRouteError(response, value);
-      }
-    },
-  );
-
-  app.patch(
-    "/api/tutors/:tutorId",
-    authenticate,
-    resolveProfileRole,
-    requireRole("ORGANISER"),
-    async (request, response) => {
-      const tutorId = parseNumericId(request.params.tutorId, "Tutor");
-      if ("error" in tutorId) {
-        const result = error(
-          400,
-          "VALIDATION_ERROR",
-          tutorId.error ?? "Tutor identifier must be a positive whole number.",
-        );
-        response.status(result.status).json(result.body);
-        return;
-      }
-
-      const parsed = parseTutorUpdateInput(request.body);
-      if ("error" in parsed) {
-        const result = error(
-          400,
-          "VALIDATION_ERROR",
-          parsed.error ?? "Provide at least one valid tutor field to update.",
-        );
-        response.status(result.status).json(result.body);
-        return;
-      }
-
-      try {
-        const tutor = await dependencies.updateTutor(
-          tutorId.value,
-          parsed.value,
-        );
-        response.status(200).json({ data: { tutor } });
-      } catch (value) {
-        sendRouteError(response, value);
-      }
-    },
-  );
-
   app.get(
     "/api/allocations",
     authenticate,
@@ -1981,76 +1821,6 @@ export function createApp(
     },
   );
 
-  app.post(
-    "/api/tutors/:tutorId/time-slots",
-    authenticate,
-    resolveProfileRole,
-    requireRole("ORGANISER"),
-    async (request, response) => {
-      const tutorId = parseNumericId(request.params.tutorId, "Tutor");
-      if ("error" in tutorId) {
-        const result = error(
-          400,
-          "VALIDATION_ERROR",
-          tutorId.error ?? "Tutor identifier must be a positive whole number.",
-        );
-        response.status(result.status).json(result.body);
-        return;
-      }
-
-      const parsed = parseTutorTimeSlotInput(request.body);
-      if ("error" in parsed) {
-        const result = error(
-          400,
-          "VALIDATION_ERROR",
-          parsed.error ?? "Enter a valid tutor availability slot.",
-        );
-        response.status(result.status).json(result.body);
-        return;
-      }
-
-      try {
-        const timeSlot = await dependencies.createTutorTimeSlotForTutor(
-          tutorId.value,
-          parsed.value,
-        );
-        response.status(201).json({ data: { timeSlot } });
-      } catch (value) {
-        sendRouteError(response, value);
-      }
-    },
-  );
-
-  app.delete(
-    "/api/tutors/:tutorId/time-slots/:timeSlotId",
-    authenticate,
-    resolveProfileRole,
-    requireRole("ORGANISER"),
-    async (request, response) => {
-      const tutorId = parseNumericId(request.params.tutorId, "Tutor");
-      const timeSlotId = parseNumericId(request.params.timeSlotId, "Time slot");
-      if ("error" in tutorId || "error" in timeSlotId) {
-        const result = error(
-          400,
-          "VALIDATION_ERROR",
-          "Tutor and time-slot identifiers must be positive whole numbers.",
-        );
-        response.status(result.status).json(result.body);
-        return;
-      }
-
-      try {
-        await dependencies.deleteTutorBusyTimeSlot(
-          tutorId.value,
-          timeSlotId.value,
-        );
-        response.status(204).end();
-      } catch (value) {
-        sendRouteError(response, value);
-      }
-    },
-  );
-
   app.get(
     "/api/tutor/dashboard",
     authenticate,
@@ -2091,6 +1861,90 @@ export function createApp(
           parsed.value,
         );
         response.status(201).json({ data: { timeSlot } });
+      } catch (value) {
+        sendRouteError(response, value);
+      }
+    },
+  );
+
+  app.get(
+    "/api/tutor/time-slots",
+    authenticate,
+    resolveProfileRole,
+    requireRole("TUTOR"),
+    async (request, response) => {
+      try {
+        const timeSlots = await dependencies.listOwnTutorTimeSlots(
+          (request as AuthenticatedRequest).auth!.subject,
+        );
+        response.status(200).json({ data: { timeSlots } });
+      } catch (value) {
+        sendRouteError(response, value);
+      }
+    },
+  );
+
+  app.patch(
+    "/api/tutor/time-slots/:timeSlotId",
+    authenticate,
+    resolveProfileRole,
+    requireRole("TUTOR"),
+    async (request, response) => {
+      const timeSlotId = parseNumericId(request.params.timeSlotId, "Time slot");
+      const parsed = parseTutorTimeSlotInput(request.body);
+      if ("error" in timeSlotId || "error" in parsed) {
+        response.status(400).json({ error: { code: "VALIDATION_ERROR", message: "Enter a valid time-slot identifier and schedule." } });
+        return;
+      }
+      try {
+        const timeSlot = await dependencies.updateTutorTimeSlot(
+          (request as AuthenticatedRequest).auth!.subject, timeSlotId.value, parsed.value,
+        );
+        response.status(200).json({ data: { timeSlot } });
+      } catch (value) {
+        sendRouteError(response, value);
+      }
+    },
+  );
+
+  app.delete(
+    "/api/tutor/time-slots/:timeSlotId",
+    authenticate,
+    resolveProfileRole,
+    requireRole("TUTOR"),
+    async (request, response) => {
+      const timeSlotId = parseNumericId(request.params.timeSlotId, "Time slot");
+      if ("error" in timeSlotId || (request.body !== undefined && !hasOnlyFields(request.body, []))) {
+        response.status(400).json({ error: { code: "VALIDATION_ERROR", message: "Provide a valid time-slot identifier without extra fields." } });
+        return;
+      }
+      try {
+        await dependencies.deleteTutorTimeSlot(
+          (request as AuthenticatedRequest).auth!.subject, timeSlotId.value,
+        );
+        response.status(204).end();
+      } catch (value) {
+        sendRouteError(response, value);
+      }
+    },
+  );
+
+  app.patch(
+    "/api/tutor/weekly-capacity",
+    authenticate,
+    resolveProfileRole,
+    requireRole("TUTOR"),
+    async (request, response) => {
+      const parsed = parseTutorWeeklyCapacity(request.body);
+      if ("error" in parsed) {
+        response.status(400).json({ error: { code: "VALIDATION_ERROR", message: parsed.error } });
+        return;
+      }
+      try {
+        const capacity = await dependencies.updateTutorWeeklyCapacity(
+          (request as AuthenticatedRequest).auth!.subject, parsed.value,
+        );
+        response.status(200).json({ data: capacity });
       } catch (value) {
         sendRouteError(response, value);
       }

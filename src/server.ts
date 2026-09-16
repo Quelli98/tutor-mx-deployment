@@ -20,6 +20,7 @@ import { createSouthAfricaPublicHolidayService } from "./integrations/public-hol
 import {
   findAllocationCandidates,
   getTutorHourSummary,
+  getTutorWorkloads,
 } from "./services/allocation-queries.js";
 import { createCourseService } from "./services/course-service.js";
 import { createExcuseWorkflowService } from "./services/excuse-workflows.js";
@@ -94,23 +95,22 @@ function toCourseSummary(course: { id: number; code: string; name: string }) {
 
 function toTutorSummary(profile: {
   id: number;
-  auth0Id: string;
   email: string;
   fullName: string;
   role: string;
-  hourLimit?: { weeklyHours: unknown } | null;
-}) {
+}, workload: Awaited<ReturnType<typeof getTutorWorkloads>>[number]) {
   return {
     id: profile.id,
-    auth0Id: profile.auth0Id,
     email: profile.email,
     fullName: profile.fullName,
     role: normalizeTutorRole(profile.role) ?? "TUTOR",
-    weeklyHours:
-      profile.hourLimit?.weeklyHours === undefined ||
-      profile.hourLimit?.weeklyHours === null
-        ? null
-        : Number(profile.hourLimit.weeklyHours),
+    weeklyHours: workload.weeklyLimit,
+    usedHours: workload.usedHours,
+    remainingHours: workload.remainingHours,
+    workedHours: workload.workedHours,
+    weekStart: workload.weekStart,
+    weekEnd: workload.weekEnd,
+    capacityStatus: workload.capacityStatus,
   };
 }
 
@@ -120,6 +120,8 @@ function toTimeSlotSummary(timeSlot: {
   startsAt: Date;
   endsAt: Date;
   recurrence: string | null;
+  label: string | null;
+  recurrenceUntil: Date | null;
 }): TutorTimeSlotSummary {
   return {
     id: timeSlot.id,
@@ -127,7 +129,23 @@ function toTimeSlotSummary(timeSlot: {
     startsAt: timeSlot.startsAt.toISOString(),
     endsAt: timeSlot.endsAt.toISOString(),
     recurrence: timeSlot.recurrence === "WEEKLY" ? "WEEKLY" : null,
+    label: timeSlot.label,
+    recurrenceUntil: timeSlot.recurrenceUntil?.toISOString() ?? null,
   };
+}
+
+const timeSlotSelect = {
+  id: true, type: true, startsAt: true, endsAt: true,
+  recurrence: true, label: true, recurrenceUntil: true,
+} as const;
+
+async function listTimeSlots(tutorId: number) {
+  const timeSlots = await prisma.timeSlot.findMany({
+    where: { tutorId },
+    orderBy: { startsAt: "asc" },
+    select: timeSlotSelect,
+  });
+  return timeSlots.map(toTimeSlotSummary);
 }
 
 function toTutorMarkSummary(
@@ -305,131 +323,29 @@ const app = createApp(
       const tutors = await prisma.profile.findMany({
         where: { role: "TUTOR" },
         orderBy: { fullName: "asc" },
-        select: {
-          id: true,
-          auth0Id: true,
-          email: true,
-          fullName: true,
-          role: true,
-          hourLimit: {
-            select: { weeklyHours: true },
-          },
-        },
+        select: { id: true, email: true, fullName: true, role: true },
       });
-      return tutors.map(toTutorSummary);
+      const workloads = await getTutorWorkloads(queryClient, mondayUtcFor(new Date()));
+      const byTutorId = new Map(workloads.map((workload) => [workload.tutorId, workload]));
+      return tutors.map((tutor) => {
+        const workload = byTutorId.get(tutor.id);
+        if (!workload) throw new Error("Tutor workload is unavailable");
+        return toTutorSummary(tutor, workload);
+      });
     },
-    async createTutor(input) {
-      try {
-        const tutor = await prisma.profile.create({
-          data: {
-            auth0Id: input.auth0Id,
-            email: input.email,
-            fullName: input.fullName,
-            role: "TUTOR",
-            ...(input.weeklyHours !== undefined
-              ? {
-                  hourLimit: {
-                    create: {
-                      weeklyHours: input.weeklyHours,
-                    },
-                  },
-                }
-              : {}),
-          },
-          select: {
-            id: true,
-            auth0Id: true,
-            email: true,
-            fullName: true,
-            role: true,
-            hourLimit: {
-              select: { weeklyHours: true },
-            },
-          },
-        });
-        return toTutorSummary(tutor);
-      } catch (error) {
-        if (isPrismaErrorCode(error, "P2002")) {
-          throw createRouteError(
-            409,
-            "TUTOR_CONFLICT",
-            "A tutor with that identity already exists.",
-          );
-        }
-        throw error;
+    async updateTutorWeeklyCapacity(auth0Id, input) {
+      const tutorId = await findTutorProfileId(auth0Id);
+      if (input.weeklyHours === null) {
+        await prisma.tutorHourLimit.deleteMany({ where: { tutorId } });
+        return { weeklyHours: null };
       }
-    },
-    async updateTutor(tutorId, input) {
-      try {
-        const existingTutor = await prisma.profile.findUnique({
-          where: { id: tutorId },
-          select: { role: true },
-        });
-        if (existingTutor?.role !== "TUTOR") {
-          throw createRouteError(
-            404,
-            "TUTOR_NOT_FOUND",
-            "The requested tutor could not be found.",
-          );
-        }
-
-        const setsWeeklyHours =
-          input.weeklyHours !== undefined && input.weeklyHours !== null;
-        const clearsWeeklyHours = input.weeklyHours === null;
-
-        const tutor = await prisma.profile.update({
-          where: { id: tutorId },
-          data: {
-            ...(input.email !== undefined ? { email: input.email } : {}),
-            ...(input.fullName !== undefined
-              ? { fullName: input.fullName }
-              : {}),
-            ...(setsWeeklyHours
-              ? {
-                  hourLimit: {
-                    upsert: {
-                      create: { weeklyHours: input.weeklyHours! },
-                      update: { weeklyHours: input.weeklyHours! },
-                    },
-                  },
-                }
-              : {}),
-          },
-          select: {
-            id: true,
-            auth0Id: true,
-            email: true,
-            fullName: true,
-            role: true,
-            hourLimit: {
-              select: { weeklyHours: true },
-            },
-          },
-        });
-        if (clearsWeeklyHours) {
-          await prisma.tutorHourLimit.deleteMany({ where: { tutorId } });
-        }
-
-        return toTutorSummary(
-          clearsWeeklyHours ? { ...tutor, hourLimit: null } : tutor,
-        );
-      } catch (error) {
-        if (isPrismaErrorCode(error, "P2025")) {
-          throw createRouteError(
-            404,
-            "TUTOR_NOT_FOUND",
-            "The requested tutor could not be found.",
-          );
-        }
-        if (isPrismaErrorCode(error, "P2002")) {
-          throw createRouteError(
-            409,
-            "TUTOR_CONFLICT",
-            "A tutor with that identity already exists.",
-          );
-        }
-        throw error;
-      }
+      const limit = await prisma.tutorHourLimit.upsert({
+        where: { tutorId },
+        create: { tutorId, weeklyHours: input.weeklyHours },
+        update: { weeklyHours: input.weeklyHours },
+        select: { weeklyHours: true },
+      });
+      return { weeklyHours: Number(limit.weeklyHours) };
     },
     async getTutorDashboard(auth0Id) {
       const profile = await prisma.profile.findUnique({
@@ -516,14 +432,10 @@ const app = createApp(
             startsAt: input.startsAt,
             endsAt: input.endsAt,
             recurrence: input.recurrence ?? null,
+            label: input.label ?? null,
+            recurrenceUntil: input.recurrenceUntil ?? null,
           },
-          select: {
-            id: true,
-            type: true,
-            startsAt: true,
-            endsAt: true,
-            recurrence: true,
-          },
+          select: timeSlotSelect,
         });
         return toTimeSlotSummary(timeSlot);
       } catch (error) {
@@ -705,7 +617,18 @@ const app = createApp(
     getTutorExcuseStatus: excuseWorkflowService.getStatus,
     decideExcuse: excuseWorkflowService.decide,
     async listAllocationCandidates(input) {
-      return findAllocationCandidates(queryClient, input);
+      const candidates = await findAllocationCandidates(queryClient, input);
+      return candidates.map((candidate) => ({
+        tutorId: candidate.tutorId,
+        fullName: candidate.fullName,
+        mark: candidate.mark ?? 0,
+        weeklyLimit: candidate.weeklyLimit,
+        usedHours: candidate.usedHours,
+        remainingHours: candidate.remainingHours,
+        hasClash: candidate.hasClash,
+        isEligible: candidate.isEligible,
+        reasonCodes: candidate.reasonCodes,
+      }));
     },
     listOrganiserAllocations: organiserService.listAllocations,
     listOrganiserApprovals: organiserService.listApprovals,
@@ -800,74 +723,44 @@ const app = createApp(
         );
       }
     },
-    async listTutorTimeSlots(tutorId) {
-      const timeSlots = await prisma.timeSlot.findMany({
-        where: { tutorId },
-        orderBy: { startsAt: "asc" },
-        select: {
-          id: true,
-          type: true,
-          startsAt: true,
-          endsAt: true,
-          recurrence: true,
-        },
-      });
-      return timeSlots.map(toTimeSlotSummary);
+    listTutorTimeSlots: listTimeSlots,
+    async listOwnTutorTimeSlots(auth0Id) {
+      return listTimeSlots(await findTutorProfileId(auth0Id));
     },
-    async createTutorTimeSlotForTutor(tutorId, input) {
-      const existingTutor = await prisma.profile.findUnique({
-        where: { id: tutorId },
-        select: { role: true },
-      });
-      if (existingTutor?.role !== "TUTOR") {
-        throw createRouteError(
-          404,
-          "TUTOR_NOT_FOUND",
-          "The requested tutor could not be found.",
-        );
-      }
+    async updateTutorTimeSlot(auth0Id, timeSlotId, input) {
+      const tutorId = await findTutorProfileId(auth0Id);
       try {
-        const timeSlot = await prisma.timeSlot.create({
+        const timeSlot = await prisma.timeSlot.update({
+          // Keep ownership in the write predicate, not a separate preflight read.
+          where: { id: timeSlotId, tutorId },
           data: {
-            tutorId,
             type: input.type,
             startsAt: input.startsAt,
             endsAt: input.endsAt,
             recurrence: input.recurrence ?? null,
+            label: input.label ?? null,
+            recurrenceUntil: input.recurrenceUntil ?? null,
           },
-          select: {
-            id: true,
-            type: true,
-            startsAt: true,
-            endsAt: true,
-            recurrence: true,
-          },
+          select: timeSlotSelect,
         });
         return toTimeSlotSummary(timeSlot);
       } catch (error) {
-        if (
-          isPrismaErrorCode(error, "P2003") ||
-          isPrismaErrorCode(error, "P2004")
-        ) {
-          throw createRouteError(
-            409,
-            "TIME_SLOT_CONFLICT",
-            "The availability slot conflicts with tutor data rules.",
-          );
+        if (isPrismaErrorCode(error, "P2025")) {
+          throw createRouteError(404, "TIME_SLOT_NOT_FOUND", "The requested time slot could not be found.");
+        }
+        if (isPrismaErrorCode(error, "P2003") || isPrismaErrorCode(error, "P2004")) {
+          throw createRouteError(409, "TIME_SLOT_CONFLICT", "The time slot conflicts with tutor data rules.");
         }
         throw error;
       }
     },
-    async deleteTutorBusyTimeSlot(tutorId, timeSlotId) {
+    async deleteTutorTimeSlot(auth0Id, timeSlotId) {
+      const tutorId = await findTutorProfileId(auth0Id);
       const removed = await prisma.timeSlot.deleteMany({
-        where: { id: timeSlotId, tutorId, type: "BUSY" },
+        where: { id: timeSlotId, tutorId },
       });
       if (removed.count === 0) {
-        throw createRouteError(
-          404,
-          "TIME_SLOT_NOT_FOUND",
-          "The requested busy time could not be found.",
-        );
+        throw createRouteError(404, "TIME_SLOT_NOT_FOUND", "The requested time slot could not be found.");
       }
     },
     async deleteAccount(auth0Id) {

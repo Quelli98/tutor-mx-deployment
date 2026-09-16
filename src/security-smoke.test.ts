@@ -190,27 +190,18 @@ function smokeApp(overrides: SmokeOverrides = {}): Express {
     listTutors: async () => [
       {
         id: 2,
-        auth0Id: "demo|tutor",
         email: "tutor@tutormx.example",
         fullName: "Demo Tutor",
         role: "TUTOR",
         weeklyHours: 10,
+        usedHours: 6,
+        remainingHours: 4,
+        workedHours: 0,
+        weekStart: "2030-09-02T00:00:00.000Z",
+        weekEnd: "2030-09-08T23:59:59.999Z",
+        capacityStatus: "available",
       },
     ],
-    createTutor: async (input) => ({
-      id: 22,
-      role: "TUTOR",
-      weeklyHours: input.weeklyHours ?? null,
-      ...input,
-    }),
-    updateTutor: async (tutorId, input) => ({
-      id: tutorId,
-      auth0Id: "demo|tutor",
-      email: input.email ?? "tutor@tutormx.example",
-      fullName: input.fullName ?? "Demo Tutor",
-      role: "TUTOR",
-      weeklyHours: input.weeklyHours ?? 10,
-    }),
 
     getTutorDashboard: async () => ({
       allocations: [],
@@ -226,7 +217,20 @@ function smokeApp(overrides: SmokeOverrides = {}): Express {
         startsAt: input.startsAt.toISOString(),
         endsAt: input.endsAt.toISOString(),
         recurrence: input.recurrence ?? null,
+        label: input.label ?? null,
+        recurrenceUntil: input.recurrenceUntil?.toISOString() ?? null,
       })),
+    listOwnTutorTimeSlots: async () => [],
+    updateTutorTimeSlot: async (_auth0Id, _id, input) => ({
+      id: 1,
+      type: input.type,
+      startsAt: input.startsAt.toISOString(),
+      endsAt: input.endsAt.toISOString(),
+      recurrence: input.recurrence ?? null,
+      label: input.label ?? null,
+      recurrenceUntil: input.recurrenceUntil?.toISOString() ?? null,
+    }),
+    updateTutorWeeklyCapacity: async (_auth0Id, input) => input,
     createTutorWorkLog:
       overrides.createTutorWorkLog ??
       (async (_auth0Id, input) => ({ id: 1, timesheetId: 2, ...input })),
@@ -341,14 +345,7 @@ function smokeApp(overrides: SmokeOverrides = {}): Express {
     listTutorMarks: async () => [],
     deleteTutorMark: async () => undefined,
     listTutorTimeSlots: async () => [],
-    deleteTutorBusyTimeSlot: async () => undefined,
-    createTutorTimeSlotForTutor: async (_tutorId, input) => ({
-      id: 1,
-      type: input.type,
-      startsAt: input.startsAt.toISOString(),
-      endsAt: input.endsAt.toISOString(),
-      recurrence: input.recurrence ?? null,
-    }),
+    deleteTutorTimeSlot: async () => undefined,
 
     requestPasswordReset: async () => undefined,
     requestVerificationEmail: async () => undefined,
@@ -451,25 +448,6 @@ const criticalEndpoints: CriticalEndpoint[] = [
     allowedRoles: ["ORGANISER"],
   },
   {
-    label: "POST /api/tutors",
-    method: "post",
-    path: "/api/tutors",
-    body: {
-      auth0Id: "auth0|new-tutor",
-      email: "new.tutor@tutormx.example",
-      fullName: "New Tutor",
-      weeklyHours: 8,
-    },
-    allowedRoles: ["ORGANISER"],
-  },
-  {
-    label: "PATCH /api/tutors/:tutorId",
-    method: "patch",
-    path: "/api/tutors/2",
-    body: { fullName: "Renamed Tutor" },
-    allowedRoles: ["ORGANISER"],
-  },
-  {
     label: "GET /api/allocations/candidates",
     method: "get",
     path: `/api/allocations/candidates?${candidateQuery}`,
@@ -544,23 +522,6 @@ const criticalEndpoints: CriticalEndpoint[] = [
     label: "GET /api/tutors/:tutorId/time-slots",
     method: "get",
     path: "/api/tutors/2/time-slots",
-    allowedRoles: ["ORGANISER"],
-  },
-  {
-    label: "POST /api/tutors/:tutorId/time-slots",
-    method: "post",
-    path: "/api/tutors/2/time-slots",
-    body: {
-      type: "BUSY",
-      startsAt: "2030-09-04T14:00:00.000Z",
-      endsAt: "2030-09-04T16:00:00.000Z",
-    },
-    allowedRoles: ["ORGANISER"],
-  },
-  {
-    label: "DELETE /api/tutors/:tutorId/time-slots/:timeSlotId",
-    method: "delete",
-    path: "/api/tutors/2/time-slots/9",
     allowedRoles: ["ORGANISER"],
   },
   {
@@ -879,6 +840,8 @@ describe("S2-M1-3 cross-role security smoke", () => {
           startsAt: input.startsAt.toISOString(),
           endsAt: input.endsAt.toISOString(),
           recurrence: input.recurrence ?? null,
+          label: input.label ?? null,
+          recurrenceUntil: input.recurrenceUntil?.toISOString() ?? null,
         }),
       );
       const createTutorWorkLog = vi.fn(
@@ -914,7 +877,6 @@ describe("S2-M1-3 cross-role security smoke", () => {
           type: "BUSY",
           startsAt: "2030-09-04T14:00:00.000Z",
           endsAt: "2030-09-04T16:00:00.000Z",
-          tutorId: 999,
         });
       expect(timeSlot.status).toBe(201);
       expect(createTutorTimeSlot.mock.calls[0]![0]).toBe(SUBJECTS.TUTOR);

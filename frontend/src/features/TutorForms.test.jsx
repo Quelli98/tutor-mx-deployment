@@ -11,6 +11,9 @@ const submitExcuse = vi.fn().mockResolvedValue({})
 const fetchExcuseStatus = vi.fn()
 const fetchTimesheetStatus = vi.fn()
 const submitTimesheet = vi.fn().mockResolvedValue({})
+const listOwnTimeSlots = vi.fn().mockResolvedValue([])
+const deleteOwnTimeSlot = vi.fn()
+const updateOwnTimeSlot = vi.fn()
 
 vi.mock('@auth0/auth0-react', () => ({
   useAuth0: () => ({
@@ -23,6 +26,9 @@ vi.mock('../api/tutorDashboard', () => ({
 }))
 vi.mock('../api/availability', () => ({
   submitTimeSlot: (...args) => submitTimeSlot(...args),
+  listOwnTimeSlots: (...args) => listOwnTimeSlots(...args),
+  deleteOwnTimeSlot: (...args) => deleteOwnTimeSlot(...args),
+  updateOwnTimeSlot: (...args) => updateOwnTimeSlot(...args),
 }))
 vi.mock('../api/workLog', () => ({
   submitWorkLog: (...args) => submitWorkLog(...args),
@@ -58,6 +64,7 @@ describe('TutorForms accessibility', () => {
     vi.clearAllMocks()
     window.sessionStorage.clear()
     fetchTutorDashboard.mockResolvedValue(dashboard)
+    listOwnTimeSlots.mockResolvedValue([])
   })
 
   it('reaches every labelled control and action in keyboard order', async () => {
@@ -66,15 +73,15 @@ describe('TutorForms accessibility', () => {
     await screen.findByRole('heading', { name: /forms and submissions/i })
 
     const expectedControls = [
-      screen.getByLabelText(/^type$/i),
-      screen.getByLabelText(/^start$/i),
-      screen.getByLabelText(/^end$/i),
-      screen.getByLabelText(/recurrence/i),
-      screen.getByRole('button', { name: /save availability/i }),
+      screen.getByLabelText(/from.*date and time/i),
+      screen.getByLabelText(/until.*date and time/i),
+      screen.getByLabelText(/description \(optional\)/i),
+      screen.getByLabelText(/repeat weekly/i),
+      screen.getByRole('button', { name: /add schedule entry/i }),
       screen.getAllByLabelText(/^session$/i)[0],
       screen.getByLabelText(/^date$/i),
       screen.getByLabelText(/hours worked/i),
-      screen.getByLabelText(/description/i),
+      screen.getByLabelText(/^description$/i),
       screen.getByRole('button', { name: /add to draft/i }),
       screen.getAllByLabelText(/^session$/i)[1],
       screen.getByLabelText(/^reason$/i),
@@ -91,7 +98,7 @@ describe('TutorForms accessibility', () => {
   it('activates validation from the keyboard', async () => {
     const user = userEvent.setup()
     render(<TutorForms />)
-    const saveButton = await screen.findByRole('button', { name: /save availability/i })
+    const saveButton = await screen.findByRole('button', { name: /add schedule entry/i })
     saveButton.focus()
     await user.keyboard('{Enter}')
     expect(screen.getByText(/start time is required/i)).toBeInTheDocument()
@@ -113,7 +120,15 @@ describe('TutorForms accessibility', () => {
   })
 
   it('runs the tutor basic workflow from availability to the excuse decision together', async () => {
-    submitTimeSlot.mockResolvedValueOnce({ id: 1, type: 'BUSY' })
+    submitTimeSlot.mockResolvedValueOnce({
+      id: 1,
+      type: 'BUSY',
+      startsAt: new Date('2030-09-05T09:00').toISOString(),
+      endsAt: new Date('2030-09-05T11:00').toISOString(),
+      recurrence: null,
+      label: null,
+      recurrenceUntil: null,
+    })
     submitWorkLog.mockResolvedValueOnce({
       id: 2,
       allocationId: 1,
@@ -150,10 +165,10 @@ describe('TutorForms accessibility', () => {
 
     await screen.findByRole('heading', { name: /forms and submissions/i })
 
-    fireEvent.change(screen.getByLabelText(/^start$/i), { target: { value: '2030-09-05T09:00' } })
-    fireEvent.change(screen.getByLabelText(/^end$/i), { target: { value: '2030-09-05T11:00' } })
-    fireEvent.click(screen.getByRole('button', { name: /save availability/i }))
-    await screen.findByText(/availability saved/i)
+    fireEvent.change(screen.getByLabelText(/from.*date and time/i), { target: { value: '2030-09-05T09:00' } })
+    fireEvent.change(screen.getByLabelText(/until.*date and time/i), { target: { value: '2030-09-05T11:00' } })
+    fireEvent.click(screen.getByRole('button', { name: /add schedule entry/i }))
+    await screen.findByText(/schedule entry added/i)
 
     fireEvent.change(screen.getAllByLabelText(/^session$/i)[0], { target: { value: '1' } })
     fireEvent.change(screen.getByLabelText(/^hours worked$/i), { target: { value: '2' } })
@@ -178,7 +193,7 @@ describe('TutorForms accessibility', () => {
     await within(excuses).findByText(/approved by the organiser/i)
 
     expect(submitTimeSlot).toHaveBeenCalledWith(
-      expect.objectContaining({ type: 'BUSY', recurrence: null }),
+      expect.objectContaining({ type: 'BUSY' }),
       tokenGetter,
     )
     expect(submitWorkLog).toHaveBeenCalledWith(
