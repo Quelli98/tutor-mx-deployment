@@ -3,6 +3,7 @@ import { useAuth0 } from '@auth0/auth0-react'
 import { listTutors } from '../api/organiser'
 import { EmptyState, ErrorState, LoadingState } from '../components/shared/StatusMessage'
 import TutorAllocationDetails from './TutorAllocationDetails'
+import { weekRangeLabel } from '../components/shared/scheduleWeek'
 
 const CAPACITY_TEXT = {
   available: 'Available for more work',
@@ -17,12 +18,6 @@ function safeErrorMessage(error) {
   }
   if (error?.code === 'ROLE_MISMATCH') return 'Your account does not have organiser access.'
   return 'Unable to load tutors. Please try again.'
-}
-
-function utcDate(value) {
-  return new Date(value).toLocaleDateString(undefined, {
-    timeZone: 'UTC', weekday: 'short', day: 'numeric', month: 'short', year: 'numeric',
-  })
 }
 
 export default function TutorManagement() {
@@ -59,7 +54,7 @@ export default function TutorManagement() {
   const filteredTutors = useMemo(() => {
     const query = searchText.trim().toLowerCase()
     return tutors.filter((tutor) =>
-      tutor.fullName.toLowerCase().includes(query) || tutor.email.toLowerCase().includes(query),
+      (tutor.fullName ?? '').toLowerCase().includes(query) || tutor.email.toLowerCase().includes(query),
     )
   }, [searchText, tutors])
 
@@ -94,19 +89,19 @@ export default function TutorManagement() {
               {filteredTutors.map((tutor) => (
                 <article className="tutor-workload-card" key={tutor.id} aria-labelledby={`tutor-${tutor.id}`}>
                   <div>
-                    <h3 id={`tutor-${tutor.id}`}>{tutor.fullName}</h3>
-                    <p>{tutor.email}</p>
+                    <h3 id={`tutor-${tutor.id}`}>{tutor.fullName?.trim() || tutor.email}</h3>
+                    {tutor.fullName?.trim() && tutor.fullName.trim() !== tutor.email && <p>{tutor.email}</p>}
                   </div>
-                  <span className={`capacity-status capacity-${tutor.capacityStatus}`}>{CAPACITY_TEXT[tutor.capacityStatus]}</span>
-                  <p className="workload-period">UTC Monday week: {utcDate(tutor.weekStart)} to {utcDate(tutor.weekEnd)}</p>
+                  <div className="workload-period"><strong>This week</strong><span>{weekRangeLabel(new Date(`${tutor.weekStart.slice(0, 10)}T00:00:00`))}</span></div>
                   <dl className="workload-facts">
-                    <div><dt>Weekly capacity</dt><dd>{tutor.weeklyHours == null ? 'Not set — setup incomplete' : `${tutor.weeklyHours} h/week`}</dd></div>
-                    <div><dt>Allocated</dt><dd>{tutor.usedHours} h/week</dd></div>
-                    <div><dt>Remaining capacity</dt><dd>{tutor.remainingHours == null ? 'Not set' : `${tutor.remainingHours} h/week`}</dd></div>
+                    <div><dt>Weekly capacity</dt><dd>{tutor.weeklyHours == null ? 'Not set — setup incomplete' : `${tutor.weeklyHours} h`}</dd></div>
+                    <div><dt>Allocated</dt><dd>{tutor.usedHours} h</dd></div>
+                    <div><dt>Remaining</dt><dd>{tutor.remainingHours == null ? 'Not set' : `${tutor.remainingHours} h`}</dd></div>
                     <div><dt>Worked this week</dt><dd>{tutor.workedHours} h</dd></div>
+                    <div className="workload-status"><dt>Status</dt><dd className={`capacity-status capacity-${tutor.capacityStatus}`}>{CAPACITY_TEXT[tutor.capacityStatus]}</dd></div>
                   </dl>
                   <button className="secondary-button" type="button" onClick={() => setDetailsTutor(tutor)}
-                    aria-label={`Manage marks and view schedule for ${tutor.fullName}`}>Marks & schedule</button>
+                    aria-label={`Manage marks and view schedule for ${tutor.fullName?.trim() || tutor.email}`}>Marks & schedule</button>
                 </article>
               ))}
             </div>

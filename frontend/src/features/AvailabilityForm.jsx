@@ -3,6 +3,7 @@ import { deleteOwnTimeSlot, listOwnTimeSlots, submitTimeSlot, updateOwnTimeSlot 
 import { ErrorState, LoadingState } from '../components/shared/StatusMessage'
 import { ConfirmationDialog } from '../components/shared/ConfirmationDialog'
 import TimeSlotDetails from './TimeSlotDetails'
+import WeeklySchedule from '../components/shared/WeeklySchedule'
 
 const EMPTY_FORM = { startsAt: '', endsAt: '', weekly: false, label: '', recurrenceUntil: '' }
 
@@ -145,7 +146,8 @@ export default function AvailabilityForm({ tokenOrGetter }) {
           Enter the date and time for the first occurrence. If you repeat weekly, the pattern continues until the repeat-until date (or indefinitely if blank). Schedule entries block allocations during those times.
         </p>
       </div>
-      <form className="tutor-form" onSubmit={handleSubmit} noValidate aria-describedby="schedule-help">
+      {loadStatus === 'success' && <WeeklySchedule slots={slots} label="Your weekly unavailable schedule" />}
+      <form className="tutor-form schedule-editor" onSubmit={handleSubmit} noValidate aria-describedby="schedule-help">
         <h3>{editingId ? 'Edit schedule entry' : 'Add schedule entry'}</h3>
         <div className="field-group">
           <label htmlFor="starts-at">From (date and time)</label>

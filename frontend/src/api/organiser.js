@@ -1,4 +1,5 @@
 import { fetchWithBearerToken } from './client'
+import { isTimeSlotSummary } from './availability'
 
 function isCourse(value) {
   return (
@@ -14,7 +15,7 @@ function isTutor(value) {
   return (
     !!value && typeof value === 'object' && !('auth0Id' in value) &&
     Number.isInteger(value.id) && value.role === 'TUTOR' &&
-    typeof value.email === 'string' && typeof value.fullName === 'string' &&
+    typeof value.email === 'string' && (value.fullName == null || typeof value.fullName === 'string') &&
     (value.weeklyHours === null || Number.isFinite(value.weeklyHours)) &&
     Number.isFinite(value.usedHours) && Number.isFinite(value.workedHours) &&
     (value.remainingHours === null || Number.isFinite(value.remainingHours)) &&
@@ -78,7 +79,7 @@ function isClashDetail(value) {
     (value.label === null || typeof value.label === 'string') &&
     typeof value.startsAt === 'string' &&
     typeof value.endsAt === 'string' &&
-    (value.recurrence === null || value.recurrence === 'WEEKLY')
+    (value.recurrence == null || ['WEEKLY', 'ONCE'].includes(value.recurrence))
   )
 }
 
@@ -339,6 +340,15 @@ export async function decideVolunteerClaim(input, tokenOrGetter) {
     tokenOrGetter,
   )
   return body?.data?.volunteerClaim
+}
+
+export async function listTutorTimeSlots(tutorId, tokenOrGetter) {
+  const body = await fetchWithBearerToken(`/api/tutors/${tutorId}/time-slots`, {}, tokenOrGetter)
+  const slots = body?.data?.timeSlots
+  if (!Array.isArray(slots) || !slots.every(isTimeSlotSummary)) {
+    throw new Error('The tutor-schedule response did not match the agreed contract.')
+  }
+  return slots
 }
 
 export async function listTutorMarks(tutorId, tokenOrGetter) {

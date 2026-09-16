@@ -24,7 +24,7 @@ export interface ClashDetail {
   label: string | null;
   startsAt: string;
   endsAt: string;
-  recurrence: "WEEKLY" | null;
+  recurrence: "WEEKLY" | "ONCE" | null;
 }
 
 interface CandidateRow {
@@ -105,7 +105,7 @@ export function timeRangesOverlap(
     return null;
   }
 
-  return timestamps[2]! < timestamps[1]! && timestamps[3]! > timestamps[0]!;
+  return timestamps[0]! < timestamps[3]! && timestamps[2]! < timestamps[1]!;
 }
 
 export function hasEnoughRemainingHours(

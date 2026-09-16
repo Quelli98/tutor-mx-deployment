@@ -90,7 +90,7 @@ export interface TutorTimeSlotSummary {
   type: "AVAILABLE" | "BUSY";
   startsAt: string;
   endsAt: string;
-  recurrence: "WEEKLY" | null;
+  recurrence: "WEEKLY" | "ONCE" | null;
   label: string | null;
   recurrenceUntil: string | null;
 }
