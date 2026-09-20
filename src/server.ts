@@ -27,6 +27,21 @@ import { createExcuseWorkflowService } from "./services/excuse-workflows.js";
 import { createOrganiserService } from "./services/organiser-service.js";
 import { createStudentWorkflowService } from "./services/student-workflows.js";
 import { createTimesheetWorkflowService } from "./services/timesheet-workflows.js";
+import {
+  createNotificationService,
+  startDueReminderScheduler,
+  type NotificationDataClient,
+} from "./services/notification-service.js";
+import {
+  buildAllocationNotifications,
+  buildExcuseDecisionNotifications,
+  buildExcuseSubmittedNotifications,
+  buildTimesheetDecisionNotifications,
+  buildTimesheetSubmittedNotifications,
+  buildVolunteerOutcomeNotifications,
+  type NotificationEvent,
+} from "./services/notifications.js";
+import { createSearchService } from "./services/search-service.js";
 
 const port = Number(process.env.PORT ?? 3000);
 
@@ -191,6 +206,17 @@ async function findTutorProfileId(auth0Id: string) {
   return profile.id;
 }
 
+async function findTutorProfileIdForAnyRole(auth0Id: string) {
+  const profile = await prisma.profile.findUnique({
+    where: { auth0Id },
+    select: { id: true },
+  });
+  if (!profile) {
+    throw createRouteError(404, "PROFILE_NOT_FOUND", "No Tutor Mx profile is linked to this account.");
+  }
+  return profile.id;
+}
+
 const studentWorkflowService = createStudentWorkflowService(
   prisma,
   queryClient,
@@ -200,6 +226,40 @@ const excuseWorkflowService = createExcuseWorkflowService(prisma);
 const organiserService = createOrganiserService(prisma);
 const courseService = createCourseService(prisma);
 const publicHolidayService = createSouthAfricaPublicHolidayService();
+const notificationService = createNotificationService(
+  prisma as unknown as NotificationDataClient,
+);
+const searchService = createSearchService(queryClient);
+
+async function listOrganiserProfileIds() {
+  const organisers = await prisma.profile.findMany({
+    where: { role: "ORGANISER" },
+    select: { id: true },
+  });
+  return (organisers ?? []).map(({ id }) => id);
+}
+
+async function emitNotifications(events: NotificationEvent[]) {
+  try {
+    await notificationService.emit(events);
+  } catch (error) {
+    console.error(JSON.stringify({
+      event: "notification_error",
+      message: error instanceof Error ? error.message : "unknown",
+    }));
+  }
+}
+
+startDueReminderScheduler(notificationService, {
+  enabled: process.env.NODE_ENV !== "test" && process.env.DISABLE_REMINDER_SCHEDULER !== "true",
+  intervalMs: Number(process.env.REMINDER_INTERVAL_MS ?? 6 * 60 * 60 * 1000),
+  onError: (error) => {
+    console.error(JSON.stringify({
+      event: "notification_reminder_error",
+      message: error instanceof Error ? error.message : "unknown",
+    }));
+  },
+});
 
 const app = createApp(
   async () => {
@@ -224,6 +284,17 @@ const app = createApp(
       });
       const role = normalizeTutorRole(profile?.role);
       return profile && role ? { ...profile, role } : null;
+    },
+    async search(auth0Id, query) {
+      const profile = await prisma.profile.findUnique({
+        where: { auth0Id },
+        select: { id: true, role: true },
+      });
+      const role = normalizeTutorRole(profile?.role);
+      if (!profile || !role) {
+        throw createRouteError(404, "PROFILE_NOT_FOUND", "No Tutor Mx profile is linked to this account.");
+      }
+      return searchService.search({ id: profile.id, role }, query);
     },
     async onboardUser(auth0Id, role) {
       const existing = await prisma.profile.findUnique({
@@ -382,6 +453,12 @@ const app = createApp(
         profile.id,
         weekStart,
       );
+      const countTimeSlots = (prisma.timeSlot as typeof prisma.timeSlot & {
+        count?: (args: { where: { tutorId: number } }) => Promise<number>;
+      }).count;
+      const hasSchedule = countTimeSlots
+        ? (await countTimeSlots.call(prisma.timeSlot, { where: { tutorId: profile.id } })) > 0
+        : undefined;
 
       // A newly self-onboarded tutor can exist before an organiser has configured
       // their weekly-hour limit. That is a valid account state, not a dashboard
@@ -421,6 +498,7 @@ const app = createApp(
         weeklyLimit: dashboardHours.weeklyLimit,
         usedHours: dashboardHours.usedHours,
         remainingHours: dashboardHours.remainingHours,
+        ...(hasSchedule === undefined ? {} : { hasSchedule }),
       };
     },
     async createTutorTimeSlot(auth0Id, input) {
@@ -585,6 +663,8 @@ const app = createApp(
             status: true,
           },
         });
+        const organiserIds = await listOrganiserProfileIds();
+        await emitNotifications(buildExcuseSubmittedNotifications(excuse, organiserIds));
         return {
           id: excuse.id,
           allocationId: excuse.allocationId,
@@ -612,6 +692,21 @@ const app = createApp(
         throw error;
       }
     },
+    async listNotifications(auth0Id, query) {
+      return notificationService.list(await findTutorProfileIdForAnyRole(auth0Id), query);
+    },
+    async countUnreadNotifications(auth0Id) {
+      return notificationService.unreadCount(await findTutorProfileIdForAnyRole(auth0Id));
+    },
+    async markNotificationRead(auth0Id, notificationId) {
+      return notificationService.markRead(await findTutorProfileIdForAnyRole(auth0Id), notificationId);
+    },
+    async markAllNotificationsRead(auth0Id) {
+      return notificationService.markAllRead(await findTutorProfileIdForAnyRole(auth0Id));
+    },
+    async runDueReminders() {
+      return notificationService.runDueReminders(new Date());
+    },
     listStudentOpenWork: studentWorkflowService.listOpenWork,
     listStudentVolunteerRequests:
       studentWorkflowService.listVolunteerRequests,
@@ -621,9 +716,29 @@ const app = createApp(
     withdrawStudentVolunteerRequest:
       studentWorkflowService.withdrawVolunteerRequest,
     getTutorTimesheetStatus: timesheetWorkflowService.getStatus,
-    submitTutorTimesheet: timesheetWorkflowService.submit,
+    async submitTutorTimesheet(auth0Id, timesheetId) {
+      const result = await timesheetWorkflowService.submit(auth0Id, timesheetId);
+      await emitNotifications(
+        buildTimesheetSubmittedNotifications(result, await listOrganiserProfileIds()),
+      );
+      return result;
+    },
     getTutorExcuseStatus: excuseWorkflowService.getStatus,
-    decideExcuse: excuseWorkflowService.decide,
+    async decideExcuse(excuseId, input) {
+      const owner = await prisma.excuse.findUnique({
+        where: { id: excuseId },
+        select: { tutorId: true },
+      });
+      const result = await excuseWorkflowService.decide(excuseId, input);
+      if (owner && (result.status === "APPROVED" || result.status === "REJECTED")) {
+        await emitNotifications(buildExcuseDecisionNotifications({
+          id: result.id,
+          status: result.status,
+          reviewReason: result.reviewReason,
+        }, owner.tutorId));
+      }
+      return result;
+    },
     async listAllocationCandidates(input) {
       const candidates = await findAllocationCandidates(queryClient, input);
       return candidates.map((candidate) => ({
@@ -641,11 +756,27 @@ const app = createApp(
     },
     listOrganiserAllocations: organiserService.listAllocations,
     listOrganiserApprovals: organiserService.listApprovals,
-    createAllocation: organiserService.createAllocation,
-    updateAllocation: organiserService.updateAllocation,
+    async createAllocation(auth0Id, input) {
+      const result = await organiserService.createAllocation(auth0Id, input);
+      await emitNotifications(buildAllocationNotifications(result, { created: true }));
+      return result;
+    },
+    async updateAllocation(auth0Id, allocationId, input) {
+      const result = await organiserService.updateAllocation(auth0Id, allocationId, input);
+      await emitNotifications(buildAllocationNotifications(result, { created: false }));
+      return result;
+    },
     removeAllocation: organiserService.removeAllocation,
-    decideTimesheet: organiserService.decideTimesheet,
-    decideVolunteerClaim: organiserService.decideVolunteerClaim,
+    async decideTimesheet(auth0Id, timesheetId, input) {
+      const result = await organiserService.decideTimesheet(auth0Id, timesheetId, input);
+      await emitNotifications(buildTimesheetDecisionNotifications(result));
+      return result;
+    },
+    async decideVolunteerClaim(claimId, input) {
+      const result = await organiserService.decideVolunteerClaim(claimId, input);
+      await emitNotifications(buildVolunteerOutcomeNotifications(result));
+      return result;
+    },
     async upsertTutorMark(tutorId, input) {
       const existingTutor = await prisma.profile.findUnique({
         where: { id: tutorId },

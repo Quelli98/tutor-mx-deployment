@@ -10,6 +10,8 @@ import TutorManagement from '../features/TutorManagement'
 import OrganiserDashboard from '../features/OrganiserDashboard'
 import OrganiserApprovals from '../features/OrganiserApprovals'
 import { SkipToContent } from '../components/shared/SkipToContent'
+import { NotificationBell } from '../components/shared/NotificationBell'
+import { CommandPalette } from '../components/shared/CommandPalette'
 
 const ORGANISER_LINKS = Object.freeze([
   { path: '/organiser/courses', label: 'Courses' },
@@ -73,6 +75,11 @@ function RoleNavigation({ currentRole, onSignOut }) {
         >
           Account settings
         </NavLink>
+
+        <div className="role-navigation-actions">
+          <CommandPalette />
+          <NotificationBell />
+        </div>
 
         <button
           type="button"

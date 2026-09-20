@@ -51,6 +51,21 @@ enum VolunteerClaimStatus {
   WITHDRAWN
 }
 
+enum NotificationType {
+  ALLOCATION_CREATED
+  ALLOCATION_CHANGED
+  TIMESHEET_SUBMITTED
+  TIMESHEET_RETURNED
+  TIMESHEET_APPROVED
+  EXCUSE_SUBMITTED
+  EXCUSE_DECIDED
+  VOLUNTEER_OUTCOME
+  TIMESHEET_REVIEW_DUE
+  TIMESHEET_RESUBMIT_DUE
+  VOLUNTEER_CLAIM_DUE
+  EXCUSE_REVIEW_DUE
+}
+
 model Profile {
   id                  Int              @id @default(autoincrement())
   auth0Id             String           @unique
@@ -67,8 +82,26 @@ model Profile {
   reviewedTimesheets  Timesheet[]      @relation("TimesheetReviewer")
   excuses             Excuse[]
   volunteerClaims     VolunteerClaim[]
+  notifications       Notification[]
   createdAt           DateTime         @default(now())
   updatedAt           DateTime         @updatedAt
+}
+
+model Notification {
+  id                 Int              @id @default(autoincrement())
+  recipientProfileId Int
+  type               NotificationType
+  title              String
+  body               String
+  linkPath           String
+  targetType         String           @db.VarChar(64)
+  targetId           Int?
+  eventKey           String           @unique
+  readAt             DateTime?
+  createdAt          DateTime         @default(now())
+  recipient          Profile          @relation(fields: [recipientProfileId], references: [id], onDelete: Cascade)
+
+  @@index([recipientProfileId, readAt, createdAt])
 }
 
 model Course {

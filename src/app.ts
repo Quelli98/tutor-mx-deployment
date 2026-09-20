@@ -17,6 +17,19 @@ import type { VerificationEmailSender } from "./auth/management-api.js";
 import type { ExternalApiResult } from "./integrations/external-api.js";
 import type { PublicHoliday } from "./integrations/public-holidays.js";
 import type { CandidateReasonCode } from "./services/allocation-queries.js";
+import {
+  parseNotificationListQuery,
+  type NotificationListQuery,
+} from "./services/notifications.js";
+import type { NotificationListResult } from "./services/notification-service.js";
+import {
+  clampSearchPage,
+  clampSearchPageSize,
+  isValidSearchTerm,
+  normalizeSearchTerm,
+  resolveSearchCategories,
+} from "./services/search.js";
+import type { ResolvedSearchQuery, SearchResponse } from "./services/search-service.js";
 
 type ReadinessCheck = () => Promise<void>;
 
@@ -73,6 +86,7 @@ export interface TutorDashboardSummary {
   weeklyLimit: number | null;
   usedHours: number;
   remainingHours: number | null;
+  hasSchedule?: boolean;
 }
 
 export interface TutorTimeSlotWriteInput {
@@ -428,6 +442,18 @@ export interface AppDependencies {
   requestPasswordReset: PasswordResetRequester;
   requestVerificationEmail?: VerificationEmailSender;
   deleteAccount?: (auth0Id: string) => Promise<void>;
+  listNotifications?: (
+    auth0Id: string,
+    query: NotificationListQuery,
+  ) => Promise<NotificationListResult>;
+  countUnreadNotifications?: (auth0Id: string) => Promise<number>;
+  markNotificationRead?: (
+    auth0Id: string,
+    notificationId: number,
+  ) => Promise<{ id: number; readAt: string }>;
+  markAllNotificationsRead?: (auth0Id: string) => Promise<{ updated: number }>;
+  runDueReminders?: () => Promise<{ generated: number }>;
+  search?: (auth0Id: string, query: ResolvedSearchQuery) => Promise<SearchResponse>;
   verifyAccessToken: AccessTokenVerifier;
 }
 
@@ -2298,6 +2324,124 @@ export function createApp(
           parsed.value,
         );
         response.status(200).json({ data: { excuse } });
+      } catch (value) {
+        sendRouteError(response, value);
+      }
+    },
+  );
+
+  app.get(
+    "/api/search",
+    authenticate,
+    resolveProfileRole,
+    requireTutorMxRole,
+    async (request, response) => {
+      const auth = (request as AuthenticatedRequest).auth!;
+      try {
+        if (!dependencies.search) {
+          throw createRouteError(503, "SEARCH_UNAVAILABLE", "Search is not configured.");
+        }
+        const term = normalizeSearchTerm(request.query.q);
+        if (!isValidSearchTerm(term)) {
+          const result = error(400, "VALIDATION_ERROR", "Search terms must be between 2 and 100 characters long.");
+          response.status(result.status).json(result.body);
+          return;
+        }
+        const query: ResolvedSearchQuery = {
+          term,
+          categories: resolveSearchCategories(auth.role!, request.query.categories),
+          page: clampSearchPage(request.query.page),
+          pageSize: clampSearchPageSize(request.query.pageSize),
+        };
+        response.status(200).json({ data: await dependencies.search(auth.subject, query) });
+      } catch (value) {
+        sendRouteError(response, value);
+      }
+    },
+  );
+
+  app.get(
+    "/api/notifications",
+    authenticate,
+    resolveProfileRole,
+    requireTutorMxRole,
+    async (request, response) => {
+      const auth = (request as AuthenticatedRequest).auth!;
+      try {
+        if (!dependencies.listNotifications) throw createRouteError(503, "NOTIFICATIONS_UNAVAILABLE", "Notifications are not configured.");
+        const query = parseNotificationListQuery(request.query);
+        response.status(200).json({ data: await dependencies.listNotifications(auth.subject, query) });
+      } catch (value) {
+        sendRouteError(response, value);
+      }
+    },
+  );
+
+  app.get(
+    "/api/notifications/unread-count",
+    authenticate,
+    resolveProfileRole,
+    requireTutorMxRole,
+    async (request, response) => {
+      const auth = (request as AuthenticatedRequest).auth!;
+      try {
+        if (!dependencies.countUnreadNotifications) throw createRouteError(503, "NOTIFICATIONS_UNAVAILABLE", "Notifications are not configured.");
+        const unreadCount = await dependencies.countUnreadNotifications(auth.subject);
+        response.status(200).json({ data: { unreadCount } });
+      } catch (value) {
+        sendRouteError(response, value);
+      }
+    },
+  );
+
+  app.patch(
+    "/api/notifications/:id/read",
+    authenticate,
+    resolveProfileRole,
+    requireTutorMxRole,
+    async (request, response) => {
+      const notificationId = parseNumericId(request.params.id, "Notification");
+      if ("error" in notificationId) {
+        const result = error(400, "VALIDATION_ERROR", notificationId.error ?? "Notification identifier must be a positive whole number.");
+        response.status(result.status).json(result.body);
+        return;
+      }
+      const auth = (request as AuthenticatedRequest).auth!;
+      try {
+        if (!dependencies.markNotificationRead) throw createRouteError(503, "NOTIFICATIONS_UNAVAILABLE", "Notifications are not configured.");
+        const notification = await dependencies.markNotificationRead(auth.subject, notificationId.value);
+        response.status(200).json({ data: { notification } });
+      } catch (value) {
+        sendRouteError(response, value);
+      }
+    },
+  );
+
+  app.post(
+    "/api/notifications/read-all",
+    authenticate,
+    resolveProfileRole,
+    requireTutorMxRole,
+    async (request, response) => {
+      const auth = (request as AuthenticatedRequest).auth!;
+      try {
+        if (!dependencies.markAllNotificationsRead) throw createRouteError(503, "NOTIFICATIONS_UNAVAILABLE", "Notifications are not configured.");
+        response.status(200).json({ data: await dependencies.markAllNotificationsRead(auth.subject) });
+      } catch (value) {
+        sendRouteError(response, value);
+      }
+    },
+  );
+
+  app.post(
+    "/api/notifications/reminders/run",
+    authenticate,
+    resolveProfileRole,
+    requireRole("ORGANISER"),
+    async (_request, response) => {
+      try {
+        if (!dependencies.runDueReminders) throw createRouteError(503, "NOTIFICATIONS_UNAVAILABLE", "Notifications are not configured.");
+        response.status(200).json({ data: await dependencies.runDueReminders() });
       } catch (value) {
         sendRouteError(response, value);
       }

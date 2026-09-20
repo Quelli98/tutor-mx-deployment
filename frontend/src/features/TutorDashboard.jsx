@@ -131,7 +131,11 @@ export default function TutorDashboard() {
     )
   }
 
-  const { allocations, weeklyLimit, usedHours, remainingHours } = data
+  const { allocations, weeklyLimit, usedHours, remainingHours, hasSchedule = false } = data
+  const setupItems = [
+    ...(weeklyLimit == null ? [{ key: 'capacity', label: 'Set your weekly work capacity', detail: 'Tell organisers how many hours you can work each week.', target: 'weekly-capacity-input' }] : []),
+    ...(!hasSchedule ? [{ key: 'schedule', label: 'Add your work preferences', detail: 'Add available and busy times so allocation clash checks are accurate.', to: '/tutor/forms' }] : []),
+  ]
 
   return (
     <main id="main-content" className="dashboard-shell tutor-workspace">
@@ -164,6 +168,29 @@ export default function TutorDashboard() {
           Refreshing your assignments...
         </p>
       )}
+
+      <section className={`role-card tutor-setup-card${setupItems.length === 0 ? ' complete' : ''}`} aria-labelledby="setup-checklist-heading">
+        <div className="setup-card-heading">
+          <div>
+            <p className="eyebrow">Getting started</p>
+            <h2 id="setup-checklist-heading">Tutor setup</h2>
+          </div>
+          <span className="setup-progress" aria-label={`${2 - setupItems.length} of 2 setup tasks complete`}>{2 - setupItems.length}/2 complete</span>
+        </div>
+        {setupItems.length === 0 ? (
+          <p className="setup-complete-message"><strong>You are ready for allocations.</strong> Your capacity and schedule are both set.</p>
+        ) : (
+          <ul className="setup-checklist">
+            {setupItems.map((item) => (
+              <li key={item.key}>
+                <span className="setup-status" aria-hidden="true">○</span>
+                <div><strong>{item.label}</strong><p>{item.detail}</p></div>
+                {item.to ? <a className="secondary-button" href={item.to}>Open</a> : <button type="button" className="secondary-button" onClick={() => document.getElementById(item.target)?.focus()}>Set now</button>}
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
 
       <section className="role-card hours-summary" aria-labelledby="weekly-hours-heading">
         <h2 id="weekly-hours-heading">Weekly work capacity</h2>
