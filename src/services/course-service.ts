@@ -6,8 +6,9 @@ export interface CourseService {
    * Delete a course only when doing so destroys no auditable history.
    *
    * Safe (deletes): an empty course, or one linked only to disposable setup
-   * data - tutor marks, and PROPOSED/CANCELLED allocations plus unclaimed
-   * overflow that carry no logged work, excuses or volunteer claims.
+   * data - tutor marks, staffing requirements, and PROPOSED/CANCELLED
+   * allocations plus unclaimed overflow that carry no logged work, excuses or
+   * volunteer claims.
    *
    * Blocked (409 COURSE_DELETE_CONFLICT, no changes): confirmed allocations,
    * work logs (which is how submitted/approved timesheet history attaches to a
@@ -89,11 +90,13 @@ export function createCourseService(client: PrismaClient): CourseService {
         // ON DELETE Restrict foreign keys are satisfied at every step:
         //   overflow work (references both the course and its source
         //   allocation) -> proposed/cancelled allocations -> tutor marks ->
-        //   the course itself. The whole sequence is atomic, so a surprise
+        //   staffing requirements (recorded demand, never history) -> the
+        //   course itself. The whole sequence is atomic, so a surprise
         //   constraint aborts everything and leaves no partial deletion.
         await transaction.overflowWork.deleteMany({ where: { courseId } });
         await transaction.allocation.deleteMany({ where: { courseId } });
         await transaction.tutorMark.deleteMany({ where: { courseId } });
+        await transaction.staffingRequirement.deleteMany({ where: { courseId } });
         await transaction.course.delete({ where: { id: courseId } });
       });
     },

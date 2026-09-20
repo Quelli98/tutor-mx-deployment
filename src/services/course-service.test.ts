@@ -8,6 +8,7 @@ interface HarnessOptions {
   workLogs?: number;
   excuses?: number;
   volunteerClaims?: number;
+  staffingRequirements?: number;
 }
 
 function createHarness(options: HarnessOptions = {}) {
@@ -17,6 +18,7 @@ function createHarness(options: HarnessOptions = {}) {
     workLogs = 0,
     excuses = 0,
     volunteerClaims = 0,
+    staffingRequirements = 0,
   } = options;
 
   const transaction = {
@@ -33,6 +35,14 @@ function createHarness(options: HarnessOptions = {}) {
     volunteerClaim: { count: vi.fn().mockResolvedValue(volunteerClaims) },
     overflowWork: { deleteMany: vi.fn().mockResolvedValue({ count: 0 }) },
     tutorMark: { deleteMany: vi.fn().mockResolvedValue({ count: 0 }) },
+    staffingRequirement: {
+      // Recorded demand is disposable, so the service deletes it without ever
+      // counting it. The count mock exists only to prove it stays unused.
+      count: vi.fn().mockResolvedValue(staffingRequirements),
+      deleteMany: vi
+        .fn()
+        .mockResolvedValue({ count: staffingRequirements }),
+    },
   };
 
   const client = {
@@ -56,6 +66,7 @@ function expectNoDeletions(transaction: Harness["transaction"]) {
   expect(transaction.overflowWork.deleteMany).not.toHaveBeenCalled();
   expect(transaction.allocation.deleteMany).not.toHaveBeenCalled();
   expect(transaction.tutorMark.deleteMany).not.toHaveBeenCalled();
+  expect(transaction.staffingRequirement.deleteMany).not.toHaveBeenCalled();
   expect(transaction.course.delete).not.toHaveBeenCalled();
 }
 
@@ -69,10 +80,15 @@ function expectSafeDeletionOrder(transaction: Harness["transaction"]) {
   expect(transaction.tutorMark.deleteMany).toHaveBeenCalledWith({
     where: { courseId: 9 },
   });
+  expect(transaction.staffingRequirement.deleteMany).toHaveBeenCalledWith({
+    where: { courseId: 9 },
+  });
   expect(transaction.course.delete).toHaveBeenCalledWith({
     where: { id: 9 },
   });
 
+  const requirementOrder =
+    transaction.staffingRequirement.deleteMany.mock.invocationCallOrder[0]!;
   const overflowOrder =
     transaction.overflowWork.deleteMany.mock.invocationCallOrder[0]!;
   const allocationOrder =
@@ -82,6 +98,9 @@ function expectSafeDeletionOrder(transaction: Harness["transaction"]) {
   // allocations, and the course row must be removed last.
   expect(overflowOrder).toBeLessThan(allocationOrder);
   expect(allocationOrder).toBeLessThan(courseOrder);
+  // Staffing requirements point at the course with an ON DELETE Restrict key,
+  // so they must be gone before the course row is removed.
+  expect(requirementOrder).toBeLessThan(courseOrder);
 }
 
 describe("course deletion service", () => {
@@ -129,6 +148,30 @@ describe("course deletion service", () => {
     });
     await expect(harness.service.deleteCourse(9)).resolves.toBeUndefined();
     expectSafeDeletionOrder(harness.transaction);
+  });
+
+  it("deletes recorded staffing requirements along with the course", async () => {
+    harness = createHarness({ staffingRequirements: 4 });
+    await expect(harness.service.deleteCourse(9)).resolves.toBeUndefined();
+    expect(harness.transaction.staffingRequirement.deleteMany).toHaveBeenCalledWith({
+      where: { courseId: 9 },
+    });
+    expectSafeDeletionOrder(harness.transaction);
+  });
+
+  it("never treats staffing requirements as a blocker", async () => {
+    // Requirements record demand, not history, so any number of them still
+    // leaves the course deletable and they are never counted as a blocker.
+    harness = createHarness({ staffingRequirements: 25 });
+    await expect(harness.service.deleteCourse(9)).resolves.toBeUndefined();
+    expect(harness.transaction.staffingRequirement.count).not.toHaveBeenCalled();
+
+    harness = createHarness({ workLogs: 1, staffingRequirements: 25 });
+    await expect(harness.service.deleteCourse(9)).rejects.toMatchObject({
+      code: "COURSE_DELETE_CONFLICT",
+      message: expect.not.stringContaining("staffing"),
+    });
+    expect(harness.transaction.staffingRequirement.count).not.toHaveBeenCalled();
   });
 
   it("returns a 404 route error when the course does not exist", async () => {

@@ -66,6 +66,12 @@ enum NotificationType {
   EXCUSE_REVIEW_DUE
 }
 
+enum StaffingRequirementStatus {
+  OPEN
+  CLOSED
+  CANCELLED
+}
+
 model Profile {
   id                  Int              @id @default(autoincrement())
   auth0Id             String           @unique
@@ -83,6 +89,7 @@ model Profile {
   excuses             Excuse[]
   volunteerClaims     VolunteerClaim[]
   notifications       Notification[]
+  staffingRequirements StaffingRequirement[]
   createdAt           DateTime         @default(now())
   updatedAt           DateTime         @updatedAt
 }
@@ -111,6 +118,7 @@ model Course {
   tutorMarks   TutorMark[]
   allocations  Allocation[]
   overflowWork OverflowWork[]
+  staffingRequirements StaffingRequirement[]
   createdAt    DateTime       @default(now())
   updatedAt    DateTime       @updatedAt
 }
@@ -263,4 +271,22 @@ model VolunteerClaim {
   @@unique([overflowWorkId, studentId])
   @@index([overflowWorkId, status])
   @@index([studentId, status, createdAt])
+}
+
+model StaffingRequirement {
+  id            Int                       @id @default(autoincrement())
+  courseId      Int
+  startsAt      DateTime
+  endsAt        DateTime
+  requiredHours Decimal                   @db.Decimal(5, 2)
+  status        StaffingRequirementStatus @default(OPEN)
+  notes         String?
+  createdById   Int?
+  course        Course                    @relation(fields: [courseId], references: [id], onDelete: Restrict)
+  createdBy     Profile?                  @relation(fields: [createdById], references: [id], onDelete: SetNull)
+  createdAt     DateTime                  @default(now())
+  updatedAt     DateTime                  @updatedAt
+
+  @@index([courseId, status, startsAt])
+  @@index([createdById])
 }
