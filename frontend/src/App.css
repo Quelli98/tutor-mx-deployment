@@ -670,6 +670,18 @@ textarea[aria-invalid='true'] {
   white-space: nowrap;
 }
 
+/* A table cell whose second line is supporting detail, such as the sum behind a
+   derived figure. The helper text sits beneath rather than running on. */
+.table-cell-stack {
+  display: grid;
+  gap: 2px;
+}
+
+.table-cell-stack .helper-text {
+  margin: 0;
+  font-size: 0.82rem;
+}
+
 .tutor-actions {
   display: flex;
   justify-content: flex-end;

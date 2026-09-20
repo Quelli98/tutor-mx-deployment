@@ -103,15 +103,33 @@ describe('StaffingRequirements', () => {
 
     const table = await screen.findByRole('table')
     expect(within(table).getAllByText('COMS3011')).toHaveLength(2)
-    // Both the number the organiser entered and the total derived by the server.
+    expect(within(table).getByRole('columnheader', { name: /tutor hours/i })).toBeVisible()
+    // Both the number the organiser entered and the total derived by the server,
+    // with the total named so it cannot read as the length of the session.
     expect(within(table).getAllByText('2')).toHaveLength(2)
-    expect(within(table).getAllByText('8')).toHaveLength(2)
+    expect(within(table).getAllByText(/8 tutor hours/)).toHaveLength(2)
     expect(within(table).getAllByText(/4 hours x 2 tutors/)).toHaveLength(2)
     expect(within(table).getByText('Open')).toBeVisible()
     expect(within(table).getByText('Closed')).toBeVisible()
     // The window is shown as readable local times rather than raw ISO text.
     expect(within(table).queryByText(/2030-09-04T14:00:00.000Z/)).not.toBeInTheDocument()
     expect(listStaffingRequirements).toHaveBeenCalledWith({}, getAccessTokenSilently)
+  })
+
+  it('keeps row buttons short on screen but fully described for screen readers', async () => {
+    renderPage()
+    const table = await screen.findByRole('table')
+
+    // The accessible name still identifies the row, so the buttons are
+    // distinguishable out of context, while the visible text stays compact.
+    for (const [visible, accessible] of [
+      ['Edit', /^edit COMS3011 on /i],
+      ['Close', /^close COMS3011 on /i],
+      ['Cancel', /^cancel COMS3011 on /i],
+    ]) {
+      const button = within(table).getByRole('button', { name: accessible })
+      expect(button).toHaveTextContent(new RegExp(`^${visible}$`))
+    }
   })
 
   it('explains a failure and retries the load', async () => {

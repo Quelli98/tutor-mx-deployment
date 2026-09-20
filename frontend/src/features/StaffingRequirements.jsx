@@ -528,7 +528,7 @@ export default function StaffingRequirements() {
                   <th scope="col">Course</th>
                   <th scope="col">When</th>
                   <th scope="col">Tutors needed</th>
-                  <th scope="col">Hours needed</th>
+                  <th scope="col">Tutor hours</th>
                   <th scope="col">Status</th>
                   <th scope="col">Actions</th>
                 </tr>
@@ -550,13 +550,12 @@ export default function StaffingRequirements() {
                         {formatDateTime(requirement.endsAt)}
                       </td>
                       <td>{requirement.tutorsNeeded}</td>
-                      <td>
-                        {requirement.requiredHours}
-                        {/* The sum comes from the server, which derives both
-                            numbers; the screen only repeats them. */}
+                      <td className="table-cell-stack">
+                        {/* Both numbers come from the server, which derives them;
+                            the screen only repeats them. */}
+                        {requirement.requiredHours} tutor hours
                         <span className="helper-text">
-                          {' '}
-                          ({requirement.windowHours} hours x {requirement.tutorsNeeded} tutors)
+                          {requirement.windowHours} hours x {requirement.tutorsNeeded} tutors
                         </span>
                       </td>
                       <td>
@@ -568,12 +567,16 @@ export default function StaffingRequirements() {
                       </td>
                       <td>
                         <div className="button-row">
+                          {/* Short visible text, with the full description kept
+                              for screen readers so each row's buttons are still
+                              distinguishable out of context. */}
                           <button
                             className="secondary-button"
                             type="button"
                             onClick={() => startEditing(requirement)}
+                            aria-label={`Edit ${name}`}
                           >
-                            Edit {name}
+                            Edit
                           </button>
                           {nextStatuses.map((nextStatus) => (
                             <button
@@ -585,8 +588,9 @@ export default function StaffingRequirements() {
                               onClick={() =>
                                 setPendingChange({ requirement, status: nextStatus })
                               }
+                              aria-label={`${STATUS_ACTIONS[nextStatus].label} ${name}`}
                             >
-                              {STATUS_ACTIONS[nextStatus].label} {name}
+                              {STATUS_ACTIONS[nextStatus].label}
                             </button>
                           ))}
                         </div>
