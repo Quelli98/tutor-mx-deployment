@@ -230,6 +230,38 @@ export interface AllocationSummary {
   status: AllocationWriteStatus | "CANCELLED";
 }
 
+export type StaffingRequirementStatus = "OPEN" | "CLOSED" | "CANCELLED";
+
+/** Recorded demand for a course. Fill level is never stored here. */
+export interface StaffingRequirementSummary {
+  id: number;
+  courseId: number;
+  courseCode: string;
+  courseName: string;
+  startsAt: string;
+  endsAt: string;
+  requiredHours: number;
+  status: StaffingRequirementStatus;
+  notes: string | null;
+  createdById: number | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface StaffingRequirementWriteInput {
+  courseId: number;
+  startsAt: Date;
+  endsAt: Date;
+  requiredHours: number;
+  /** Absent leaves an existing note untouched; null clears it. */
+  notes?: string | null;
+}
+
+export interface StaffingRequirementListQuery {
+  courseId?: number;
+  status?: StaffingRequirementStatus;
+}
+
 export interface OrganiserAllocationSummary extends AllocationSummary {
   tutorName: string;
   tutorEmail: string;
@@ -454,6 +486,21 @@ export interface AppDependencies {
   markAllNotificationsRead?: (auth0Id: string) => Promise<{ updated: number }>;
   runDueReminders?: () => Promise<{ generated: number }>;
   search?: (auth0Id: string, query: ResolvedSearchQuery) => Promise<SearchResponse>;
+  listStaffingRequirements?: (
+    query: StaffingRequirementListQuery,
+  ) => Promise<StaffingRequirementSummary[]>;
+  createStaffingRequirement?: (
+    auth0Id: string,
+    input: StaffingRequirementWriteInput,
+  ) => Promise<StaffingRequirementSummary>;
+  updateStaffingRequirement?: (
+    requirementId: number,
+    input: StaffingRequirementWriteInput,
+  ) => Promise<StaffingRequirementSummary>;
+  setStaffingRequirementStatus?: (
+    requirementId: number,
+    status: StaffingRequirementStatus,
+  ) => Promise<StaffingRequirementSummary>;
   verifyAccessToken: AccessTokenVerifier;
 }
 
@@ -690,6 +737,132 @@ function parseCourseInput(body: unknown) {
   }
 
   return { value: { code, name } } as const;
+}
+
+const STAFFING_REQUIREMENT_STATUSES = [
+  "OPEN",
+  "CLOSED",
+  "CANCELLED",
+] as const;
+
+function staffingRequirementsUnavailable() {
+  return createRouteError(
+    503,
+    "STAFFING_REQUIREMENTS_UNAVAILABLE",
+    "Staffing requirements are not configured.",
+  );
+}
+
+function parseStaffingRequirementStatus(value: unknown) {
+  const normalized =
+    typeof value === "string" ? value.trim().toUpperCase() : null;
+  return (
+    STAFFING_REQUIREMENT_STATUSES.find((status) => status === normalized) ??
+    null
+  );
+}
+
+function parseStaffingRequirementInput(body: unknown) {
+  if (
+    !hasOnlyFields(body, [
+      "courseId",
+      "startsAt",
+      "endsAt",
+      "requiredHours",
+      "notes",
+    ])
+  ) {
+    // status and createdById are deliberately not accepted: a new requirement
+    // always starts OPEN, the author comes from the verified token, and the
+    // status is changed through its own route.
+    return {
+      error:
+        "Provide only course, start and end time, required hours and notes.",
+    } as const;
+  }
+
+  const courseId = parseJsonPositiveInteger(body.courseId);
+  const startsAt = parseIsoDateTime(body.startsAt);
+  const endsAt = parseIsoDateTime(body.endsAt);
+  const requiredHours =
+    typeof body.requiredHours === "number" ? body.requiredHours : Number.NaN;
+  const hasNotes = body.notes !== undefined && body.notes !== null;
+  const notes = hasNotes
+    ? parseRequiredText(body.notes, "notes", 1000)
+    : undefined;
+
+  if (
+    !courseId ||
+    !startsAt ||
+    !endsAt ||
+    endsAt <= startsAt ||
+    !Number.isFinite(requiredHours) ||
+    requiredHours <= 0 ||
+    requiredHours > 999.99 ||
+    !hasAtMostTwoDecimalPlaces(requiredHours) ||
+    (hasNotes && !notes)
+  ) {
+    return {
+      error:
+        "Enter a valid course, an end time later than the start, required hours above 0 and no more than 999.99, and optional notes.",
+    } as const;
+  }
+
+  return {
+    value: {
+      courseId,
+      startsAt,
+      endsAt,
+      requiredHours,
+      ...(body.notes === undefined ? {} : { notes: notes ?? null }),
+    },
+  } as const;
+}
+
+function parseStaffingRequirementStatusInput(body: unknown) {
+  if (!hasOnlyFields(body, ["status"])) {
+    return { error: "Provide only status." } as const;
+  }
+
+  const status = parseStaffingRequirementStatus(body.status);
+  if (!status) {
+    return {
+      error: "Enter a valid status of OPEN, CLOSED or CANCELLED.",
+    } as const;
+  }
+
+  return { value: status } as const;
+}
+
+function parseStaffingRequirementListQuery(query: unknown) {
+  const params = (query ?? {}) as { courseId?: unknown; status?: unknown };
+  const rawCourseId = firstQueryParam(params.courseId);
+  const rawStatus = firstQueryParam(params.status);
+  const courseId =
+    rawCourseId === undefined ? undefined : parsePositiveInteger(rawCourseId);
+  const status =
+    rawStatus === undefined
+      ? undefined
+      : parseStaffingRequirementStatus(rawStatus);
+
+  // A filter that cannot be understood is reported, never ignored, so a
+  // mistyped filter can never look like "no requirements exist".
+  if (
+    (rawCourseId !== undefined && !courseId) ||
+    (rawStatus !== undefined && !status)
+  ) {
+    return {
+      error:
+        "Filter by a valid course identifier and a status of OPEN, CLOSED or CANCELLED.",
+    } as const;
+  }
+
+  return {
+    value: {
+      ...(courseId ? { courseId } : {}),
+      ...(status ? { status } : {}),
+    },
+  } as const;
 }
 
 function parseIsoDateTime(value: unknown) {
@@ -1641,6 +1814,166 @@ export function createApp(
           allocationId.value,
         );
         response.status(204).end();
+      } catch (value) {
+        sendRouteError(response, value);
+      }
+    },
+  );
+
+  app.get(
+    "/api/staffing-requirements",
+    authenticate,
+    resolveProfileRole,
+    requireRole("ORGANISER"),
+    async (request, response) => {
+      const parsed = parseStaffingRequirementListQuery(request.query);
+      if ("error" in parsed) {
+        const result = error(
+          400,
+          "VALIDATION_ERROR",
+          parsed.error ??
+            "Filter by a valid course identifier and a status of OPEN, CLOSED or CANCELLED.",
+        );
+        response.status(result.status).json(result.body);
+        return;
+      }
+
+      try {
+        if (!dependencies.listStaffingRequirements) {
+          throw staffingRequirementsUnavailable();
+        }
+        const staffingRequirements =
+          await dependencies.listStaffingRequirements(parsed.value);
+        response.status(200).json({ data: { staffingRequirements } });
+      } catch (value) {
+        sendRouteError(response, value);
+      }
+    },
+  );
+
+  app.post(
+    "/api/staffing-requirements",
+    authenticate,
+    resolveProfileRole,
+    requireRole("ORGANISER"),
+    async (request, response) => {
+      const parsed = parseStaffingRequirementInput(request.body);
+      if ("error" in parsed) {
+        const result = error(
+          400,
+          "VALIDATION_ERROR",
+          parsed.error ?? "Enter a valid staffing requirement.",
+        );
+        response.status(result.status).json(result.body);
+        return;
+      }
+
+      try {
+        if (!dependencies.createStaffingRequirement) {
+          throw staffingRequirementsUnavailable();
+        }
+        const staffingRequirement =
+          await dependencies.createStaffingRequirement(
+            (request as AuthenticatedRequest).auth!.subject,
+            parsed.value,
+          );
+        response.status(201).json({ data: { staffingRequirement } });
+      } catch (value) {
+        sendRouteError(response, value);
+      }
+    },
+  );
+
+  app.patch(
+    "/api/staffing-requirements/:requirementId",
+    authenticate,
+    resolveProfileRole,
+    requireRole("ORGANISER"),
+    async (request, response) => {
+      const requirementId = parseNumericId(
+        request.params.requirementId,
+        "Staffing requirement",
+      );
+      if ("error" in requirementId) {
+        const result = error(
+          400,
+          "VALIDATION_ERROR",
+          requirementId.error ??
+            "Staffing requirement identifier must be a positive whole number.",
+        );
+        response.status(result.status).json(result.body);
+        return;
+      }
+
+      const parsed = parseStaffingRequirementInput(request.body);
+      if ("error" in parsed) {
+        const result = error(
+          400,
+          "VALIDATION_ERROR",
+          parsed.error ?? "Enter a valid staffing requirement.",
+        );
+        response.status(result.status).json(result.body);
+        return;
+      }
+
+      try {
+        if (!dependencies.updateStaffingRequirement) {
+          throw staffingRequirementsUnavailable();
+        }
+        const staffingRequirement =
+          await dependencies.updateStaffingRequirement(
+            requirementId.value,
+            parsed.value,
+          );
+        response.status(200).json({ data: { staffingRequirement } });
+      } catch (value) {
+        sendRouteError(response, value);
+      }
+    },
+  );
+
+  app.patch(
+    "/api/staffing-requirements/:requirementId/status",
+    authenticate,
+    resolveProfileRole,
+    requireRole("ORGANISER"),
+    async (request, response) => {
+      const requirementId = parseNumericId(
+        request.params.requirementId,
+        "Staffing requirement",
+      );
+      if ("error" in requirementId) {
+        const result = error(
+          400,
+          "VALIDATION_ERROR",
+          requirementId.error ??
+            "Staffing requirement identifier must be a positive whole number.",
+        );
+        response.status(result.status).json(result.body);
+        return;
+      }
+
+      const parsed = parseStaffingRequirementStatusInput(request.body);
+      if ("error" in parsed) {
+        const result = error(
+          400,
+          "VALIDATION_ERROR",
+          parsed.error ?? "Enter a valid status of OPEN, CLOSED or CANCELLED.",
+        );
+        response.status(result.status).json(result.body);
+        return;
+      }
+
+      try {
+        if (!dependencies.setStaffingRequirementStatus) {
+          throw staffingRequirementsUnavailable();
+        }
+        const staffingRequirement =
+          await dependencies.setStaffingRequirementStatus(
+            requirementId.value,
+            parsed.value,
+          );
+        response.status(200).json({ data: { staffingRequirement } });
       } catch (value) {
         sendRouteError(response, value);
       }

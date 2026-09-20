@@ -7,6 +7,7 @@ import {
   type AllocationSummary,
   type AppDependencies,
   type ProfileSummary,
+  type StaffingRequirementSummary,
   type TimesheetDecisionSummary,
   type TutorTimeSlotWriteInput,
   type VolunteerClaimDecisionSummary,
@@ -749,5 +750,309 @@ describe("organiser tutor weekly navigation", () => {
 
     expect(response.status).toBe(200);
     expect(listTutors).toHaveBeenCalledWith(undefined);
+  });
+});
+
+describe("staffing requirement routes", () => {
+  const summary: StaffingRequirementSummary = {
+    id: 12,
+    courseId: 3,
+    courseCode: "COMS3011",
+    courseName: "Software Design Project",
+    startsAt: "2030-09-04T14:00:00.000Z",
+    endsAt: "2030-09-04T18:00:00.000Z",
+    requiredHours: 4.5,
+    status: "OPEN",
+    notes: "Two extra tutors for the lab",
+    createdById: 8,
+    createdAt: "2026-09-21T09:00:00.000Z",
+    updatedAt: "2026-09-21T09:00:00.000Z",
+  };
+
+  const validBody = {
+    courseId: 3,
+    startsAt: "2030-09-04T14:00:00.000Z",
+    endsAt: "2030-09-04T18:00:00.000Z",
+    requiredHours: 4.5,
+    notes: "Two extra tutors for the lab",
+  };
+
+  function staffingRequests(app: Express, authenticated = false) {
+    const withAuth = <T extends request.Test>(pending: T) =>
+      authenticated
+        ? pending.set("Authorization", "Bearer valid-token")
+        : pending;
+    return [
+      withAuth(request(app).post("/api/staffing-requirements").send(validBody)),
+      withAuth(
+        request(app).patch("/api/staffing-requirements/12").send(validBody),
+      ),
+      withAuth(
+        request(app)
+          .patch("/api/staffing-requirements/12/status")
+          .send({ status: "CLOSED" }),
+      ),
+      withAuth(request(app).get("/api/staffing-requirements")),
+    ];
+  }
+
+  it("creates a requirement for the signed-in organiser", async () => {
+    const createStaffingRequirement = vi.fn().mockResolvedValue(summary);
+    const app = makeApp({ createStaffingRequirement });
+
+    const response = await request(app)
+      .post("/api/staffing-requirements")
+      .set("Authorization", "Bearer valid-token")
+      .send(validBody);
+
+    expect(response.status).toBe(201);
+    expect(response.body).toEqual({ data: { staffingRequirement: summary } });
+    expect(createStaffingRequirement).toHaveBeenCalledWith("auth0|organiser", {
+      courseId: 3,
+      startsAt: new Date(validBody.startsAt),
+      endsAt: new Date(validBody.endsAt),
+      requiredHours: 4.5,
+      notes: "Two extra tutors for the lab",
+    });
+  });
+
+  it("creates a requirement without notes", async () => {
+    const createStaffingRequirement = vi.fn().mockResolvedValue(summary);
+    const app = makeApp({ createStaffingRequirement });
+    const withoutNotes = {
+      courseId: validBody.courseId,
+      startsAt: validBody.startsAt,
+      endsAt: validBody.endsAt,
+      requiredHours: validBody.requiredHours,
+    };
+
+    const response = await request(app)
+      .post("/api/staffing-requirements")
+      .set("Authorization", "Bearer valid-token")
+      .send(withoutNotes);
+
+    expect(response.status).toBe(201);
+    expect(createStaffingRequirement.mock.calls[0]![1]).not.toHaveProperty(
+      "notes",
+    );
+  });
+
+  it.each([
+    ["a missing course", { ...validBody, courseId: undefined }],
+    ["a course that is not a positive whole number", { ...validBody, courseId: 0 }],
+    ["an end before the start", { ...validBody, endsAt: "2030-09-04T13:00:00.000Z" }],
+    ["an end equal to the start", { ...validBody, endsAt: validBody.startsAt }],
+    ["hours of zero", { ...validBody, requiredHours: 0 }],
+    ["negative hours", { ...validBody, requiredHours: -2 }],
+    ["hours above the column maximum", { ...validBody, requiredHours: 1000 }],
+    ["hours with too many decimals", { ...validBody, requiredHours: 1.234 }],
+    ["hours sent as text", { ...validBody, requiredHours: "4.5" }],
+    ["a start without a time zone", { ...validBody, startsAt: "2030-09-04T14:00:00" }],
+    ["a blank note", { ...validBody, notes: "   " }],
+    ["a client-supplied status", { ...validBody, status: "CLOSED" }],
+    ["a client-supplied author", { ...validBody, createdById: 99 }],
+  ])("rejects %s and sends no request", async (_label, body) => {
+    const createStaffingRequirement = vi.fn();
+    const app = makeApp({ createStaffingRequirement });
+
+    const response = await request(app)
+      .post("/api/staffing-requirements")
+      .set("Authorization", "Bearer valid-token")
+      .send(body);
+
+    expect(response.status).toBe(400);
+    expect(response.body.error.code).toBe("VALIDATION_ERROR");
+    expect(createStaffingRequirement).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["no filters", {}, {}],
+    ["a course filter", { courseId: "3" }, { courseId: 3 }],
+    ["a status filter", { status: "OPEN" }, { status: "OPEN" }],
+    ["a lower-case status filter", { status: "closed" }, { status: "CLOSED" }],
+    [
+      "both filters",
+      { courseId: "3", status: "CANCELLED" },
+      { courseId: 3, status: "CANCELLED" },
+    ],
+  ])("lists requirements with %s", async (_label, query, expected) => {
+    const listStaffingRequirements = vi.fn().mockResolvedValue([summary]);
+    const app = makeApp({ listStaffingRequirements });
+
+    const response = await request(app)
+      .get("/api/staffing-requirements")
+      .query(query)
+      .set("Authorization", "Bearer valid-token");
+
+    expect(response.status).toBe(200);
+    expect(response.body).toEqual({ data: { staffingRequirements: [summary] } });
+    expect(listStaffingRequirements).toHaveBeenCalledWith(expected);
+  });
+
+  it.each([
+    ["an unknown status", { status: "FILLED" }],
+    ["a non-numeric course", { courseId: "abc" }],
+    ["a zero course", { courseId: "0" }],
+  ])("rejects %s in the list filters", async (_label, query) => {
+    const listStaffingRequirements = vi.fn();
+    const app = makeApp({ listStaffingRequirements });
+
+    const response = await request(app)
+      .get("/api/staffing-requirements")
+      .query(query)
+      .set("Authorization", "Bearer valid-token");
+
+    expect(response.status).toBe(400);
+    expect(response.body.error.code).toBe("VALIDATION_ERROR");
+    expect(listStaffingRequirements).not.toHaveBeenCalled();
+  });
+
+  it("updates the details of a requirement", async () => {
+    const updateStaffingRequirement = vi.fn().mockResolvedValue(summary);
+    const app = makeApp({ updateStaffingRequirement });
+
+    const response = await request(app)
+      .patch("/api/staffing-requirements/12")
+      .set("Authorization", "Bearer valid-token")
+      .send({ ...validBody, notes: null });
+
+    expect(response.status).toBe(200);
+    expect(response.body).toEqual({ data: { staffingRequirement: summary } });
+    expect(updateStaffingRequirement).toHaveBeenCalledWith(12, {
+      courseId: 3,
+      startsAt: new Date(validBody.startsAt),
+      endsAt: new Date(validBody.endsAt),
+      requiredHours: 4.5,
+      notes: null,
+    });
+  });
+
+  it.each(["OPEN", "CLOSED", "CANCELLED"])(
+    "changes a requirement to %s",
+    async (status) => {
+      const setStaffingRequirementStatus = vi
+        .fn()
+        .mockResolvedValue({ ...summary, status });
+      const app = makeApp({ setStaffingRequirementStatus });
+
+      const response = await request(app)
+        .patch("/api/staffing-requirements/12/status")
+        .set("Authorization", "Bearer valid-token")
+        .send({ status });
+
+      expect(response.status).toBe(200);
+      expect(response.body.data.staffingRequirement.status).toBe(status);
+      expect(setStaffingRequirementStatus).toHaveBeenCalledWith(12, status);
+    },
+  );
+
+  it.each([
+    ["an unknown status", { status: "FILLED" }],
+    ["a missing status", {}],
+    ["extra fields", { status: "CLOSED", notes: "why" }],
+  ])("rejects %s on the status route", async (_label, body) => {
+    const setStaffingRequirementStatus = vi.fn();
+    const app = makeApp({ setStaffingRequirementStatus });
+
+    const response = await request(app)
+      .patch("/api/staffing-requirements/12/status")
+      .set("Authorization", "Bearer valid-token")
+      .send(body);
+
+    expect(response.status).toBe(400);
+    expect(response.body.error.code).toBe("VALIDATION_ERROR");
+    expect(setStaffingRequirementStatus).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["/api/staffing-requirements/abc", validBody],
+    ["/api/staffing-requirements/0", validBody],
+  ])("rejects a malformed identifier on %s", async (path, body) => {
+    const updateStaffingRequirement = vi.fn();
+    const app = makeApp({ updateStaffingRequirement });
+
+    const response = await request(app)
+      .patch(path)
+      .set("Authorization", "Bearer valid-token")
+      .send(body);
+
+    expect(response.status).toBe(400);
+    expect(response.body.error.code).toBe("VALIDATION_ERROR");
+    expect(updateStaffingRequirement).not.toHaveBeenCalled();
+  });
+
+  it("passes service refusals through with their public code", async () => {
+    const app = makeApp({
+      setStaffingRequirementStatus: vi
+        .fn()
+        .mockRejectedValue(
+          createRouteError(
+            409,
+            "STAFFING_REQUIREMENT_CONFLICT",
+            "This staffing requirement is already closed.",
+          ),
+        ),
+    });
+
+    const response = await request(app)
+      .patch("/api/staffing-requirements/12/status")
+      .set("Authorization", "Bearer valid-token")
+      .send({ status: "CLOSED" });
+
+    expect(response.status).toBe(409);
+    expect(response.body.error.code).toBe("STAFFING_REQUIREMENT_CONFLICT");
+  });
+
+  it("sanitizes unexpected failures on every staffing requirement route", async () => {
+    const fail = vi.fn().mockRejectedValue(new Error("Prisma private detail"));
+    const app = makeApp({
+      listStaffingRequirements: fail,
+      createStaffingRequirement: fail,
+      updateStaffingRequirement: fail,
+      setStaffingRequirementStatus: fail,
+    });
+
+    for (const pending of staffingRequests(app, true)) {
+      const response = await pending;
+      expect(response.status).toBe(500);
+      expect(response.body).toEqual({
+        error: {
+          code: "INTERNAL_ERROR",
+          message: "The request could not be completed.",
+        },
+      });
+      expect(response.text).not.toContain("Prisma private detail");
+    }
+    expect(fail).toHaveBeenCalledTimes(4);
+  });
+
+  it("requires authentication on every staffing requirement route", async () => {
+    const app = makeApp();
+
+    for (const pending of staffingRequests(app)) {
+      const response = await pending;
+      expect(response.status).toBe(401);
+      expect(response.body.error.code).toBe("AUTHENTICATION_REQUIRED");
+    }
+  });
+
+  it("rejects an authenticated tutor on every staffing requirement route", async () => {
+    const app = makeApp({}, "TUTOR");
+
+    for (const pending of staffingRequests(app, true)) {
+      const response = await pending;
+      expect(response.status).toBe(403);
+      expect(response.body.error.code).toBe("FORBIDDEN");
+    }
+  });
+
+  it("reports the feature as unavailable when it is not configured", async () => {
+    const app = makeApp();
+
+    for (const pending of staffingRequests(app, true)) {
+      const response = await pending;
+      expect(response.status).toBe(503);
+      expect(response.body.error.code).toBe("STAFFING_REQUIREMENTS_UNAVAILABLE");
+    }
   });
 });

@@ -23,6 +23,7 @@ import {
   getTutorWorkloads,
 } from "./services/allocation-queries.js";
 import { createCourseService } from "./services/course-service.js";
+import { createStaffingRequirementService } from "./services/staffing-requirement-service.js";
 import { createExcuseWorkflowService } from "./services/excuse-workflows.js";
 import { createOrganiserService } from "./services/organiser-service.js";
 import { createStudentWorkflowService } from "./services/student-workflows.js";
@@ -225,6 +226,7 @@ const timesheetWorkflowService = createTimesheetWorkflowService(prisma);
 const excuseWorkflowService = createExcuseWorkflowService(prisma);
 const organiserService = createOrganiserService(prisma);
 const courseService = createCourseService(prisma);
+const staffingRequirementService = createStaffingRequirementService(prisma);
 const publicHolidayService = createSouthAfricaPublicHolidayService();
 const notificationService = createNotificationService(
   prisma as unknown as NotificationDataClient,
@@ -296,6 +298,10 @@ const app = createApp(
       }
       return searchService.search({ id: profile.id, role }, query);
     },
+    listStaffingRequirements: staffingRequirementService.listStaffingRequirements,
+    createStaffingRequirement: staffingRequirementService.createStaffingRequirement,
+    updateStaffingRequirement: staffingRequirementService.updateStaffingRequirement,
+    setStaffingRequirementStatus: staffingRequirementService.setStaffingRequirementStatus,
     async onboardUser(auth0Id, role) {
       const existing = await prisma.profile.findUnique({
         where: { auth0Id },
