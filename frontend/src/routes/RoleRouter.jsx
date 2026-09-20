@@ -9,6 +9,7 @@ import CourseManagement from '../features/CourseManagement'
 import TutorManagement from '../features/TutorManagement'
 import OrganiserDashboard from '../features/OrganiserDashboard'
 import OrganiserApprovals from '../features/OrganiserApprovals'
+import StaffingRequirements from '../features/StaffingRequirements'
 import { SkipToContent } from '../components/shared/SkipToContent'
 import { NotificationBell } from '../components/shared/NotificationBell'
 import { CommandPalette } from '../components/shared/CommandPalette'
@@ -16,6 +17,7 @@ import { CommandPalette } from '../components/shared/CommandPalette'
 const ORGANISER_LINKS = Object.freeze([
   { path: '/organiser/courses', label: 'Courses' },
   { path: '/organiser/tutors', label: 'Tutors' },
+  { path: '/organiser/staffing', label: 'Staffing' },
   { path: '/organiser/approvals', label: 'Approvals' },
 ])
 
@@ -122,6 +124,10 @@ export function RoleRouter({ currentRole, onSignOut }) {
         <Route
           path="/organiser/tutors"
           element={protect(currentRole, ['ORGANISER'], <TutorManagement />)}
+        />
+        <Route
+          path="/organiser/staffing"
+          element={protect(currentRole, ['ORGANISER'], <StaffingRequirements />)}
         />
         <Route
           path="/organiser/approvals"

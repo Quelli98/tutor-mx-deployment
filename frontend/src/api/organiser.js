@@ -384,3 +384,86 @@ export async function deleteTutorMark(input, tokenOrGetter) {
     tokenOrGetter,
   )
 }
+
+export const STAFFING_REQUIREMENT_STATUSES = Object.freeze(['OPEN', 'CLOSED', 'CANCELLED'])
+
+function isStaffingRequirement(value) {
+  return (
+    !!value &&
+    typeof value === 'object' &&
+    Number.isInteger(value.id) &&
+    Number.isInteger(value.courseId) &&
+    typeof value.courseCode === 'string' &&
+    typeof value.courseName === 'string' &&
+    isDate(value.startsAt) &&
+    isDate(value.endsAt) &&
+    Number.isFinite(value.requiredHours) &&
+    STAFFING_REQUIREMENT_STATUSES.includes(value.status) &&
+    (value.notes === null || typeof value.notes === 'string') &&
+    (value.createdById === null || Number.isInteger(value.createdById)) &&
+    isDate(value.createdAt) &&
+    isDate(value.updatedAt)
+  )
+}
+
+function staffingRequirementFrom(body) {
+  const staffingRequirement = body?.data?.staffingRequirement
+  if (!isStaffingRequirement(staffingRequirement)) {
+    throw new Error('The staffing requirement response did not match the agreed contract.')
+  }
+  return staffingRequirement
+}
+
+function staffingRequirementBody(input) {
+  return JSON.stringify({
+    courseId: input.courseId,
+    startsAt: input.startsAt,
+    endsAt: input.endsAt,
+    requiredHours: input.requiredHours,
+    ...(input.notes === undefined ? {} : { notes: input.notes }),
+  })
+}
+
+export async function listStaffingRequirements(input, tokenOrGetter) {
+  const query = new URLSearchParams()
+  if (input?.courseId) query.set('courseId', String(input.courseId))
+  if (input?.status) query.set('status', input.status)
+  const suffix = query.toString()
+  const body = await fetchWithBearerToken(
+    suffix ? `/api/staffing-requirements?${suffix}` : '/api/staffing-requirements',
+    {},
+    tokenOrGetter,
+  )
+  const staffingRequirements = body?.data?.staffingRequirements
+  if (!Array.isArray(staffingRequirements) || !staffingRequirements.every(isStaffingRequirement)) {
+    throw new Error('The staffing requirement response did not match the agreed contract.')
+  }
+  return staffingRequirements
+}
+
+export async function createStaffingRequirement(input, tokenOrGetter) {
+  const body = await fetchWithBearerToken(
+    '/api/staffing-requirements',
+    { method: 'POST', body: staffingRequirementBody(input) },
+    tokenOrGetter,
+  )
+  return staffingRequirementFrom(body)
+}
+
+export async function updateStaffingRequirement(input, tokenOrGetter) {
+  const body = await fetchWithBearerToken(
+    `/api/staffing-requirements/${input.requirementId}`,
+    { method: 'PATCH', body: staffingRequirementBody(input) },
+    tokenOrGetter,
+  )
+  return staffingRequirementFrom(body)
+}
+
+export async function setStaffingRequirementStatus(input, tokenOrGetter) {
+  const body = await fetchWithBearerToken(
+    `/api/staffing-requirements/${input.requirementId}/status`,
+    { method: 'PATCH', body: JSON.stringify({ status: input.status }) },
+    tokenOrGetter,
+  )
+  return staffingRequirementFrom(body)
+}

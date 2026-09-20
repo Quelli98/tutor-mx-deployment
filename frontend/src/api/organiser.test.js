@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   createAllocation,
   createCourse,
+  createStaffingRequirement,
   deleteCourse,
   deleteTutorMark,
   decideTimesheet,
@@ -10,11 +11,14 @@ import {
   listAllocations,
   listCourses,
   listOrganiserApprovals,
+  listStaffingRequirements,
   listTutorMarks,
   listTutorTimeSlots,
   listTutors,
   saveTutorMark,
+  setStaffingRequirementStatus,
   updateCourse,
+  updateStaffingRequirement,
   updateAllocation,
   removeAllocation,
 } from './organiser'
@@ -416,6 +420,109 @@ describe('organiser allocation and tutor-detail API contracts', () => {
       '/api/tutors/7/marks/3',
       { method: 'DELETE' },
       tokenGetter,
+    )
+  })
+})
+
+describe('staffing requirement API contract', () => {
+  beforeEach(() => {
+    fetchWithBearerToken.mockReset()
+    tokenGetter.mockReset()
+  })
+
+  const staffingRequirement = {
+    id: 12,
+    courseId: 3,
+    courseCode: 'COMS3011',
+    courseName: 'Software Design Project',
+    startsAt: '2030-09-04T14:00:00.000Z',
+    endsAt: '2030-09-04T18:00:00.000Z',
+    requiredHours: 4.5,
+    status: 'OPEN',
+    notes: 'Lab cover',
+    createdById: 8,
+    createdAt: '2026-09-21T09:00:00.000Z',
+    updatedAt: '2026-09-21T09:00:00.000Z',
+  }
+
+  const writeInput = {
+    courseId: 3,
+    startsAt: '2030-09-04T14:00:00.000Z',
+    endsAt: '2030-09-04T18:00:00.000Z',
+    requiredHours: 4.5,
+    notes: 'Lab cover',
+  }
+
+  it.each([
+    ['no filters', {}, '/api/staffing-requirements'],
+    ['a course filter', { courseId: 3 }, '/api/staffing-requirements?courseId=3'],
+    ['a status filter', { status: 'OPEN' }, '/api/staffing-requirements?status=OPEN'],
+    [
+      'both filters',
+      { courseId: 3, status: 'CLOSED' },
+      '/api/staffing-requirements?courseId=3&status=CLOSED',
+    ],
+  ])('lists requirements with %s', async (_label, input, expectedUrl) => {
+    fetchWithBearerToken.mockResolvedValueOnce({
+      data: { staffingRequirements: [staffingRequirement] },
+    })
+
+    await expect(listStaffingRequirements(input, tokenGetter)).resolves.toEqual([
+      staffingRequirement,
+    ])
+    expect(fetchWithBearerToken).toHaveBeenLastCalledWith(expectedUrl, {}, tokenGetter)
+  })
+
+  it('creates, updates and changes the status of a requirement', async () => {
+    fetchWithBearerToken.mockResolvedValue({ data: { staffingRequirement } })
+
+    await createStaffingRequirement(writeInput, tokenGetter)
+    expect(fetchWithBearerToken).toHaveBeenLastCalledWith(
+      '/api/staffing-requirements',
+      { method: 'POST', body: JSON.stringify(writeInput) },
+      tokenGetter,
+    )
+
+    await updateStaffingRequirement({ requirementId: 12, ...writeInput }, tokenGetter)
+    expect(fetchWithBearerToken).toHaveBeenLastCalledWith(
+      '/api/staffing-requirements/12',
+      { method: 'PATCH', body: JSON.stringify(writeInput) },
+      tokenGetter,
+    )
+
+    await setStaffingRequirementStatus({ requirementId: 12, status: 'CLOSED' }, tokenGetter)
+    expect(fetchWithBearerToken).toHaveBeenLastCalledWith(
+      '/api/staffing-requirements/12/status',
+      { method: 'PATCH', body: JSON.stringify({ status: 'CLOSED' }) },
+      tokenGetter,
+    )
+  })
+
+  it('omits notes from the body when they are not supplied', async () => {
+    fetchWithBearerToken.mockResolvedValue({ data: { staffingRequirement } })
+    const { notes, ...withoutNotes } = writeInput
+    expect(notes).toBe('Lab cover')
+
+    await createStaffingRequirement(withoutNotes, tokenGetter)
+    expect(JSON.parse(fetchWithBearerToken.mock.calls[0][1].body)).not.toHaveProperty('notes')
+  })
+
+  it.each([
+    ['a list that is not an array', { data: { staffingRequirements: {} } }],
+    ['an unknown status', { data: { staffingRequirements: [{ ...staffingRequirement, status: 'FILLED' }] } }],
+    ['hours sent as text', { data: { staffingRequirements: [{ ...staffingRequirement, requiredHours: '4.5' }] } }],
+    ['a missing course name', { data: { staffingRequirements: [{ ...staffingRequirement, courseName: undefined }] } }],
+  ])('rejects %s', async (_label, body) => {
+    fetchWithBearerToken.mockResolvedValueOnce(body)
+    await expect(listStaffingRequirements({}, tokenGetter)).rejects.toThrow(
+      /did not match the agreed contract/i,
+    )
+  })
+
+  it('rejects a single requirement that does not match the contract', async () => {
+    fetchWithBearerToken.mockResolvedValueOnce({ data: { staffingRequirement: { id: 12 } } })
+    await expect(createStaffingRequirement(writeInput, tokenGetter)).rejects.toThrow(
+      /did not match the agreed contract/i,
     )
   })
 })

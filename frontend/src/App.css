@@ -1897,6 +1897,19 @@ textarea:focus {
   color: var(--danger);
 }
 
+/* Staffing requirement states. Open is still wanted, so it reads as active
+   rather than as a warning; closed is finished with, so it reads as neutral.
+   Cancelled reuses the shared danger styling above. */
+.status-open {
+  background: var(--accent-bg);
+  color: var(--accent);
+}
+
+.status-closed {
+  background: #edf2f7;
+  color: #42556a;
+}
+
 .allocation-list,
 .approval-list,
 .approval-sections {
