@@ -10,7 +10,7 @@ import {
 import { EmptyState, ErrorState, LoadingState } from '../components/shared/StatusMessage'
 import { ConfirmationDialog } from '../components/shared/ConfirmationDialog'
 
-const EMPTY_FORM = { courseId: '', startsAt: '', endsAt: '', requiredHours: '', notes: '' }
+const EMPTY_FORM = { courseId: '', startsAt: '', endsAt: '', tutorsNeeded: '', notes: '' }
 const EMPTY_FILTERS = { courseId: '', status: '' }
 
 const STATUS_LABELS = {
@@ -86,9 +86,10 @@ function formatDateTime(isoValue) {
 }
 
 /**
- * Shape checks only: every field is filled in and the numbers are numbers. Every
- * rule about the values - end after start, hours range, course exists - belongs
- * to the server, and its answer is shown as-is.
+ * Shape checks only: every field is filled in and the tutor count is a number.
+ * Every rule about the values - end after start, the tutor range, whether the
+ * course exists, and the required hours those add up to - belongs to the server,
+ * and its answer is shown as-is.
  */
 function validateForm(form) {
   const errors = {}
@@ -102,8 +103,8 @@ function validateForm(form) {
   if (!form.endsAt) {
     errors.endsAt = 'Choose when the work ends.'
   }
-  if (!form.requiredHours.trim() || !Number.isFinite(Number(form.requiredHours))) {
-    errors.requiredHours = 'Enter the number of hours needed.'
+  if (!form.tutorsNeeded.trim() || !Number.isFinite(Number(form.tutorsNeeded))) {
+    errors.tutorsNeeded = 'Enter how many tutors are needed.'
   }
 
   return errors
@@ -189,7 +190,7 @@ export default function StaffingRequirements() {
       courseId: String(requirement.courseId),
       startsAt: dateTimeLocalValue(requirement.startsAt),
       endsAt: dateTimeLocalValue(requirement.endsAt),
-      requiredHours: String(requirement.requiredHours),
+      tutorsNeeded: String(requirement.tutorsNeeded),
       notes: requirement.notes ?? '',
     })
     setFieldErrors({})
@@ -221,7 +222,7 @@ export default function StaffingRequirements() {
       courseId: Number(form.courseId),
       startsAt: new Date(form.startsAt).toISOString(),
       endsAt: new Date(form.endsAt).toISOString(),
-      requiredHours: Number(form.requiredHours),
+      tutorsNeeded: Number(form.tutorsNeeded),
       notes: notes === '' ? null : notes,
     }
     setFormStatus('saving')
@@ -367,21 +368,22 @@ export default function StaffingRequirements() {
             </div>
 
             <div className="field-group">
-              <label htmlFor="staffing-hours">Hours needed</label>
+              <label htmlFor="staffing-tutors">Tutors needed</label>
               <input
-                id="staffing-hours"
+                id="staffing-tutors"
                 type="number"
-                min="0.25"
-                step="0.25"
-                value={form.requiredHours}
+                min="1"
+                max="20"
+                step="1"
+                value={form.tutorsNeeded}
                 disabled={isSaving}
-                onChange={(event) => updateField('requiredHours', event.target.value)}
-                aria-invalid={Boolean(fieldErrors.requiredHours)}
-                aria-describedby={fieldErrors.requiredHours ? 'staffing-hours-error' : undefined}
+                onChange={(event) => updateField('tutorsNeeded', event.target.value)}
+                aria-invalid={Boolean(fieldErrors.tutorsNeeded)}
+                aria-describedby={fieldErrors.tutorsNeeded ? 'staffing-tutors-error' : undefined}
               />
-              {fieldErrors.requiredHours && (
-                <p id="staffing-hours-error" className="error-text">
-                  {fieldErrors.requiredHours}
+              {fieldErrors.tutorsNeeded && (
+                <p id="staffing-tutors-error" className="error-text">
+                  {fieldErrors.tutorsNeeded}
                 </p>
               )}
             </div>
@@ -525,6 +527,7 @@ export default function StaffingRequirements() {
                 <tr>
                   <th scope="col">Course</th>
                   <th scope="col">When</th>
+                  <th scope="col">Tutors needed</th>
                   <th scope="col">Hours needed</th>
                   <th scope="col">Status</th>
                   <th scope="col">Actions</th>
@@ -546,7 +549,16 @@ export default function StaffingRequirements() {
                         {formatDateTime(requirement.startsAt)} to{' '}
                         {formatDateTime(requirement.endsAt)}
                       </td>
-                      <td>{requirement.requiredHours}</td>
+                      <td>{requirement.tutorsNeeded}</td>
+                      <td>
+                        {requirement.requiredHours}
+                        {/* The sum comes from the server, which derives both
+                            numbers; the screen only repeats them. */}
+                        <span className="helper-text">
+                          {' '}
+                          ({requirement.windowHours} hours x {requirement.tutorsNeeded} tutors)
+                        </span>
+                      </td>
                       <td>
                         <span
                           className={`status-badge status-${requirement.status.toLowerCase()}`}

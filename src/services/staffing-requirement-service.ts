@@ -10,8 +10,10 @@ import { type PrismaClient } from "../generated/prisma/client.js";
 export interface StaffingRequirementService {
   /**
    * Recorded demand: which course needs cover, over which window, and how many
-   * hours are wanted. Nothing here allocates work, and the fill level is never
-   * stored - a shortage is calculated at read time from confirmed allocations.
+   * tutors are wanted on it. Required tutor-hours are derived from the window and
+   * that count, never stored. Nothing here allocates work, and the fill level is
+   * never stored either - a shortage is calculated at read time from confirmed
+   * allocations.
    */
   listStaffingRequirements(
     query: StaffingRequirementListQuery,
@@ -35,7 +37,7 @@ const requirementSelection = {
   courseId: true,
   startsAt: true,
   endsAt: true,
-  requiredHours: true,
+  tutorsNeeded: true,
   status: true,
   notes: true,
   createdById: true,
@@ -49,13 +51,33 @@ interface RequirementRow {
   courseId: number;
   startsAt: Date;
   endsAt: Date;
-  requiredHours: unknown;
+  tutorsNeeded: number;
   status: StaffingRequirementStatus;
   notes: string | null;
   createdById: number | null;
   createdAt: Date;
   updatedAt: Date;
   course: { code: string; name: string };
+}
+
+/** Hours the window covers, rounded like every other stored hour figure. */
+export function windowHoursFor(startsAt: Date, endsAt: Date): number {
+  return (
+    Math.round(((endsAt.valueOf() - startsAt.valueOf()) / 3_600_000) * 100) / 100
+  );
+}
+
+/**
+ * The single definition of required tutor-hours: how long the work runs,
+ * multiplied by how many tutors are wanted on it. It is never stored, so it
+ * cannot drift from the window, and nothing outside this file recalculates it.
+ */
+export function requiredHoursFor(
+  startsAt: Date,
+  endsAt: Date,
+  tutorsNeeded: number,
+): number {
+  return Math.round(windowHoursFor(startsAt, endsAt) * tutorsNeeded * 100) / 100;
 }
 
 function toStaffingRequirementSummary(
@@ -68,7 +90,13 @@ function toStaffingRequirementSummary(
     courseName: row.course.name,
     startsAt: row.startsAt.toISOString(),
     endsAt: row.endsAt.toISOString(),
-    requiredHours: Number(row.requiredHours),
+    tutorsNeeded: row.tutorsNeeded,
+    windowHours: windowHoursFor(row.startsAt, row.endsAt),
+    requiredHours: requiredHoursFor(
+      row.startsAt,
+      row.endsAt,
+      row.tutorsNeeded,
+    ),
     status: row.status,
     notes: row.notes,
     createdById: row.createdById,
@@ -146,7 +174,7 @@ export function createStaffingRequirementService(
             courseId: input.courseId,
             startsAt: input.startsAt,
             endsAt: input.endsAt,
-            requiredHours: input.requiredHours,
+            tutorsNeeded: input.tutorsNeeded,
             notes: input.notes ?? null,
             createdById: organiser.id,
           },
@@ -176,7 +204,7 @@ export function createStaffingRequirementService(
             courseId: input.courseId,
             startsAt: input.startsAt,
             endsAt: input.endsAt,
-            requiredHours: input.requiredHours,
+            tutorsNeeded: input.tutorsNeeded,
             // Absent leaves the note untouched; null clears it.
             ...(input.notes === undefined ? {} : { notes: input.notes }),
           },

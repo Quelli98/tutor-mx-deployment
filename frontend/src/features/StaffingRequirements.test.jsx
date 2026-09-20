@@ -35,7 +35,9 @@ const openRequirement = {
   courseName: 'Software Design Project',
   startsAt: '2030-09-04T14:00:00.000Z',
   endsAt: '2030-09-04T18:00:00.000Z',
-  requiredHours: 4.5,
+  tutorsNeeded: 2,
+  windowHours: 4,
+  requiredHours: 8,
   status: 'OPEN',
   notes: 'Lab cover',
   createdById: 8,
@@ -72,7 +74,7 @@ function fillForm() {
   fireEvent.change(screen.getByLabelText(/^ends$/i), {
     target: { value: '2030-09-04T18:00' },
   })
-  fireEvent.change(screen.getByLabelText(/hours needed/i), { target: { value: '4.5' } })
+  fireEvent.change(screen.getByLabelText(/tutors needed/i), { target: { value: '2' } })
 }
 
 describe('StaffingRequirements', () => {
@@ -101,7 +103,10 @@ describe('StaffingRequirements', () => {
 
     const table = await screen.findByRole('table')
     expect(within(table).getAllByText('COMS3011')).toHaveLength(2)
-    expect(within(table).getAllByText('4.5')).toHaveLength(2)
+    // Both the number the organiser entered and the total derived by the server.
+    expect(within(table).getAllByText('2')).toHaveLength(2)
+    expect(within(table).getAllByText('8')).toHaveLength(2)
+    expect(within(table).getAllByText(/4 hours x 2 tutors/)).toHaveLength(2)
     expect(within(table).getByText('Open')).toBeVisible()
     expect(within(table).getByText('Closed')).toBeVisible()
     // The window is shown as readable local times rather than raw ISO text.
@@ -151,7 +156,7 @@ describe('StaffingRequirements', () => {
           courseId: 3,
           startsAt: new Date('2030-09-04T14:00').toISOString(),
           endsAt: new Date('2030-09-04T18:00').toISOString(),
-          requiredHours: 4.5,
+          tutorsNeeded: 2,
           notes: 'Lab cover',
         },
         getAccessTokenSilently,
@@ -176,7 +181,7 @@ describe('StaffingRequirements', () => {
     ['course', /^course$/i, /select a course/i],
     ['start time', /^starts$/i, /choose when the work starts/i],
     ['end time', /^ends$/i, /choose when the work ends/i],
-    ['hours', /hours needed/i, /enter the number of hours needed/i],
+    ['tutor count', /tutors needed/i, /enter how many tutors are needed/i],
   ])('blocks a missing %s and sends no request', async (_field, label, message) => {
     renderPage()
     await screen.findByRole('table')
@@ -196,7 +201,7 @@ describe('StaffingRequirements', () => {
     createStaffingRequirement.mockRejectedValue(
       errorWithCode(
         'VALIDATION_ERROR',
-        'Enter a valid course, an end time later than the start, required hours above 0 and no more than 999.99, and optional notes.',
+        'Enter a valid course, an end time later than the start, a whole number of tutors from 1 to 20, and optional notes.',
       ),
     )
 
@@ -217,15 +222,15 @@ describe('StaffingRequirements', () => {
     fireEvent.click(screen.getByRole('button', { name: /^edit COMS3011/i }))
     expect(screen.getByRole('heading', { name: /edit COMS3011 requirement/i })).toBeVisible()
     expect(screen.getByLabelText(/^course$/i)).toHaveValue('3')
-    expect(screen.getByLabelText(/hours needed/i)).toHaveValue(4.5)
+    expect(screen.getByLabelText(/tutors needed/i)).toHaveValue(2)
     expect(screen.getByLabelText(/notes/i)).toHaveValue('Lab cover')
 
-    fireEvent.change(screen.getByLabelText(/hours needed/i), { target: { value: '6' } })
+    fireEvent.change(screen.getByLabelText(/tutors needed/i), { target: { value: '3' } })
     fireEvent.click(screen.getByRole('button', { name: /save changes/i }))
 
     await waitFor(() => {
       expect(updateStaffingRequirement).toHaveBeenCalledWith(
-        expect.objectContaining({ requirementId: 12, requiredHours: 6 }),
+        expect.objectContaining({ requirementId: 12, tutorsNeeded: 3 }),
         getAccessTokenSilently,
       )
     })
@@ -388,7 +393,7 @@ describe('StaffingRequirements', () => {
     await user.tab()
     expect(screen.getByLabelText(/^ends$/i)).toHaveFocus()
     await user.tab()
-    expect(screen.getByLabelText(/hours needed/i)).toHaveFocus()
+    expect(screen.getByLabelText(/tutors needed/i)).toHaveFocus()
     await user.tab()
     expect(screen.getByLabelText(/notes/i)).toHaveFocus()
     await user.tab()

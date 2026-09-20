@@ -278,7 +278,7 @@ model StaffingRequirement {
   courseId      Int
   startsAt      DateTime
   endsAt        DateTime
-  requiredHours Decimal                   @db.Decimal(5, 2)
+  tutorsNeeded  Int
   status        StaffingRequirementStatus @default(OPEN)
   notes         String?
   createdById   Int?

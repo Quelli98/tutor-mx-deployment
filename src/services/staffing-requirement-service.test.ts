@@ -12,8 +12,7 @@ function row(overrides: Record<string, unknown> = {}) {
     courseId: 3,
     startsAt: START,
     endsAt: END,
-    // Prisma returns Decimal columns as objects, so the service must convert.
-    requiredHours: { toString: () => "4.5" },
+    tutorsNeeded: 2,
     status: "OPEN",
     notes: "Two extra tutors for the lab",
     createdById: 8,
@@ -69,7 +68,7 @@ const validInput = {
   courseId: 3,
   startsAt: START,
   endsAt: END,
-  requiredHours: 4.5,
+  tutorsNeeded: 2,
 };
 
 describe("staffing requirement service", () => {
@@ -80,6 +79,25 @@ describe("staffing requirement service", () => {
   });
 
   describe("listing", () => {
+    it.each([
+      ["a whole-hour window", "2030-09-04T18:00:00.000Z", 2, 4, 8],
+      ["one tutor", "2030-09-04T18:00:00.000Z", 1, 4, 4],
+      ["a half-hour window", "2030-09-04T16:30:00.000Z", 2, 2.5, 5],
+      ["a twenty-minute window", "2030-09-04T14:20:00.000Z", 3, 0.33, 0.99],
+      ["the maximum tutors", "2030-09-04T18:00:00.000Z", 20, 4, 80],
+    ])(
+      "derives required hours from the window and tutor count for %s",
+      async (_label, endsAt, tutorsNeeded, windowHours, requiredHours) => {
+        harness.transaction.staffingRequirement.findMany.mockResolvedValue([
+          row({ endsAt: new Date(endsAt), tutorsNeeded }),
+        ]);
+
+        await expect(
+          harness.service.listStaffingRequirements({}),
+        ).resolves.toMatchObject([{ tutorsNeeded, windowHours, requiredHours }]);
+      },
+    );
+
     it("returns summaries with ISO times, numeric hours and course details", async () => {
       await expect(harness.service.listStaffingRequirements({})).resolves.toEqual([
         {
@@ -89,7 +107,9 @@ describe("staffing requirement service", () => {
           courseName: "Software Design Project",
           startsAt: "2030-09-04T14:00:00.000Z",
           endsAt: "2030-09-04T18:00:00.000Z",
-          requiredHours: 4.5,
+          tutorsNeeded: 2,
+          windowHours: 4,
+          requiredHours: 8,
           status: "OPEN",
           notes: "Two extra tutors for the lab",
           createdById: 8,
@@ -134,7 +154,7 @@ describe("staffing requirement service", () => {
         courseId: 3,
         startsAt: START,
         endsAt: END,
-        requiredHours: 4.5,
+        tutorsNeeded: 2,
         notes: null,
         createdById: 8,
       });
@@ -195,7 +215,7 @@ describe("staffing requirement service", () => {
         courseId: 3,
         startsAt: START,
         endsAt: END,
-        requiredHours: 4.5,
+        tutorsNeeded: 2,
       });
       expect(call.data).not.toHaveProperty("status");
       // An absent note leaves the stored note untouched.

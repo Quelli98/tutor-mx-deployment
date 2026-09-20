@@ -761,7 +761,9 @@ describe("staffing requirement routes", () => {
     courseName: "Software Design Project",
     startsAt: "2030-09-04T14:00:00.000Z",
     endsAt: "2030-09-04T18:00:00.000Z",
-    requiredHours: 4.5,
+    tutorsNeeded: 2,
+    windowHours: 4,
+    requiredHours: 8,
     status: "OPEN",
     notes: "Two extra tutors for the lab",
     createdById: 8,
@@ -773,7 +775,7 @@ describe("staffing requirement routes", () => {
     courseId: 3,
     startsAt: "2030-09-04T14:00:00.000Z",
     endsAt: "2030-09-04T18:00:00.000Z",
-    requiredHours: 4.5,
+    tutorsNeeded: 2,
     notes: "Two extra tutors for the lab",
   };
 
@@ -811,7 +813,7 @@ describe("staffing requirement routes", () => {
       courseId: 3,
       startsAt: new Date(validBody.startsAt),
       endsAt: new Date(validBody.endsAt),
-      requiredHours: 4.5,
+      tutorsNeeded: 2,
       notes: "Two extra tutors for the lab",
     });
   });
@@ -823,7 +825,7 @@ describe("staffing requirement routes", () => {
       courseId: validBody.courseId,
       startsAt: validBody.startsAt,
       endsAt: validBody.endsAt,
-      requiredHours: validBody.requiredHours,
+      tutorsNeeded: validBody.tutorsNeeded,
     };
 
     const response = await request(app)
@@ -842,11 +844,12 @@ describe("staffing requirement routes", () => {
     ["a course that is not a positive whole number", { ...validBody, courseId: 0 }],
     ["an end before the start", { ...validBody, endsAt: "2030-09-04T13:00:00.000Z" }],
     ["an end equal to the start", { ...validBody, endsAt: validBody.startsAt }],
-    ["hours of zero", { ...validBody, requiredHours: 0 }],
-    ["negative hours", { ...validBody, requiredHours: -2 }],
-    ["hours above the column maximum", { ...validBody, requiredHours: 1000 }],
-    ["hours with too many decimals", { ...validBody, requiredHours: 1.234 }],
-    ["hours sent as text", { ...validBody, requiredHours: "4.5" }],
+    ["zero tutors", { ...validBody, tutorsNeeded: 0 }],
+    ["negative tutors", { ...validBody, tutorsNeeded: -2 }],
+    ["more tutors than the maximum", { ...validBody, tutorsNeeded: 21 }],
+    ["a fraction of a tutor", { ...validBody, tutorsNeeded: 1.5 }],
+    ["tutors sent as text", { ...validBody, tutorsNeeded: "2" }],
+    ["client-supplied required hours", { ...validBody, requiredHours: 8 }],
     ["a start without a time zone", { ...validBody, startsAt: "2030-09-04T14:00:00" }],
     ["a blank note", { ...validBody, notes: "   " }],
     ["a client-supplied status", { ...validBody, status: "CLOSED" }],
@@ -922,7 +925,7 @@ describe("staffing requirement routes", () => {
       courseId: 3,
       startsAt: new Date(validBody.startsAt),
       endsAt: new Date(validBody.endsAt),
-      requiredHours: 4.5,
+      tutorsNeeded: 2,
       notes: null,
     });
   });

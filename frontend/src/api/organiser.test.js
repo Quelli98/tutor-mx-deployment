@@ -437,7 +437,9 @@ describe('staffing requirement API contract', () => {
     courseName: 'Software Design Project',
     startsAt: '2030-09-04T14:00:00.000Z',
     endsAt: '2030-09-04T18:00:00.000Z',
-    requiredHours: 4.5,
+    tutorsNeeded: 2,
+    windowHours: 4,
+    requiredHours: 8,
     status: 'OPEN',
     notes: 'Lab cover',
     createdById: 8,
@@ -449,7 +451,7 @@ describe('staffing requirement API contract', () => {
     courseId: 3,
     startsAt: '2030-09-04T14:00:00.000Z',
     endsAt: '2030-09-04T18:00:00.000Z',
-    requiredHours: 4.5,
+    tutorsNeeded: 2,
     notes: 'Lab cover',
   }
 
@@ -510,7 +512,9 @@ describe('staffing requirement API contract', () => {
   it.each([
     ['a list that is not an array', { data: { staffingRequirements: {} } }],
     ['an unknown status', { data: { staffingRequirements: [{ ...staffingRequirement, status: 'FILLED' }] } }],
-    ['hours sent as text', { data: { staffingRequirements: [{ ...staffingRequirement, requiredHours: '4.5' }] } }],
+    ['tutors sent as text', { data: { staffingRequirements: [{ ...staffingRequirement, tutorsNeeded: '2' }] } }],
+    ['a fraction of a tutor', { data: { staffingRequirements: [{ ...staffingRequirement, tutorsNeeded: 1.5 }] } }],
+    ['missing derived hours', { data: { staffingRequirements: [{ ...staffingRequirement, requiredHours: undefined }] } }],
     ['a missing course name', { data: { staffingRequirements: [{ ...staffingRequirement, courseName: undefined }] } }],
   ])('rejects %s', async (_label, body) => {
     fetchWithBearerToken.mockResolvedValueOnce(body)

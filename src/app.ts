@@ -240,6 +240,11 @@ export interface StaffingRequirementSummary {
   courseName: string;
   startsAt: string;
   endsAt: string;
+  /** How many tutors the organiser wants on this work. */
+  tutorsNeeded: number;
+  /** How long the window runs. Derived, never stored. */
+  windowHours: number;
+  /** windowHours x tutorsNeeded. Derived, never stored. */
   requiredHours: number;
   status: StaffingRequirementStatus;
   notes: string | null;
@@ -252,7 +257,7 @@ export interface StaffingRequirementWriteInput {
   courseId: number;
   startsAt: Date;
   endsAt: Date;
-  requiredHours: number;
+  tutorsNeeded: number;
   /** Absent leaves an existing note untouched; null clears it. */
   notes?: string | null;
 }
@@ -745,6 +750,9 @@ const STAFFING_REQUIREMENT_STATUSES = [
   "CANCELLED",
 ] as const;
 
+/** Matches the "StaffingRequirement_tutors_needed_range" database constraint. */
+const MAX_TUTORS_NEEDED = 20;
+
 function staffingRequirementsUnavailable() {
   return createRouteError(
     503,
@@ -768,24 +776,26 @@ function parseStaffingRequirementInput(body: unknown) {
       "courseId",
       "startsAt",
       "endsAt",
-      "requiredHours",
+      "tutorsNeeded",
       "notes",
     ])
   ) {
     // status and createdById are deliberately not accepted: a new requirement
     // always starts OPEN, the author comes from the verified token, and the
-    // status is changed through its own route.
+    // status is changed through its own route. Required hours are derived from
+    // the window and the tutor count, so they are never accepted either.
     return {
       error:
-        "Provide only course, start and end time, required hours and notes.",
+        "Provide only course, start and end time, tutors needed and notes.",
     } as const;
   }
 
   const courseId = parseJsonPositiveInteger(body.courseId);
   const startsAt = parseIsoDateTime(body.startsAt);
   const endsAt = parseIsoDateTime(body.endsAt);
-  const requiredHours =
-    typeof body.requiredHours === "number" ? body.requiredHours : Number.NaN;
+  // Mirrors the database range: whole people, and no more than one session can
+  // realistically be staffed with.
+  const tutorsNeeded = parseJsonPositiveInteger(body.tutorsNeeded);
   const hasNotes = body.notes !== undefined && body.notes !== null;
   const notes = hasNotes
     ? parseRequiredText(body.notes, "notes", 1000)
@@ -796,15 +806,12 @@ function parseStaffingRequirementInput(body: unknown) {
     !startsAt ||
     !endsAt ||
     endsAt <= startsAt ||
-    !Number.isFinite(requiredHours) ||
-    requiredHours <= 0 ||
-    requiredHours > 999.99 ||
-    !hasAtMostTwoDecimalPlaces(requiredHours) ||
+    !tutorsNeeded ||
+    tutorsNeeded > MAX_TUTORS_NEEDED ||
     (hasNotes && !notes)
   ) {
     return {
-      error:
-        "Enter a valid course, an end time later than the start, required hours above 0 and no more than 999.99, and optional notes.",
+      error: `Enter a valid course, an end time later than the start, a whole number of tutors from 1 to ${MAX_TUTORS_NEEDED}, and optional notes.`,
     } as const;
   }
 
@@ -813,7 +820,7 @@ function parseStaffingRequirementInput(body: unknown) {
       courseId,
       startsAt,
       endsAt,
-      requiredHours,
+      tutorsNeeded,
       ...(body.notes === undefined ? {} : { notes: notes ?? null }),
     },
   } as const;

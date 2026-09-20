@@ -397,6 +397,8 @@ function isStaffingRequirement(value) {
     typeof value.courseName === 'string' &&
     isDate(value.startsAt) &&
     isDate(value.endsAt) &&
+    Number.isInteger(value.tutorsNeeded) &&
+    Number.isFinite(value.windowHours) &&
     Number.isFinite(value.requiredHours) &&
     STAFFING_REQUIREMENT_STATUSES.includes(value.status) &&
     (value.notes === null || typeof value.notes === 'string') &&
@@ -419,7 +421,7 @@ function staffingRequirementBody(input) {
     courseId: input.courseId,
     startsAt: input.startsAt,
     endsAt: input.endsAt,
-    requiredHours: input.requiredHours,
+    tutorsNeeded: input.tutorsNeeded,
     ...(input.notes === undefined ? {} : { notes: input.notes }),
   })
 }
