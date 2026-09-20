@@ -4,10 +4,14 @@ Tutor Mx is one integrated React + Vite, Auth0, handwritten Express, Prisma and 
 
 ## Demo and team repository
 
-- **Public Sprint 1 demo:** https://tutor-mx.pages.dev
+- **Production frontend:** https://tutor-mx.pages.dev
+- **Latest deployment (commit 579eb35, 2026-09-20):** https://b677174c.tutor-mx.pages.dev
+- **Production backend:** https://tutor-mx-api.onrender.com
 - **Official team source repository:** Gitea `innovent/tutor-mx-system`
 - **Deployment mirror:** the GitHub copy can be used to trigger the hosted Cloudflare Pages / Render deployment, but team development starts from the latest Gitea `main`.
 - **Current integrated Sprint 2 code:** Members 1-6 are integrated into this PR-ready source.
+
+**Verification (2026-09-20):** Frontend HTTP 200 ✓ | Backend /health 200 ✓ | Protected API unauthenticated 401 ✓
 
 The hosted demo follows the repository architecture: the browser loads the React/Vite frontend, Auth0 handles sign-in, React sends an Auth0 bearer token to the handwritten Express API, Express enforces role/ownership checks, and Prisma accesses Neon PostgreSQL. Team members can use the public URL for Sprint 1 demonstrations without receiving production database or Auth0 secrets.
 
