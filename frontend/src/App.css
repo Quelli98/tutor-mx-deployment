@@ -1909,6 +1909,28 @@ textarea:focus {
   color: var(--danger);
 }
 
+/* Fill states on the staffing board. The wording in the cell carries the
+   meaning on its own; these colours only reinforce it. */
+.fill-state {
+  font-weight: 800;
+}
+
+.fill-unfilled {
+  color: var(--danger);
+}
+
+.fill-partially-filled {
+  color: var(--warning);
+}
+
+.fill-fully-filled {
+  color: #087248;
+}
+
+.fill-not-being-filled {
+  color: #5e6784;
+}
+
 /* Staffing requirement states. Open is still wanted, so it reads as active
    rather than as a warning; closed is finished with, so it reads as neutral.
    Cancelled reuses the shared danger styling above. */

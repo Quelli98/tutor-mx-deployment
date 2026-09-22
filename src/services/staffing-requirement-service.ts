@@ -1,11 +1,16 @@
 import {
   createRouteError,
   type StaffingRequirementListQuery,
+  type StaffingRequirementFillState,
   type StaffingRequirementStatus,
   type StaffingRequirementSummary,
   type StaffingRequirementWriteInput,
 } from "../app.js";
 import { type PrismaClient } from "../generated/prisma/client.js";
+import {
+  getAssignedHoursForRequirements,
+  type QueryClient,
+} from "./allocation-queries.js";
 
 export interface StaffingRequirementService {
   /**
@@ -80,9 +85,57 @@ export function requiredHoursFor(
   return Math.round(windowHoursFor(startsAt, endsAt) * tutorsNeeded * 100) / 100;
 }
 
+/**
+ * Hours are carried to two decimals throughout, so a gap smaller than that is
+ * rounding noise rather than real unfilled work. Without this, a requirement
+ * covered exactly by its bookings could report "0.01 tutor hours short" and ask
+ * for another whole tutor.
+ */
+const HOURS_TOLERANCE = 0.01;
+
+function shortageFor(
+  requiredHours: number,
+  assignedHours: number,
+  status: StaffingRequirementStatus,
+): number {
+  // A requirement nobody wants filled has no shortage, so totals added up
+  // elsewhere never include demand that was closed or withdrawn.
+  if (status !== "OPEN") {
+    return 0;
+  }
+  // Rounded before it is compared: subtracting two two-decimal figures can leave
+  // a value like 0.010000000000000009, which would slip past a bare comparison
+  // and be reported as a real shortage.
+  const remaining = Math.round((requiredHours - assignedHours) * 100) / 100;
+  return remaining <= HOURS_TOLERANCE ? 0 : remaining;
+}
+
+function fillStateFor(
+  assignedHours: number,
+  shortageHours: number,
+  status: StaffingRequirementStatus,
+): StaffingRequirementFillState {
+  if (status !== "OPEN") {
+    return "not-being-filled";
+  }
+  if (shortageHours === 0) {
+    return "fully-filled";
+  }
+  return assignedHours > 0 ? "partially-filled" : "unfilled";
+}
+
 function toStaffingRequirementSummary(
   row: RequirementRow,
+  assignedHours: number,
 ): StaffingRequirementSummary {
+  const requiredHours = requiredHoursFor(
+    row.startsAt,
+    row.endsAt,
+    row.tutorsNeeded,
+  );
+  const windowHours = windowHoursFor(row.startsAt, row.endsAt);
+  const shortageHours = shortageFor(requiredHours, assignedHours, row.status);
+
   return {
     id: row.id,
     courseId: row.courseId,
@@ -91,12 +144,13 @@ function toStaffingRequirementSummary(
     startsAt: row.startsAt.toISOString(),
     endsAt: row.endsAt.toISOString(),
     tutorsNeeded: row.tutorsNeeded,
-    windowHours: windowHoursFor(row.startsAt, row.endsAt),
-    requiredHours: requiredHoursFor(
-      row.startsAt,
-      row.endsAt,
-      row.tutorsNeeded,
-    ),
+    windowHours,
+    requiredHours,
+    assignedHours,
+    shortageHours,
+    // Whole people, rounded up: half a tutor short still means finding someone.
+    shortageTutors: Math.ceil(shortageHours / windowHours),
+    fillState: fillStateFor(assignedHours, shortageHours, row.status),
     status: row.status,
     notes: row.notes,
     createdById: row.createdById,
@@ -115,7 +169,31 @@ function requirementNotFound(): never {
 
 export function createStaffingRequirementService(
   client: PrismaClient,
+  queryClient: QueryClient,
 ): StaffingRequirementService {
+  /**
+   * One query covers every requirement in the list, so a long list never turns
+   * into a query per row.
+   */
+  async function withAssignedHours(
+    rows: RequirementRow[],
+  ): Promise<StaffingRequirementSummary[]> {
+    const assignedHours = await getAssignedHoursForRequirements(
+      queryClient,
+      rows.map((row) => row.id),
+    );
+    return rows.map((row) =>
+      toStaffingRequirementSummary(row, assignedHours.get(row.id) ?? 0),
+    );
+  }
+
+  async function withAssignedHoursForOne(
+    row: RequirementRow,
+  ): Promise<StaffingRequirementSummary> {
+    const [summary] = await withAssignedHours([row]);
+    return summary!;
+  }
+
   /**
    * The course must exist before demand can be recorded against it. The database
    * foreign key is the backstop; this lookup turns the refusal into the same
@@ -148,7 +226,7 @@ export function createStaffingRequirementService(
         orderBy: [{ startsAt: "asc" }, { id: "asc" }],
         select: requirementSelection,
       });
-      return rows.map(toStaffingRequirementSummary);
+      return await withAssignedHours(rows);
     },
 
     async createStaffingRequirement(organiserAuth0Id, input) {
@@ -180,7 +258,7 @@ export function createStaffingRequirementService(
           },
           select: requirementSelection,
         });
-        return toStaffingRequirementSummary(created);
+        return await withAssignedHoursForOne(created);
       });
     },
 
@@ -210,7 +288,7 @@ export function createStaffingRequirementService(
           },
           select: requirementSelection,
         });
-        return toStaffingRequirementSummary(updated);
+        return await withAssignedHoursForOne(updated);
       });
     },
 
@@ -239,7 +317,7 @@ export function createStaffingRequirementService(
           data: { status },
           select: requirementSelection,
         });
-        return toStaffingRequirementSummary(updated);
+        return await withAssignedHoursForOne(updated);
       });
     },
   };

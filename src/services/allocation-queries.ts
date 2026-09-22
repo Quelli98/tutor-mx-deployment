@@ -402,3 +402,71 @@ export async function listOpenWork(
   ]);
   return result.rows;
 }
+
+export interface AssignedHoursRow {
+  requirementId: number;
+  assignedHours: number;
+}
+
+/**
+ * Confirmed tutor-hours already covering each staffing requirement.
+ *
+ * A booking counts only for the part of it that falls inside the requirement
+ * window, in proportion to how much of the booking that is: a 13:00-17:00
+ * booking of four hours contributes one hour to a 10:00-14:00 requirement.
+ * `allocatedHours` is not tied to a booking's own length anywhere in this system,
+ * so the work is treated as spread evenly across the booked window - the only
+ * assumption the stored data supports. The share can never exceed the booking.
+ *
+ * Overlap is the same half-open rule used everywhere else: touching intervals do
+ * not count, and only CONFIRMED allocations do, matching the capacity rule in
+ * {@link tutorHoursSql}. `staffing-shortage.test.ts` pins these verdicts to
+ * {@link timeRangesOverlap} so the two definitions cannot drift apart.
+ *
+ * One statement covers every requirement in the list, so listing many of them
+ * never turns into one query per row.
+ */
+export const assignedHoursForRequirementsSql = `
+SELECT sr."id" AS "requirementId",
+  COALESCE(
+    ROUND(
+      SUM(
+        a."allocatedHours"
+        * (
+            EXTRACT(EPOCH FROM (
+              LEAST(a."endsAt", sr."endsAt") - GREATEST(a."startsAt", sr."startsAt")
+            ))
+            / EXTRACT(EPOCH FROM (a."endsAt" - a."startsAt"))
+          )
+      )::numeric,
+      2
+    ),
+    0
+  )::double precision AS "assignedHours"
+FROM "StaffingRequirement" sr
+LEFT JOIN "Allocation" a
+  ON a."courseId" = sr."courseId"
+ AND a."status" = 'CONFIRMED'
+ AND a."startsAt" < sr."endsAt"
+ AND a."endsAt" > sr."startsAt"
+WHERE sr."id" = ANY($1::integer[])
+GROUP BY sr."id";
+`;
+
+export async function getAssignedHoursForRequirements(
+  client: QueryClient,
+  requirementIds: number[],
+): Promise<Map<number, number>> {
+  if (requirementIds.length === 0) {
+    return new Map();
+  }
+  if (requirementIds.some((id) => !Number.isInteger(id) || id <= 0)) {
+    throw new RangeError("requirementIds must be positive integers");
+  }
+
+  const result = await client.query<AssignedHoursRow>(
+    assignedHoursForRequirementsSql,
+    [requirementIds],
+  );
+  return new Map(result.rows.map((row) => [row.requirementId, row.assignedHours]));
+}

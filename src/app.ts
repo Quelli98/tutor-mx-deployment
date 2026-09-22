@@ -232,6 +232,18 @@ export interface AllocationSummary {
 
 export type StaffingRequirementStatus = "OPEN" | "CLOSED" | "CANCELLED";
 
+/**
+ * How much of a requirement is covered, worked out on every read from confirmed
+ * allocations. Never stored, so it cannot go stale. A closed or cancelled
+ * requirement is "not-being-filled": nobody wants it filled, so it has no
+ * shortage to add into any total.
+ */
+export type StaffingRequirementFillState =
+  | "unfilled"
+  | "partially-filled"
+  | "fully-filled"
+  | "not-being-filled";
+
 /** Recorded demand for a course. Fill level is never stored here. */
 export interface StaffingRequirementSummary {
   id: number;
@@ -246,6 +258,13 @@ export interface StaffingRequirementSummary {
   windowHours: number;
   /** windowHours x tutorsNeeded. Derived, never stored. */
   requiredHours: number;
+  /** Confirmed tutor-hours already covering this window. Derived, never stored. */
+  assignedHours: number;
+  /** requiredHours minus assignedHours, never below zero, zero once closed. */
+  shortageHours: number;
+  /** The shortage as whole tutors, rounded up. Zero once closed. */
+  shortageTutors: number;
+  fillState: StaffingRequirementFillState;
   status: StaffingRequirementStatus;
   notes: string | null;
   createdById: number | null;

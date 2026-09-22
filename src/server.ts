@@ -226,7 +226,10 @@ const timesheetWorkflowService = createTimesheetWorkflowService(prisma);
 const excuseWorkflowService = createExcuseWorkflowService(prisma);
 const organiserService = createOrganiserService(prisma);
 const courseService = createCourseService(prisma);
-const staffingRequirementService = createStaffingRequirementService(prisma);
+const staffingRequirementService = createStaffingRequirementService(
+  prisma,
+  queryClient,
+);
 const publicHolidayService = createSouthAfricaPublicHolidayService();
 const notificationService = createNotificationService(
   prisma as unknown as NotificationDataClient,

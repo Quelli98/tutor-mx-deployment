@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { PrismaClient } from "../generated/prisma/client.js";
+import type { QueryClient } from "./allocation-queries.js";
 import { createStaffingRequirementService } from "./staffing-requirement-service.js";
 
 const START = new Date("2030-09-04T14:00:00.000Z");
@@ -27,6 +28,8 @@ interface HarnessOptions {
   organiser?: { id: number; role: string } | null;
   course?: { id: number } | null;
   requirement?: { id: number; status?: string } | null;
+  /** Confirmed hours the shortage query reports for requirement 12. */
+  assignedHours?: number;
 }
 
 function createHarness(options: HarnessOptions = {}) {
@@ -34,6 +37,7 @@ function createHarness(options: HarnessOptions = {}) {
     organiser = { id: 8, role: "ORGANISER" },
     course = { id: 3 },
     requirement = { id: 12, status: "OPEN" },
+    assignedHours = 0,
   } = options;
 
   const transaction = {
@@ -55,10 +59,25 @@ function createHarness(options: HarnessOptions = {}) {
     ),
   };
 
+  // Stands in for the one grouped query that reports confirmed hours per
+  // requirement; its SQL is covered against Postgres in staffing-shortage.test.ts.
+  const queryClient = {
+    query: vi.fn(async (_sql: string, parameters?: unknown[]) => ({
+      rows: ((parameters?.[0] as number[]) ?? []).map((requirementId) => ({
+        requirementId,
+        assignedHours,
+      })),
+    })),
+  };
+
   return {
     client,
     transaction,
-    service: createStaffingRequirementService(client as unknown as PrismaClient),
+    queryClient,
+    service: createStaffingRequirementService(
+      client as unknown as PrismaClient,
+      queryClient as unknown as QueryClient,
+    ),
   };
 }
 
@@ -110,6 +129,10 @@ describe("staffing requirement service", () => {
           tutorsNeeded: 2,
           windowHours: 4,
           requiredHours: 8,
+          assignedHours: 0,
+          shortageHours: 8,
+          shortageTutors: 2,
+          fillState: "unfilled",
           status: "OPEN",
           notes: "Two extra tutors for the lab",
           createdById: 8,
@@ -117,6 +140,91 @@ describe("staffing requirement service", () => {
           updatedAt: "2026-09-21T09:00:00.000Z",
         },
       ]);
+    });
+
+    it.each([
+      ["nothing assigned", 0, 8, 2, "unfilled"],
+      ["part of it assigned", 5, 3, 1, "partially-filled"],
+      ["half a tutor short", 6, 2, 1, "partially-filled"],
+      ["exactly covered", 8, 0, 0, "fully-filled"],
+      ["over-covered", 12, 0, 0, "fully-filled"],
+    ])(
+      "reports the shortage when %s",
+      async (_label, assigned, shortageHours, shortageTutors, fillState) => {
+        harness = createHarness({ assignedHours: assigned });
+
+        await expect(
+          harness.service.listStaffingRequirements({}),
+        ).resolves.toMatchObject([
+          { assignedHours: assigned, shortageHours, shortageTutors, fillState },
+        ]);
+      },
+    );
+
+    it.each([
+      // A twenty-minute window is 0.33 hours once rounded, so a booking that
+      // covers it completely can land a hundredth of an hour short. That is
+      // rounding noise, not unfilled work: it must never read as "0.01 tutor
+      // hours short, 1 more tutor needed".
+      ["a twenty-minute window", "2030-09-04T14:20:00.000Z", 1, 0.32],
+      ["a twenty-minute window for three tutors", "2030-09-04T14:20:00.000Z", 3, 0.98],
+      ["a fifty-minute window", "2030-09-04T14:50:00.000Z", 1, 0.82],
+      ["a whole-hour window", "2030-09-04T15:00:00.000Z", 1, 1],
+    ])(
+      "treats %s as fully filled when bookings cover it",
+      async (_label, endsAt, tutorsNeeded, assigned) => {
+        harness = createHarness({ assignedHours: assigned });
+        harness.transaction.staffingRequirement.findMany.mockResolvedValue([
+          row({ endsAt: new Date(endsAt), tutorsNeeded }),
+        ]);
+
+        await expect(
+          harness.service.listStaffingRequirements({}),
+        ).resolves.toMatchObject([
+          { shortageHours: 0, shortageTutors: 0, fillState: "fully-filled" },
+        ]);
+      },
+    );
+
+    it.each(["CLOSED", "CANCELLED"] as const)(
+      "reports no shortage for a %s requirement but still shows what is assigned",
+      async (status) => {
+        harness = createHarness({ assignedHours: 3 });
+        harness.transaction.staffingRequirement.findMany.mockResolvedValue([
+          row({ status }),
+        ]);
+
+        await expect(
+          harness.service.listStaffingRequirements({}),
+        ).resolves.toMatchObject([
+          {
+            assignedHours: 3,
+            shortageHours: 0,
+            shortageTutors: 0,
+            fillState: "not-being-filled",
+          },
+        ]);
+      },
+    );
+
+    it("asks for the assigned hours of every listed requirement in one query", async () => {
+      harness.transaction.staffingRequirement.findMany.mockResolvedValue([
+        row({ id: 12 }),
+        row({ id: 13 }),
+        row({ id: 14 }),
+      ]);
+
+      await harness.service.listStaffingRequirements({});
+
+      expect(harness.queryClient.query).toHaveBeenCalledTimes(1);
+      expect(harness.queryClient.query.mock.calls[0]![1]).toEqual([[12, 13, 14]]);
+    });
+
+    it("asks the database nothing when no requirements are listed", async () => {
+      harness.transaction.staffingRequirement.findMany.mockResolvedValue([]);
+
+      await expect(harness.service.listStaffingRequirements({})).resolves.toEqual([]);
+      expect(harness.queryClient.query).not.toHaveBeenCalled();
     });
 
     it.each([

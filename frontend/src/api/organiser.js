@@ -387,6 +387,13 @@ export async function deleteTutorMark(input, tokenOrGetter) {
 
 export const STAFFING_REQUIREMENT_STATUSES = Object.freeze(['OPEN', 'CLOSED', 'CANCELLED'])
 
+const STAFFING_REQUIREMENT_FILL_STATES = Object.freeze([
+  'unfilled',
+  'partially-filled',
+  'fully-filled',
+  'not-being-filled',
+])
+
 function isStaffingRequirement(value) {
   return (
     !!value &&
@@ -400,6 +407,10 @@ function isStaffingRequirement(value) {
     Number.isInteger(value.tutorsNeeded) &&
     Number.isFinite(value.windowHours) &&
     Number.isFinite(value.requiredHours) &&
+    Number.isFinite(value.assignedHours) &&
+    Number.isFinite(value.shortageHours) &&
+    Number.isInteger(value.shortageTutors) &&
+    STAFFING_REQUIREMENT_FILL_STATES.includes(value.fillState) &&
     STAFFING_REQUIREMENT_STATUSES.includes(value.status) &&
     (value.notes === null || typeof value.notes === 'string') &&
     (value.createdById === null || Number.isInteger(value.createdById)) &&

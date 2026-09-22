@@ -38,6 +38,10 @@ const openRequirement = {
   tutorsNeeded: 2,
   windowHours: 4,
   requiredHours: 8,
+  assignedHours: 5,
+  shortageHours: 3,
+  shortageTutors: 1,
+  fillState: 'partially-filled',
   status: 'OPEN',
   notes: 'Lab cover',
   createdById: 8,
@@ -50,6 +54,10 @@ const closedRequirement = {
   id: 13,
   status: 'CLOSED',
   notes: null,
+  // A closed requirement keeps what is assigned but has no shortage.
+  shortageHours: 0,
+  shortageTutors: 0,
+  fillState: 'not-being-filled',
 }
 
 function errorWithCode(code, message = 'raw server detail') {
@@ -106,14 +114,80 @@ describe('StaffingRequirements', () => {
     expect(within(table).getByRole('columnheader', { name: /tutor hours/i })).toBeVisible()
     // Both the number the organiser entered and the total derived by the server,
     // with the total named so it cannot read as the length of the session.
-    expect(within(table).getAllByText('2')).toHaveLength(2)
-    expect(within(table).getAllByText(/8 tutor hours/)).toHaveLength(2)
-    expect(within(table).getAllByText(/4 hours x 2 tutors/)).toHaveLength(2)
+    const cellText = (index) =>
+      within(table)
+        .getAllByRole('row')
+        .slice(1)
+        .map((row) => within(row).getAllByRole('cell')[index].textContent)
+    expect(cellText(2)).toEqual(['2', '2'])
+    expect(cellText(3)).toEqual([
+      '8 tutor hours4 hours x 2 tutors',
+      '8 tutor hours4 hours x 2 tutors',
+    ])
     expect(within(table).getByText('Open')).toBeVisible()
     expect(within(table).getByText('Closed')).toBeVisible()
     // The window is shown as readable local times rather than raw ISO text.
     expect(within(table).queryByText(/2030-09-04T14:00:00.000Z/)).not.toBeInTheDocument()
     expect(listStaffingRequirements).toHaveBeenCalledWith({}, getAccessTokenSilently)
+  })
+
+  it.each([
+    [
+      'nothing assigned',
+      { assignedHours: 0, shortageHours: 8, shortageTutors: 2, fillState: 'unfilled' },
+      '8 tutor hours short',
+      'Nothing assigned yet, 2 more tutors needed',
+    ],
+    [
+      'part of it assigned',
+      { assignedHours: 5, shortageHours: 3, shortageTutors: 1, fillState: 'partially-filled' },
+      '3 tutor hours short',
+      '5 of 8 tutor hours assigned, 1 more tutor needed',
+    ],
+    [
+      'fully covered',
+      { assignedHours: 8, shortageHours: 0, shortageTutors: 0, fillState: 'fully-filled' },
+      'Fully filled',
+      '8 of 8 tutor hours assigned',
+    ],
+    [
+      'closed',
+      { status: 'CLOSED', shortageHours: 0, shortageTutors: 0, fillState: 'not-being-filled' },
+      'Not being filled',
+      'Closed or cancelled, so nothing is being sought',
+    ],
+  ])('shows the shortage in words when %s', async (_label, overrides, headline, detail) => {
+    listStaffingRequirements.mockResolvedValue([{ ...openRequirement, ...overrides }])
+
+    renderPage()
+    const table = await screen.findByRole('table')
+
+    // The words carry the meaning, so the column works without colour.
+    expect(within(table).getByText(headline)).toBeVisible()
+    expect(within(table).getByText(new RegExp(detail))).toBeVisible()
+  })
+
+  it('never asks for another tutor over a rounding difference', async () => {
+    // The server settles this; the screen must not invent a shortage from the
+    // numbers it is given.
+    listStaffingRequirements.mockResolvedValue([
+      {
+        ...openRequirement,
+        windowHours: 0.33,
+        requiredHours: 0.33,
+        assignedHours: 0.32,
+        shortageHours: 0,
+        shortageTutors: 0,
+        fillState: 'fully-filled',
+      },
+    ])
+
+    renderPage()
+    const table = await screen.findByRole('table')
+
+    expect(within(table).getByText('Fully filled')).toBeVisible()
+    expect(within(table).queryByText(/tutor hours short/)).not.toBeInTheDocument()
+    expect(within(table).queryByText(/more tutor/)).not.toBeInTheDocument()
   })
 
   it('keeps row buttons short on screen but fully described for screen readers', async () => {

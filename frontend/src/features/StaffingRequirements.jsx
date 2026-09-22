@@ -19,6 +19,32 @@ const STATUS_LABELS = {
   CANCELLED: 'Cancelled',
 }
 
+// Wording only. The server works out every number and the fill state itself.
+function tutorWord(count) {
+  return count === 1 ? 'tutor' : 'tutors'
+}
+
+function shortageHeadline(requirement) {
+  if (requirement.fillState === 'not-being-filled') return 'Not being filled'
+  if (requirement.fillState === 'fully-filled') return 'Fully filled'
+  return `${requirement.shortageHours} tutor hours short`
+}
+
+function shortageDetail(requirement) {
+  const needed = `${requirement.shortageTutors} more ${tutorWord(requirement.shortageTutors)} needed`
+
+  if (requirement.fillState === 'not-being-filled') {
+    return 'Closed or cancelled, so nothing is being sought.'
+  }
+  if (requirement.fillState === 'fully-filled') {
+    return `${requirement.assignedHours} of ${requirement.requiredHours} tutor hours assigned`
+  }
+  if (requirement.fillState === 'unfilled') {
+    return `Nothing assigned yet, ${needed}`
+  }
+  return `${requirement.assignedHours} of ${requirement.requiredHours} tutor hours assigned, ${needed}`
+}
+
 // Only the wording lives here. Which actions apply to which status is decided by
 // the server, which refuses anything else with a conflict.
 const STATUS_ACTIONS = {
@@ -529,6 +555,7 @@ export default function StaffingRequirements() {
                   <th scope="col">When</th>
                   <th scope="col">Tutors needed</th>
                   <th scope="col">Tutor hours</th>
+                  <th scope="col">Shortage</th>
                   <th scope="col">Status</th>
                   <th scope="col">Actions</th>
                 </tr>
@@ -557,6 +584,13 @@ export default function StaffingRequirements() {
                         <span className="helper-text">
                           {requirement.windowHours} hours x {requirement.tutorsNeeded} tutors
                         </span>
+                      </td>
+                      <td className="table-cell-stack">
+                        {/* Words carry the meaning; colour only reinforces it. */}
+                        <span className={`fill-state fill-${requirement.fillState}`}>
+                          {shortageHeadline(requirement)}
+                        </span>
+                        <span className="helper-text">{shortageDetail(requirement)}</span>
                       </td>
                       <td>
                         <span
