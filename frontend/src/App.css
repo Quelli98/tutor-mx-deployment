@@ -299,6 +299,19 @@
   color: var(--auth-blue);
 }
 
+/* These classes were written for <button>. An anchor is inline by default, so
+   min-height and vertical padding would be ignored and the clickable area would
+   shrink to the text line. This keeps a link that looks like a button behaving
+   like one wherever it is used, without changing how buttons themselves look. */
+a.primary-button,
+a.secondary-button,
+a.danger-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  text-decoration: none;
+}
+
 .danger-button {
   background: #fff0f2;
   color: #a81f36;
@@ -670,8 +683,10 @@ textarea[aria-invalid='true'] {
   white-space: nowrap;
 }
 
-/* A table cell whose second line is supporting detail, such as the sum behind a
-   derived figure. The helper text sits beneath rather than running on. */
+/* Stacks a cell's supporting detail beneath its main figure. This must go on a
+   wrapper inside the cell, never on the <td>: display:grid stops an element being
+   a table cell, and adjacent ones then merge into one anonymous cell, shifting
+   every later column left. */
 .table-cell-stack {
   display: grid;
   gap: 2px;
@@ -1406,6 +1421,30 @@ a:focus-visible {
 }
 
 /* Bulk allocation: choosing requirements, then reviewing what would be saved. */
+/* Each choice is a two-line label: what the session is, then what it still needs.
+   The second line needs its own line, or the two run together. */
+.bulk-choice-list .checkbox-field {
+  align-items: flex-start;
+}
+
+.bulk-choice-list .checkbox-field input {
+  /* Line the box up with the first line of text, not the middle of both. */
+  margin-top: 3px;
+  flex: 0 0 auto;
+}
+
+.bulk-choice-list label {
+  display: grid;
+  gap: 3px;
+}
+
+.bulk-choice-list .helper-text {
+  margin: 0;
+  /* Labels are bold; the shortage beneath is supporting detail, not a heading. */
+  font-weight: 500;
+  font-size: 0.82rem;
+}
+
 .bulk-choice-list,
 .bulk-proposal-list,
 .bulk-result-list {

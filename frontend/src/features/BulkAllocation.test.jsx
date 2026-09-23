@@ -111,6 +111,20 @@ describe('BulkAllocation', () => {
     )
   })
 
+  it('keeps the shortage on its own line, apart from the session label', async () => {
+    renderPage()
+    const label = await screen.findByLabelText(/COMS3011/i)
+    const text = label.closest('li').querySelector('label')
+
+    // The two parts must not run together as "…at 14:0012 tutor hours short".
+    // jsdom does no layout, so the guard is structural: the shortage is its own
+    // element, which App.css lays out as a separate line.
+    const shortage = within(text).getByText(/tutor hours short/i)
+    expect(shortage.tagName).toBe('SPAN')
+    expect(shortage).toHaveClass('helper-text')
+    expect(text.firstChild.textContent).not.toMatch(/tutor hours short/i)
+  })
+
   it('previews the chosen requirements and saves nothing yet', async () => {
     await previewOne()
 

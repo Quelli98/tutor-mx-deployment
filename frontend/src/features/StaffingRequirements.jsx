@@ -581,20 +581,24 @@ export default function StaffingRequirements() {
                         {formatDateTime(requirement.endsAt)}
                       </td>
                       <td>{requirement.tutorsNeeded}</td>
-                      <td className="table-cell-stack">
+                      <td>
                         {/* Both numbers come from the server, which derives them;
                             the screen only repeats them. */}
-                        {requirement.requiredHours} tutor hours
-                        <span className="helper-text">
-                          {requirement.windowHours} hours x {requirement.tutorsNeeded} tutors
-                        </span>
+                        <div className="table-cell-stack">
+                          {requirement.requiredHours} tutor hours
+                          <span className="helper-text">
+                            {requirement.windowHours} hours x {requirement.tutorsNeeded} tutors
+                          </span>
+                        </div>
                       </td>
-                      <td className="table-cell-stack">
+                      <td>
                         {/* Words carry the meaning; colour only reinforces it. */}
-                        <span className={`fill-state fill-${requirement.fillState}`}>
-                          {shortageHeadline(requirement)}
-                        </span>
-                        <span className="helper-text">{shortageDetail(requirement)}</span>
+                        <div className="table-cell-stack">
+                          <span className={`fill-state fill-${requirement.fillState}`}>
+                            {shortageHeadline(requirement)}
+                          </span>
+                          <span className="helper-text">{shortageDetail(requirement)}</span>
+                        </div>
                       </td>
                       <td>
                         <span

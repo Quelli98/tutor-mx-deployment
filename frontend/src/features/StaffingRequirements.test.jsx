@@ -190,6 +190,26 @@ describe('StaffingRequirements', () => {
     expect(within(table).queryByText(/more tutor/)).not.toBeInTheDocument()
   })
 
+  it('keeps every row a real table row, one cell per column', async () => {
+    listStaffingRequirements.mockResolvedValue([openRequirement, closedRequirement])
+
+    renderPage()
+    const table = await screen.findByRole('table')
+    const rows = within(table).getAllByRole('row')
+    const headerCount = within(rows[0]).getAllByRole('columnheader').length
+
+    for (const row of rows.slice(1)) {
+      expect(within(row).getAllByRole('cell')).toHaveLength(headerCount)
+    }
+
+    // A <td> with display:grid stops being a table cell, and two adjacent ones
+    // merge into one anonymous cell, shifting every later column left. jsdom
+    // does no layout and cannot see that, so the rule is guarded structurally:
+    // the grid belongs on a wrapper inside the cell.
+    expect(table.querySelectorAll('td.table-cell-stack')).toHaveLength(0)
+    expect(table.querySelectorAll('td > .table-cell-stack').length).toBeGreaterThan(0)
+  })
+
   it('keeps row buttons short on screen but fully described for screen readers', async () => {
     renderPage()
     const table = await screen.findByRole('table')
