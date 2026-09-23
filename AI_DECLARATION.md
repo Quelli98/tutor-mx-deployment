@@ -1,5 +1,9 @@
 # AI Development Declaration
 
+## Sprint 3 Member 3
+
+- Qoder[Auto tier; underlying model automatically routed] was used on 23 September 2026 to implement S3-M3-1, S3-M3-2 and S3-M3-3 on branch `s3/m3/completion`: the academic-term model, migration, seed and listing route; the CSV, paste and calendar-file timetable parser and its mapper onto the existing TimeSlot payload, with a preview route, an atomic commit route and the Tutor import card; the returned-timesheet correction, revision-history, declaration and dispute surface, with the database-enforced editability rule, the responsible-organiser notification and the timeline UI; the payroll CSV export and its reconciliation with the workload report; and the accompanying unit, route and schema-integration tests.
+
 ## Sprint 2 Member 1
 
 - ChatGPT[GPT-5.6 Sol] was used on 13 September 2026 to integrate the supplied S2-M1-1, S2-M1-2 and S2-M1-3 snapshots on top of the already integrated Members 4/5/6 Basic API, audit them against the 11 September handbook, update the endpoint-role matrix from the obsolete Student-mock boundary to the current real Basic routes, expand the automated smoke suite to all 36 authenticated routes, expand the live smoke runner to 22 representative side-effect-safe probes, and update Member 1 handoff/runbook evidence.
