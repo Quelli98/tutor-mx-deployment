@@ -9,6 +9,7 @@ import {
   removeAllocation,
   updateAllocation,
 } from '../api/organiser'
+import { sessionLengthText } from '../components/shared/scheduleWeek'
 import { RuleResult } from '../components/organiser/RuleResult'
 import { ConfirmationDialog } from '../components/shared/ConfirmationDialog'
 import { EmptyState, ErrorState, LoadingState } from '../components/shared/StatusMessage'
@@ -100,6 +101,14 @@ function validateBoard(form) {
     requestedHours > 24
   ) {
     errors.requestedHours = 'Enter requested hours above 0 and no more than 24.'
+  } else if (!errors.startsAt && !errors.endsAt && !errors.requestedHours) {
+    // Hours longer than the session itself would inflate the tutor's used
+    // capacity and a course's staffing shortage. The server and the database
+    // refuse it too; this only saves the organiser a round trip.
+    const windowHours = (endsAt.valueOf() - startsAt.valueOf()) / 3_600_000
+    if (requestedHours > windowHours) {
+      errors.requestedHours = `Enter hours above 0 and no more than the session length of ${sessionLengthText(startsAt, endsAt)}.`
+    }
   }
 
   return errors

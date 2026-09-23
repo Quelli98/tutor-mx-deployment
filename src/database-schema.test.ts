@@ -198,6 +198,35 @@ describe("Basic workflow migrations", () => {
     );
   });
 
+  it("keeps allocated hours inside the session window", async () => {
+    const ids = await database.query<{ tutor_id: number; course_id: number }>(`
+      SELECT
+        (SELECT "id" FROM "Profile" WHERE "auth0Id" = 'demo|tutor-pass') AS tutor_id,
+        (SELECT "id" FROM "Course" WHERE "code" = 'DEMO101') AS course_id;
+    `);
+    const tutorId = ids.rows[0]!.tutor_id;
+    const courseId = ids.rows[0]!.course_id;
+
+    const insert = (day: string, hours: string) =>
+      database.query(
+        `INSERT INTO "Allocation" (
+          "tutorId", "courseId", "startsAt", "endsAt", "allocatedHours"
+        ) VALUES ($1, $2, '${day} 10:00', '${day} 12:00', ${hours})`,
+        [tutorId, courseId],
+      );
+
+    // Hours longer than the two-hour window are refused however plausible they
+    // look on their own: both the capacity check and the staffing shortage add
+    // these up, so an inflated value corrupts them.
+    await expect(insert("2031-03-02", "20")).rejects.toBeDefined();
+    await expect(insert("2031-03-03", "2.25")).rejects.toBeDefined();
+
+    // Exactly the window, and less than it, both stay allowed: a tutor may work
+    // two hours inside a longer block.
+    await expect(insert("2031-03-04", "2")).resolves.toBeDefined();
+    await expect(insert("2031-03-05", "0.5")).resolves.toBeDefined();
+  });
+
   it("rejects orphan and duplicate volunteer claims", async () => {
     const ids = await database.query<{ work_id: number; student_id: number }>(`
       SELECT

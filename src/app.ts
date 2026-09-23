@@ -1177,6 +1177,39 @@ function parseAllocationCandidateQuery(query: unknown) {
   } as const;
 }
 
+/**
+ * A session length said the way a person would: "2 hours", "1 hour 30 minutes",
+ * "45 minutes". The board repeats this wording exactly, so the two never
+ * contradict each other.
+ */
+export function sessionLengthText(startsAt: Date, endsAt: Date): string {
+  const totalMinutes = Math.round(
+    (endsAt.valueOf() - startsAt.valueOf()) / 60_000,
+  );
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  const parts: string[] = [];
+
+  if (hours > 0) {
+    parts.push(`${hours} ${hours === 1 ? "hour" : "hours"}`);
+  }
+  if (minutes > 0 || hours === 0) {
+    parts.push(`${minutes} ${minutes === 1 ? "minute" : "minutes"}`);
+  }
+
+  return parts.join(" ");
+}
+
+function hoursWithinSession(
+  requestedHours: number,
+  startsAt: Date,
+  endsAt: Date,
+): boolean {
+  return (
+    requestedHours <= (endsAt.valueOf() - startsAt.valueOf()) / 3_600_000
+  );
+}
+
 function parseAllocationWriteInput(body: unknown) {
   const payload = body as {
     tutorId?: unknown;
@@ -1208,6 +1241,15 @@ function parseAllocationWriteInput(body: unknown) {
     return {
       error:
         "Enter a valid tutor, course, start/end time, minimum mark (0-100), requested hours and allocation status.",
+    } as const;
+  }
+
+  // Hours longer than the session itself would inflate the tutor's used capacity
+  // and a course's staffing shortage, which both add these hours up. Fewer hours
+  // than the window stays allowed. The database enforces the same rule.
+  if (!hoursWithinSession(requestedHours, startsAt, endsAt)) {
+    return {
+      error: `Enter hours above 0 and no more than the session length of ${sessionLengthText(startsAt, endsAt)}.`,
     } as const;
   }
 

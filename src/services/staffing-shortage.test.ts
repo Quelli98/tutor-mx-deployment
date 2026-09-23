@@ -171,11 +171,12 @@ describe("assigned hours for a staffing requirement", () => {
   });
 
   it.each([
-    ["touching the start", "2030-09-04 08:00", "2030-09-04 10:00"],
-    ["touching the end", "2030-09-04 14:00", "2030-09-04 16:00"],
-    ["on another day", "2030-09-05 10:00", "2030-09-05 14:00"],
-  ])("ignores a booking %s", async (_label, startsAt, endsAt) => {
-    await allocation(1, { startsAt, endsAt, hours: 4 });
+    ["touching the start", "2030-09-04 08:00", "2030-09-04 10:00", 2],
+    ["touching the end", "2030-09-04 14:00", "2030-09-04 16:00", 2],
+    ["on another day", "2030-09-05 10:00", "2030-09-05 14:00", 4],
+  ])("ignores a booking %s", async (_label, startsAt, endsAt, hours) => {
+    // Hours always fit their own window, which the database now enforces.
+    await allocation(1, { startsAt, endsAt, hours });
     await expect(assignedHours()).resolves.toBe(0);
   });
 
@@ -297,7 +298,7 @@ describe("the shortage query agrees with timeRangesOverlap", () => {
     ["entirely before", "2030-09-04 06:00", "2030-09-04 08:00", false],
     ["entirely after", "2030-09-04 16:00", "2030-09-04 18:00", false],
   ])("agrees for a booking %s", async (_label, startsAt, endsAt, expected) => {
-    await allocation(1, { startsAt, endsAt, hours: 4 });
+    await allocation(1, { startsAt, endsAt, hours: 1 });
 
     const countedBySql = (await assignedHours()) > 0;
     const overlapsInJs = timeRangesOverlap(

@@ -555,3 +555,55 @@ describe('OrganiserDashboard candidate ranking', () => {
     expect(within(blocked).getByText(/mark: fail/i)).toBeVisible()
   })
 })
+
+describe('OrganiserDashboard session-length check', () => {
+  beforeEach(() => {
+    listCourses.mockReset().mockResolvedValue(courses)
+    listAllocationCandidates.mockReset().mockResolvedValue([])
+    listAllocations.mockReset().mockResolvedValue([])
+    createAllocation.mockReset().mockResolvedValue({ id: 11 })
+    updateAllocation.mockReset().mockResolvedValue({ id: 11 })
+    removeAllocation.mockReset().mockResolvedValue(undefined)
+    getAccessTokenSilently.mockReset()
+  })
+
+  async function boardWith(startsAt, endsAt, hours) {
+    render(<OrganiserDashboard />)
+    await screen.findByRole('option', { name: /COMS3011/i })
+    fireEvent.change(screen.getByLabelText(/^course$/i), { target: { value: '3' } })
+    fireEvent.change(screen.getByLabelText(/session starts/i), { target: { value: startsAt } })
+    fireEvent.change(screen.getByLabelText(/session ends/i), { target: { value: endsAt } })
+    fireEvent.change(screen.getByLabelText(/required hours/i), { target: { value: hours } })
+    fireEvent.click(screen.getByRole('button', { name: /check candidates/i }))
+  }
+
+  it('stops hours longer than the session before any request is sent', async () => {
+    await boardWith('2030-09-04T14:00', '2030-09-04T16:00', '20')
+
+    expect(screen.getByLabelText(/required hours/i)).toHaveAccessibleDescription(
+      'Enter hours above 0 and no more than the session length of 2 hours.',
+    )
+    expect(listAllocationCandidates).not.toHaveBeenCalled()
+  })
+
+  it('names a fractional session length properly', async () => {
+    await boardWith('2030-09-04T14:00', '2030-09-04T15:30', '2')
+
+    expect(screen.getByLabelText(/required hours/i)).toHaveAccessibleDescription(
+      'Enter hours above 0 and no more than the session length of 1 hour 30 minutes.',
+    )
+    expect(listAllocationCandidates).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    ['exactly the session length', '2'],
+    ['less than the session length', '0.5'],
+  ])('allows %s', async (_label, hours) => {
+    await boardWith('2030-09-04T14:00', '2030-09-04T16:00', hours)
+
+    await waitFor(() => expect(listAllocationCandidates).toHaveBeenCalled())
+    expect(listAllocationCandidates.mock.calls[0][0]).toMatchObject({
+      requestedHours: Number(hours),
+    })
+  })
+})

@@ -76,3 +76,25 @@ export function scheduleForWeek(slots, weekStart) {
   }
   return days
 }
+
+/**
+ * A session length said the way a person would: "2 hours", "1 hour 30 minutes",
+ * "45 minutes".
+ *
+ * The wording is duplicated from sessionLengthText in src/app.ts on purpose -
+ * the browser cannot import server code - and both sides are checked against the
+ * same table of examples so they can never drift apart.
+ */
+export function sessionLengthText(startsAt, endsAt) {
+  const totalMinutes = Math.round((endsAt.valueOf() - startsAt.valueOf()) / 60_000)
+  const hours = Math.floor(totalMinutes / 60)
+  const minutes = totalMinutes % 60
+  const parts = []
+
+  if (hours > 0) parts.push(`${hours} ${hours === 1 ? 'hour' : 'hours'}`)
+  if (minutes > 0 || hours === 0) {
+    parts.push(`${minutes} ${minutes === 1 ? 'minute' : 'minutes'}`)
+  }
+
+  return parts.join(' ')
+}

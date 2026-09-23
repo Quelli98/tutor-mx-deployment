@@ -1063,3 +1063,73 @@ describe("staffing requirement routes", () => {
     }
   });
 });
+
+describe("allocation hours must fit the session", () => {
+  const twoHourSession = {
+    tutorId: 7,
+    courseId: 3,
+    startsAt: "2030-09-04T14:00:00.000Z",
+    endsAt: "2030-09-04T16:00:00.000Z",
+    minimumMark: 50,
+    status: "CONFIRMED",
+  };
+
+  it.each([
+    ["creating", "post", "/api/allocations"],
+    ["editing", "patch", "/api/allocations/11"],
+  ])("refuses hours longer than the session when %s", async (_label, method, path) => {
+    const createAllocation = vi.fn();
+    const updateAllocation = vi.fn();
+    const app = makeApp({ createAllocation, updateAllocation });
+
+    const response = await (method === "post"
+      ? request(app).post(path)
+      : request(app).patch(path))
+      .set("Authorization", "Bearer valid-token")
+      .send({ ...twoHourSession, requestedHours: 20 });
+
+    expect(response.status).toBe(400);
+    expect(response.body.error).toEqual({
+      code: "VALIDATION_ERROR",
+      message: "Enter hours above 0 and no more than the session length of 2 hours.",
+    });
+    expect(createAllocation).not.toHaveBeenCalled();
+    expect(updateAllocation).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["exactly the session length", 2],
+    ["less than the session length", 0.5],
+  ])("accepts %s", async (_label, requestedHours) => {
+    const createAllocation = vi.fn().mockResolvedValue(allocationSummary);
+    const app = makeApp({ createAllocation });
+
+    const response = await request(app)
+      .post("/api/allocations")
+      .set("Authorization", "Bearer valid-token")
+      .send({ ...twoHourSession, requestedHours });
+
+    expect(response.status).toBe(201);
+    expect(createAllocation).toHaveBeenCalledWith(
+      "auth0|organiser",
+      expect.objectContaining({ requestedHours }),
+    );
+  });
+
+  it("names a fractional session length properly", async () => {
+    const app = makeApp({ createAllocation: vi.fn() });
+
+    const response = await request(app)
+      .post("/api/allocations")
+      .set("Authorization", "Bearer valid-token")
+      .send({
+        ...twoHourSession,
+        endsAt: "2030-09-04T15:30:00.000Z",
+        requestedHours: 2,
+      });
+
+    expect(response.body.error.message).toBe(
+      "Enter hours above 0 and no more than the session length of 1 hour 30 minutes.",
+    );
+  });
+});

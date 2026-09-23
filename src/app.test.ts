@@ -1,6 +1,6 @@
 import request from "supertest";
 import { describe, expect, it, vi } from "vitest";
-import { createApp } from "./app.js";
+import { createApp, sessionLengthText } from "./app.js";
 
 describe("GET /health", () => {
   it("keeps liveness available after a failed readiness probe", async () => {
@@ -140,5 +140,22 @@ describe("shared error handling", () => {
       },
     });
     expect(response.text).not.toContain("request entity too large");
+  });
+});
+
+describe("session length wording", () => {
+  // The board repeats these words exactly. frontend/src/components/shared/
+  // scheduleWeek.test.js runs the same table, so the two cannot drift apart.
+  it.each([
+      ["2030-09-04T10:00:00.000Z", "2030-09-04T12:00:00.000Z", "2 hours"],
+      ["2030-09-04T10:00:00.000Z", "2030-09-04T11:00:00.000Z", "1 hour"],
+      ["2030-09-04T10:00:00.000Z", "2030-09-04T11:30:00.000Z", "1 hour 30 minutes"],
+      ["2030-09-04T10:00:00.000Z", "2030-09-04T12:45:00.000Z", "2 hours 45 minutes"],
+      ["2030-09-04T10:00:00.000Z", "2030-09-04T10:45:00.000Z", "45 minutes"],
+      ["2030-09-04T10:00:00.000Z", "2030-09-04T10:20:00.000Z", "20 minutes"],
+      ["2030-09-04T10:00:00.000Z", "2030-09-04T10:01:00.000Z", "1 minute"],
+      ["2030-09-04T10:00:00.000Z", "2030-09-04T11:01:00.000Z", "1 hour 1 minute"],
+  ])("says %s to %s as %s", (startsAt, endsAt, expected) => {
+    expect(sessionLengthText(new Date(startsAt), new Date(endsAt))).toBe(expected);
   });
 });
