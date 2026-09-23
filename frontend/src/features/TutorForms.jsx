@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useAuth0 } from '@auth0/auth0-react'
 import { fetchTutorDashboard } from '../api/tutorDashboard'
 import AvailabilityForm from './AvailabilityForm'
+import TimetableImport from './TimetableImport'
 import WorkLogForm from './WorkLogForm'
 import ExcuseForm from './ExcuseForm'
 
@@ -9,6 +10,9 @@ export default function TutorForms() {
   const { getAccessTokenSilently, user } = useAuth0()
   const [status, setStatus] = useState('loading')
   const [allocations, setAllocations] = useState([])
+  // Bumped when an import lands, so the schedule list above reloads and shows the
+  // newly imported entries alongside the hand-entered ones.
+  const [scheduleVersion, setScheduleVersion] = useState(0)
 
   const loadSessions = useCallback(async () => {
     setStatus('loading')
@@ -76,7 +80,11 @@ export default function TutorForms() {
         </div>
       </header>
       <div className="tutor-form-grid">
-        <AvailabilityForm tokenOrGetter={getAccessTokenSilently} />
+        <AvailabilityForm key={`schedule-${scheduleVersion}`} tokenOrGetter={getAccessTokenSilently} />
+        <TimetableImport
+          tokenOrGetter={getAccessTokenSilently}
+          onImported={() => setScheduleVersion((current) => current + 1)}
+        />
         <WorkLogForm
           key={`work-log-${storageScope ?? 'unknown'}`}
           allocations={confirmedAllocations}

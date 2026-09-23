@@ -12,6 +12,27 @@ OR "overflowWorkId" IN (
 );
 DELETE FROM "Excuse"
 WHERE "tutorId" IN (SELECT "id" FROM "Profile" WHERE "auth0Id" LIKE 'demo|%');
+-- Correction history, declarations and disputes reference work logs, timesheets
+-- and profiles with Restrict keys, so they have to go first or a re-run of this
+-- seed fails on the rows a demo walkthrough created.
+DELETE FROM "TimesheetRevision"
+WHERE "timesheetId" IN (
+  SELECT "id" FROM "Timesheet"
+  WHERE "tutorId" IN (SELECT "id" FROM "Profile" WHERE "auth0Id" LIKE 'demo|%')
+)
+OR "authorProfileId" IN (SELECT "id" FROM "Profile" WHERE "auth0Id" LIKE 'demo|%');
+DELETE FROM "TimesheetDeclaration"
+WHERE "timesheetId" IN (
+  SELECT "id" FROM "Timesheet"
+  WHERE "tutorId" IN (SELECT "id" FROM "Profile" WHERE "auth0Id" LIKE 'demo|%')
+);
+DELETE FROM "TimesheetDispute"
+WHERE "timesheetId" IN (
+  SELECT "id" FROM "Timesheet"
+  WHERE "tutorId" IN (SELECT "id" FROM "Profile" WHERE "auth0Id" LIKE 'demo|%')
+)
+OR "raisedByProfileId" IN (SELECT "id" FROM "Profile" WHERE "auth0Id" LIKE 'demo|%')
+OR "resolvedByProfileId" IN (SELECT "id" FROM "Profile" WHERE "auth0Id" LIKE 'demo|%');
 DELETE FROM "WorkLog"
 WHERE "tutorId" IN (SELECT "id" FROM "Profile" WHERE "auth0Id" LIKE 'demo|%');
 DELETE FROM "Timesheet"
@@ -41,6 +62,22 @@ INSERT INTO "Profile" ("auth0Id", "email", "fullName", "role") VALUES
 
 INSERT INTO "Course" ("code", "name")
 VALUES ('DEMO101', 'Demo Introduction to Tutoring');
+
+-- Academic terms are upserted rather than deleted-and-recreated: they are
+-- shared institution reference data, not demo-owned rows, and a term is what
+-- bounds an imported timetable. Removing one on every seed would silently
+-- strand the schedule entries that were imported against it.
+-- Both terms are seeded so the import picker is not a single dead-end option
+-- and so a term boundary can be exercised: all demo dates below fall inside
+-- 'Demo 2030 Semester 2' and outside 'Demo 2031 Semester 1'.
+INSERT INTO "AcademicTerm" ("name", "startsOn", "endsOn", "updatedAt")
+VALUES
+  ('Demo 2030 Semester 2', DATE '2030-08-26', DATE '2030-11-29', CURRENT_TIMESTAMP),
+  ('Demo 2031 Semester 1', DATE '2031-02-17', DATE '2031-06-06', CURRENT_TIMESTAMP)
+ON CONFLICT ("name") DO UPDATE SET
+  "startsOn" = EXCLUDED."startsOn",
+  "endsOn" = EXCLUDED."endsOn",
+  "updatedAt" = CURRENT_TIMESTAMP;
 
 INSERT INTO "TutorMark" ("tutorId", "courseId", "mark")
 SELECT p."id", c."id", marks."mark"
@@ -194,7 +231,14 @@ UPDATE "Timesheet" SET "status" = 'SUBMITTED'
 WHERE "tutorId" = (SELECT "id" FROM "Profile" WHERE "auth0Id" = 'demo|tutor-pass')
   AND "weekStart" = DATE '2030-09-16';
 
-UPDATE "Timesheet" SET "status" = 'RETURNED', "reviewReason" = 'Please correct Tuesday hours'
+-- A returned timesheet must name the review that produced it: the database
+-- enforces it, and the tutor's resubmission is declared against that moment, so
+-- the fixture has to carry a real review time rather than only a reason.
+UPDATE "Timesheet"
+  SET "status" = 'RETURNED',
+      "reviewReason" = 'Please correct Tuesday hours',
+      "reviewedById" = (SELECT "id" FROM "Profile" WHERE "auth0Id" = 'demo|organiser'),
+      "reviewedAt" = CURRENT_TIMESTAMP - INTERVAL '2 days'
 WHERE "tutorId" = (SELECT "id" FROM "Profile" WHERE "auth0Id" = 'demo|tutor-pass')
   AND "weekStart" = DATE '2030-09-16';
 

@@ -26,10 +26,12 @@ import { createCourseService } from "./services/course-service.js";
 import { createStaffingRequirementService } from "./services/staffing-requirement-service.js";
 import { createBulkAllocationService } from "./services/bulk-allocation-service.js";
 import { createReportingService } from "./services/reporting-service.js";
+import { payrollFilename, toPayrollCsv } from "./services/payroll-export.js";
 import { createExcuseWorkflowService } from "./services/excuse-workflows.js";
 import { createOrganiserService } from "./services/organiser-service.js";
 import { createStudentWorkflowService } from "./services/student-workflows.js";
 import { createTimesheetWorkflowService } from "./services/timesheet-workflows.js";
+import { createTimesheetCorrectionsService } from "./services/timesheet-corrections.js";
 import {
   createNotificationService,
   startDueReminderScheduler,
@@ -40,11 +42,15 @@ import {
   buildExcuseDecisionNotifications,
   buildExcuseSubmittedNotifications,
   buildTimesheetDecisionNotifications,
+  buildTimesheetDisputeResolvedNotifications,
+  buildTimesheetDisputedNotifications,
   buildTimesheetSubmittedNotifications,
   buildVolunteerOutcomeNotifications,
   type NotificationEvent,
 } from "./services/notifications.js";
 import { createSearchService } from "./services/search-service.js";
+import { createAcademicTermService } from "./services/academic-terms.js";
+import { createTimetableImportService } from "./services/timetable-import-service.js";
 
 const port = Number(process.env.PORT ?? 3000);
 
@@ -246,6 +252,9 @@ const studentWorkflowService = createStudentWorkflowService(
   queryClient,
 );
 const timesheetWorkflowService = createTimesheetWorkflowService(prisma);
+// Corrections, declarations and disputes: the history that sits beside the
+// existing timesheet state machine rather than replacing any of it.
+const timesheetCorrectionsService = createTimesheetCorrectionsService(prisma);
 const excuseWorkflowService = createExcuseWorkflowService(prisma);
 const organiserService = createOrganiserService(prisma);
 const courseService = createCourseService(prisma);
@@ -280,6 +289,11 @@ const notificationService = createNotificationService(
   prisma as unknown as NotificationDataClient,
 );
 const searchService = createSearchService(queryClient);
+const academicTermService = createAcademicTermService(prisma);
+
+// Writes only through one serializable transaction, so a half-imported
+// timetable cannot be left behind when a later row fails its checks.
+const timetableImportService = createTimetableImportService(prisma);
 
 async function listOrganiserProfileIds() {
   const organisers = await prisma.profile.findMany({
@@ -295,6 +309,40 @@ async function emitNotifications(events: NotificationEvent[]) {
   } catch (error) {
     console.error(JSON.stringify({
       event: "notification_error",
+      message: error instanceof Error ? error.message : "unknown",
+    }));
+  }
+}
+
+/**
+ * The organiser answerable for a sheet: whoever reviewed it last, or the whole
+ * organiser group when nobody has yet. A dispute is addressed to the person who
+ * made the decision where there is one, so it does not land on everybody's
+ * queue.
+ */
+async function timesheetReviewerProfileIds(timesheetId: number) {
+  const timesheet = await prisma.timesheet.findUnique({
+    where: { id: timesheetId },
+    select: { reviewedById: true },
+  });
+  if (timesheet?.reviewedById) {
+    return [timesheet.reviewedById];
+  }
+  return listOrganiserProfileIds();
+}
+
+/**
+ * Records the reason for a return once the decision itself is committed. Like
+ * the notification beside it this is a side effect of a decision that has
+ * already happened, so a failure is logged rather than turned into an error the
+ * caller would read as "the decision failed" when it did not.
+ */
+async function recordTimesheetReturn(auth0Id: string, timesheetId: number) {
+  try {
+    await timesheetCorrectionsService.recordReturn(auth0Id, timesheetId);
+  } catch (error) {
+    console.error(JSON.stringify({
+      event: "timesheet_return_history_error",
       message: error instanceof Error ? error.message : "unknown",
     }));
   }
@@ -347,12 +395,26 @@ const app = createApp(
       return searchService.search({ id: profile.id, role }, query);
     },
     workloadReport: reportingService.workloadReport,
+    async payrollExportCsv(query) {
+      // The same human-checked rules the report counts with, written as the file
+      // a payroll run reads. Held lines stay out of it entirely: this file is
+      // what is owed, and the report is where the hold is visible.
+      const exportRows = await reportingService.payrollExport(query);
+      return {
+        filename: payrollFilename(query),
+        csv: toPayrollCsv(exportRows.rows),
+      };
+    },
     previewBulkAllocations: bulkAllocationService.preview,
     commitBulkAllocations: bulkAllocationService.commit,
     listStaffingRequirements: staffingRequirementService.listStaffingRequirements,
     createStaffingRequirement: staffingRequirementService.createStaffingRequirement,
     updateStaffingRequirement: staffingRequirementService.updateStaffingRequirement,
     setStaffingRequirementStatus: staffingRequirementService.setStaffingRequirementStatus,
+    listAcademicTerms: academicTermService.list,
+    createAcademicTerm: academicTermService.create,
+    previewTutorTimetableImport: timetableImportService.preview,
+    commitTutorTimetableImport: timetableImportService.commit,
     async onboardUser(auth0Id, role) {
       const existing = await prisma.profile.findUnique({
         where: { auth0Id },
@@ -778,11 +840,45 @@ const app = createApp(
       studentWorkflowService.withdrawVolunteerRequest,
     getTutorTimesheetStatus: timesheetWorkflowService.getStatus,
     async submitTutorTimesheet(auth0Id, timesheetId) {
+      // Resubmitting a returned timesheet needs an acknowledgement that covers
+      // the corrected figures. Reported here in the caller's terms; the database
+      // trigger enforces the same rule for anything that skips this check.
+      await timesheetCorrectionsService.assertResubmissionReady(
+        auth0Id,
+        timesheetId,
+      );
       const result = await timesheetWorkflowService.submit(auth0Id, timesheetId);
       await emitNotifications(
         buildTimesheetSubmittedNotifications(result, await listOrganiserProfileIds()),
       );
       return result;
+    },
+    getTutorTimesheetHistory: timesheetCorrectionsService.history,
+    correctTutorTimesheetWorkLog: timesheetCorrectionsService.correctWorkLog,
+    declareTutorTimesheet: timesheetCorrectionsService.declare,
+    async raiseTutorTimesheetDispute(auth0Id, timesheetId, input) {
+      const dispute = await timesheetCorrectionsService.raiseDispute(
+        auth0Id,
+        timesheetId,
+        input,
+      );
+      await emitNotifications(
+        buildTimesheetDisputedNotifications(
+          dispute,
+          await timesheetReviewerProfileIds(dispute.timesheetId),
+        ),
+      );
+      return dispute;
+    },
+    listTimesheetDisputes: timesheetCorrectionsService.listDisputes,
+    async resolveTimesheetDispute(auth0Id, disputeId, input) {
+      const dispute = await timesheetCorrectionsService.resolveDispute(
+        auth0Id,
+        disputeId,
+        input,
+      );
+      await emitNotifications(buildTimesheetDisputeResolvedNotifications(dispute));
+      return dispute;
     },
     getTutorExcuseStatus: excuseWorkflowService.getStatus,
     async decideExcuse(excuseId, input) {
@@ -832,6 +928,12 @@ const app = createApp(
     removeAllocation: organiserService.removeAllocation,
     async decideTimesheet(auth0Id, timesheetId, input) {
       const result = await organiserService.decideTimesheet(auth0Id, timesheetId, input);
+      if (result.status === "RETURNED") {
+        // Recorded before the notification, because a resubmission clears the
+        // reason from the sheet itself and this row is then all that is left of
+        // it.
+        await recordTimesheetReturn(auth0Id, timesheetId);
+      }
       await emitNotifications(buildTimesheetDecisionNotifications(result));
       return result;
     },
@@ -999,6 +1101,28 @@ const app = createApp(
           where: { id: { in: overflowWorkIds } },
         });
         await transaction.excuse.deleteMany({ where: { tutorId: profile.id } });
+        // Correction history references the work logs and the timesheet it
+        // describes, so it is removed with them. The tutor's own rows go first,
+        // then any line this profile wrote or answered on someone else's sheet:
+        // the history stays and only the identity is cleared, the same rule this
+        // transaction already applies to a timesheet's reviewer.
+        await transaction.timesheetRevision.deleteMany({
+          where: { tutorId: profile.id },
+        });
+        await transaction.timesheetDeclaration.deleteMany({
+          where: { tutorId: profile.id },
+        });
+        await transaction.timesheetDispute.deleteMany({
+          where: { tutorId: profile.id },
+        });
+        await transaction.timesheetRevision.updateMany({
+          where: { authorProfileId: profile.id },
+          data: { authorProfileId: null },
+        });
+        await transaction.timesheetDispute.updateMany({
+          where: { resolvedByProfileId: profile.id },
+          data: { resolvedByProfileId: null },
+        });
         await transaction.workLog.deleteMany({ where: { tutorId: profile.id } });
         await transaction.timesheet.deleteMany({ where: { tutorId: profile.id } });
         await transaction.timesheet.updateMany({

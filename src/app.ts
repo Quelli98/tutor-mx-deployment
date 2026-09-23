@@ -30,6 +30,27 @@ import {
   resolveSearchCategories,
 } from "./services/search.js";
 import type { ResolvedSearchQuery, SearchResponse } from "./services/search-service.js";
+import {
+  parseAcademicTermInput,
+  type AcademicTermInput,
+  type AcademicTermSummary,
+} from "./services/academic-terms.js";
+import { checkTimeSlotRules } from "./services/time-slot-rules.js";
+import {
+  parseTimetableImportRequest,
+  type TimetableImportPreview,
+  type TimetableImportRequest,
+} from "./services/timetable-import.js";
+import type { TimetableImportCommitResult } from "./services/timetable-import-service.js";
+import type {
+  TimesheetCorrectionInput,
+  TimesheetCorrectionResult,
+  TimesheetDeclarationSummary,
+  TimesheetDisputeInput,
+  TimesheetDisputeResolutionInput,
+  TimesheetDisputeSummary,
+  TimesheetHistory,
+} from "./services/timesheet-corrections.js";
 
 type ReadinessCheck = () => Promise<void>;
 
@@ -464,6 +485,46 @@ export interface WorkloadReportQuery {
   weeks: number;
 }
 
+/**
+ * One line of a payroll run: what one tutor did on one course in one week. The
+ * period is the week of the timesheet that was signed off, so every line can be
+ * traced back to the sheet behind it.
+ */
+export interface PayrollExportRow {
+  periodStart: string;
+  periodEnd: string;
+  tutorId: number;
+  tutor: string;
+  courseCode: string;
+  courseName: string;
+  hours: number;
+  status: "APPROVED";
+  /** Approved, but held back by an objection that is still open. */
+  held: boolean;
+}
+
+/**
+ * Approved work splits into what may be paid and what is held back, and the two
+ * halves are reported rather than netted off: an hour is either payable or it is
+ * waiting on an answer, never quietly missing. Payable plus held is the same
+ * total the workload report shows for the period, which is what makes the two
+ * reconcilable.
+ */
+export interface PayrollExport {
+  period: { weekStart: string; weekEnd: string; weeks: number };
+  /** What may be paid now. */
+  rows: PayrollExportRow[];
+  /** Approved work an open dispute holds back. Never paid, never hidden. */
+  heldRows: PayrollExportRow[];
+  totals: { payableHours: number; heldHours: number; approvedHours: number };
+}
+
+/** The file a payroll run downloads: the name to save it under, and its text. */
+export interface PayrollExportCsv {
+  filename: string;
+  csv: string;
+}
+
 export interface TimesheetDecisionInput {
   decision: "APPROVE" | "RETURN";
   reason?: string;
@@ -584,6 +645,38 @@ export interface AppDependencies {
     auth0Id: string,
     timesheetId: number,
   ) => Promise<TutorTimesheetStatusSummary>;
+  /**
+   * The correction-history surface. Optional so an environment that has not wired
+   * it answers 503 instead of appearing to accept a correction it cannot record.
+   */
+  getTutorTimesheetHistory?: (
+    auth0Id: string,
+    timesheetId: number,
+  ) => Promise<TimesheetHistory>;
+  correctTutorTimesheetWorkLog?: (
+    auth0Id: string,
+    timesheetId: number,
+    workLogId: number,
+    input: TimesheetCorrectionInput,
+  ) => Promise<TimesheetCorrectionResult>;
+  declareTutorTimesheet?: (
+    auth0Id: string,
+    timesheetId: number,
+    statementVersion: string,
+  ) => Promise<TimesheetDeclarationSummary>;
+  raiseTutorTimesheetDispute?: (
+    auth0Id: string,
+    timesheetId: number,
+    input: TimesheetDisputeInput,
+  ) => Promise<TimesheetDisputeSummary>;
+  listTimesheetDisputes?: (
+    auth0Id: string,
+  ) => Promise<TimesheetDisputeSummary[]>;
+  resolveTimesheetDispute?: (
+    auth0Id: string,
+    disputeId: number,
+    input: TimesheetDisputeResolutionInput,
+  ) => Promise<TimesheetDisputeSummary>;
   getTutorExcuseStatus: (
     auth0Id: string,
     excuseId: number,
@@ -642,6 +735,9 @@ export interface AppDependencies {
   runDueReminders?: () => Promise<{ generated: number }>;
   search?: (auth0Id: string, query: ResolvedSearchQuery) => Promise<SearchResponse>;
   workloadReport?: (query: WorkloadReportQuery) => Promise<WorkloadReport>;
+  payrollExportCsv?: (
+    query: WorkloadReportQuery,
+  ) => Promise<PayrollExportCsv>;
   previewBulkAllocations?: (
     query: BulkAllocationPreviewQuery,
   ) => Promise<BulkAllocationPreviewItem[]>;
@@ -664,6 +760,19 @@ export interface AppDependencies {
     requirementId: number,
     status: StaffingRequirementStatus,
   ) => Promise<StaffingRequirementSummary>;
+  /** Academic terms bound how far an imported recurring schedule entry repeats. */
+  listAcademicTerms?: () => Promise<AcademicTermSummary[]>;
+  createAcademicTerm?: (
+    input: AcademicTermInput,
+  ) => Promise<AcademicTermSummary>;
+  previewTutorTimetableImport?: (
+    auth0Id: string,
+    request: TimetableImportRequest,
+  ) => Promise<TimetableImportPreview>;
+  commitTutorTimetableImport?: (
+    auth0Id: string,
+    request: TimetableImportRequest,
+  ) => Promise<TimetableImportCommitResult>;
   verifyAccessToken: AccessTokenVerifier;
 }
 
@@ -1290,23 +1399,26 @@ function parseTutorTimeSlotInput(body: unknown) {
   const label = typeof body.label === "string" ? body.label.trim() : body.label;
   const recurrenceUntil = body.recurrenceUntil == null ? null : scheduleDate(body.recurrenceUntil);
 
-  if (
-    (type !== "AVAILABLE" && type !== "BUSY") ||
-    !startsAt || !endsAt || endsAt <= startsAt ||
-    (recurrence !== undefined && recurrence !== "WEEKLY") ||
-    (recurrence === "WEEKLY" && endsAt.valueOf() - startsAt.valueOf() > 7 * 24 * 60 * 60 * 1000) ||
-    (label !== undefined && label !== null && (typeof label !== "string" || label.length > 120)) ||
-    (body.recurrenceUntil != null && (!recurrenceUntil || recurrence !== "WEEKLY" || recurrenceUntil < startsAt))
-  ) {
-    return { error: "Enter a valid schedule interval, label (up to 120 characters) and weekly recurrence end." } as const;
+  // The rules themselves live in src/services/time-slot-rules.ts so that the
+  // timetable import cannot drift away from what the manual form accepts. Key
+  // presence is passed through because an explicit null label and an omitted
+  // one have always meant the same thing here.
+  const checked = checkTimeSlotRules({
+    type,
+    startsAt,
+    endsAt,
+    recurrence,
+    labelSupplied: body.label !== undefined,
+    label,
+    recurrenceUntilSupplied: body.recurrenceUntil !== undefined,
+    recurrenceUntilProvided: body.recurrenceUntil != null,
+    recurrenceUntil,
+  });
+  if ("error" in checked) {
+    return { error: checked.error } as const;
   }
 
-  const value: TutorTimeSlotWriteInput = {
-    type, startsAt, endsAt,
-    ...(recurrence === "WEEKLY" ? { recurrence } : {}),
-    ...(label !== undefined ? { label } : {}),
-    ...(body.recurrenceUntil !== undefined ? { recurrenceUntil } : {}),
-  };
+  const value: TutorTimeSlotWriteInput = checked.value;
   return { value } as const;
 }
 
@@ -1345,6 +1457,83 @@ function parseTutorWorkLogInput(body: unknown) {
   return {
     value: { allocationId, workDate, hours, description },
   } as const;
+}
+
+/**
+ * A correction carries only what a tutor may change about an existing work log:
+ * the hours and the description. The session and its date belong to the
+ * allocation, so they are not editable here at all.
+ */
+function parseTutorWorkLogCorrectionInput(body: unknown) {
+  const payload = body as { hours?: unknown; description?: unknown } | null;
+  const hours =
+    typeof payload?.hours === "number" ? payload.hours : Number.NaN;
+  const description = parseRequiredText(
+    payload?.description,
+    "description",
+    500,
+  );
+
+  if (
+    !Number.isFinite(hours) ||
+    hours <= 0 ||
+    hours > 24 ||
+    !hasAtMostTwoDecimalPlaces(hours) ||
+    !description
+  ) {
+    return {
+      error: "Enter corrected hours between 0 and 24 and a description.",
+    } as const;
+  }
+
+  return { value: { hours, description } } as const;
+}
+
+function parseTimesheetDeclarationInput(body: unknown) {
+  const payload = body as { statementVersion?: unknown } | null;
+  const statementVersion = parseRequiredText(
+    payload?.statementVersion,
+    "statementVersion",
+    32,
+  );
+
+  if (!statementVersion) {
+    return {
+      error: "Acknowledge the current declaration wording before declaring.",
+    } as const;
+  }
+
+  return { value: { statementVersion } } as const;
+}
+
+function parseTimesheetDisputeInput(body: unknown) {
+  const payload = body as { reason?: unknown } | null;
+  const reason = parseRequiredText(payload?.reason, "reason", 1000);
+
+  if (!reason) {
+    return {
+      error: "Explain what you are disputing, in 1000 characters or fewer.",
+    } as const;
+  }
+
+  return { value: { reason } } as const;
+}
+
+function parseTimesheetDisputeResolutionInput(body: unknown) {
+  const payload = body as { resolutionReason?: unknown } | null;
+  const resolutionReason = parseRequiredText(
+    payload?.resolutionReason,
+    "resolutionReason",
+    1000,
+  );
+
+  if (!resolutionReason) {
+    return {
+      error: "Give the reason for answering this dispute.",
+    } as const;
+  }
+
+  return { value: { resolutionReason } } as const;
 }
 
 function parseTutorExcuseInput(body: unknown) {
@@ -2292,6 +2481,48 @@ export function createApp(
     },
   );
 
+  app.get(
+    "/api/reports/payroll-export",
+    authenticate,
+    resolveProfileRole,
+    requireRole("ORGANISER"),
+    async (request, response) => {
+      // The same period contract as the workload report, because the export is
+      // reconciled against that report for the same weeks.
+      const parsed = parseWorkloadReportQuery(request.query);
+      if ("error" in parsed) {
+        const result = error(
+          400,
+          "VALIDATION_ERROR",
+          parsed.error ??
+            "Choose a week starting on a Monday and a length of 1 to 52 weeks.",
+        );
+        response.status(result.status).json(result.body);
+        return;
+      }
+
+      try {
+        if (!dependencies.payrollExportCsv) {
+          throw createRouteError(
+            503,
+            "PAYROLL_EXPORT_UNAVAILABLE",
+            "Payroll export is not configured.",
+          );
+        }
+        const file = await dependencies.payrollExportCsv(parsed.value);
+        // A download, not a page: the browser saves the body as it is sent.
+        response.setHeader("Content-Type", "text/csv; charset=utf-8");
+        response.setHeader(
+          "Content-Disposition",
+          `attachment; filename="${file.filename}"`,
+        );
+        response.status(200).send(file.csv);
+      } catch (value) {
+        sendRouteError(response, value);
+      }
+    },
+  );
+
   app.post(
     "/api/allocations/bulk-preview",
     authenticate,
@@ -2618,6 +2849,88 @@ export function createApp(
     },
   );
 
+  /**
+   * The organiser side of a dispute. Without a list an organiser has nothing to
+   * read after the notification arrives, and without the decision below there
+   * would be no way to clear the objection that holds payroll back.
+   */
+  app.get(
+    "/api/organiser/timesheet-disputes",
+    authenticate,
+    resolveProfileRole,
+    requireRole("ORGANISER"),
+    async (request, response) => {
+      try {
+        if (!dependencies.listTimesheetDisputes) {
+          throw createRouteError(
+            503,
+            "TIMESHEET_DISPUTE_UNAVAILABLE",
+            "Timesheet disputes are not configured.",
+          );
+        }
+        const disputes = await dependencies.listTimesheetDisputes(
+          (request as AuthenticatedRequest).auth!.subject,
+        );
+        response.status(200).json({ data: { disputes } });
+      } catch (value) {
+        sendRouteError(response, value);
+      }
+    },
+  );
+
+  app.patch(
+    "/api/timesheet-disputes/:disputeId",
+    authenticate,
+    resolveProfileRole,
+    requireRole("ORGANISER"),
+    async (request, response) => {
+      const disputeId = parseNumericId(
+        request.params.disputeId,
+        "Dispute",
+      );
+      if ("error" in disputeId) {
+        const result = error(
+          400,
+          "VALIDATION_ERROR",
+          disputeId.error ??
+            "Dispute identifier must be a positive whole number.",
+        );
+        response.status(result.status).json(result.body);
+        return;
+      }
+
+      const parsed = parseTimesheetDisputeResolutionInput(request.body);
+      if ("error" in parsed) {
+        const result = error(
+          400,
+          "VALIDATION_ERROR",
+          parsed.error ?? "Enter a valid dispute answer.",
+        );
+        response.status(result.status).json(result.body);
+        return;
+      }
+
+      const auth = (request as AuthenticatedRequest).auth!;
+      try {
+        if (!dependencies.resolveTimesheetDispute) {
+          throw createRouteError(
+            503,
+            "TIMESHEET_DISPUTE_UNAVAILABLE",
+            "Timesheet disputes are not configured.",
+          );
+        }
+        const dispute = await dependencies.resolveTimesheetDispute(
+          auth.subject,
+          disputeId.value,
+          parsed.value,
+        );
+        response.status(200).json({ data: { dispute } });
+      } catch (value) {
+        sendRouteError(response, value);
+      }
+    },
+  );
+
   app.get(
     "/api/tutors/:tutorId/marks",
     authenticate,
@@ -2845,6 +3158,136 @@ export function createApp(
     },
   );
 
+  app.get(
+    "/api/academic-terms",
+    authenticate,
+    resolveProfileRole,
+    async (request, response) => {
+      try {
+        if (!dependencies.listAcademicTerms) {
+          throw createRouteError(
+            503,
+            "ACADEMIC_TERMS_UNAVAILABLE",
+            "Academic terms are not configured.",
+          );
+        }
+        const academicTerms = await dependencies.listAcademicTerms();
+        response.status(200).json({ data: { academicTerms } });
+      } catch (value) {
+        sendRouteError(response, value);
+      }
+    },
+  );
+
+  app.post(
+    "/api/organiser/academic-terms",
+    authenticate,
+    resolveProfileRole,
+    requireRole("ORGANISER"),
+    async (request, response) => {
+      const parsed = parseAcademicTermInput(request.body);
+      if ("error" in parsed) {
+        const result = error(
+          400,
+          "VALIDATION_ERROR",
+          parsed.error ?? "Enter a term name and ordered start and end dates.",
+        );
+        response.status(result.status).json(result.body);
+        return;
+      }
+
+      try {
+        if (!dependencies.createAcademicTerm) {
+          throw createRouteError(
+            503,
+            "ACADEMIC_TERMS_UNAVAILABLE",
+            "Academic terms are not configured.",
+          );
+        }
+        const academicTerm = await dependencies.createAcademicTerm(parsed.value);
+        response.status(201).json({ data: { academicTerm } });
+      } catch (value) {
+        sendRouteError(response, value);
+      }
+    },
+  );
+
+  app.post(
+    "/api/tutor/time-slots/import/preview",
+    authenticate,
+    resolveProfileRole,
+    requireRole("TUTOR"),
+    async (request, response) => {
+      const parsed = parseTimetableImportRequest(request.body);
+      if ("error" in parsed) {
+        const result = error(
+          400,
+          "VALIDATION_ERROR",
+          parsed.error ?? "Send a CSV or ICS timetable with a term to import against.",
+        );
+        response.status(result.status).json(result.body);
+        return;
+      }
+
+      try {
+        if (!dependencies.previewTutorTimetableImport) {
+          throw createRouteError(
+            503,
+            "TIMETABLE_IMPORT_UNAVAILABLE",
+            "Timetable import is not configured.",
+          );
+        }
+        const preview = await dependencies.previewTutorTimetableImport(
+          (request as AuthenticatedRequest).auth!.subject,
+          parsed.value,
+        );
+        response.status(200).json({ data: { preview } });
+      } catch (value) {
+        sendRouteError(response, value);
+      }
+    },
+  );
+
+  app.post(
+    "/api/tutor/time-slots/import/commit",
+    authenticate,
+    resolveProfileRole,
+    requireRole("TUTOR"),
+    async (request, response) => {
+      const parsed = parseTimetableImportRequest(request.body);
+      if ("error" in parsed) {
+        const result = error(
+          400,
+          "VALIDATION_ERROR",
+          parsed.error ?? "Send a CSV or ICS timetable with a term to import against.",
+        );
+        response.status(result.status).json(result.body);
+        return;
+      }
+
+      try {
+        if (!dependencies.commitTutorTimetableImport) {
+          throw createRouteError(
+            503,
+            "TIMETABLE_IMPORT_UNAVAILABLE",
+            "Timetable import is not configured.",
+          );
+        }
+        // Atomic by design: the whole file lands as one transaction, or nothing
+        // does. This is why the batch endpoint exists rather than a client loop
+        // over the single-time-slot route, which would leave partial writes
+        // behind once a later row failed.
+        const result = await dependencies.commitTutorTimetableImport(
+          (request as AuthenticatedRequest).auth!.subject,
+          parsed.value,
+        );
+        response.status(200).json({ data: { result } });
+      } catch (value) {
+        sendRouteError(response, value);
+      }
+    },
+  );
+
   app.patch(
     "/api/tutor/weekly-capacity",
     authenticate,
@@ -2891,6 +3334,242 @@ export function createApp(
           parsed.value,
         );
         response.status(201).json({ data: { workLog } });
+      } catch (value) {
+        sendRouteError(response, value);
+      }
+    },
+  );
+
+  /**
+   * The whole correction surface of a timesheet, in one read: the sheet, its
+   * work logs, every return and correction, each declaration and any dispute.
+   * The timeline the tutor sees is built from this and nothing else.
+   */
+  app.get(
+    "/api/tutor/timesheets/:timesheetId/history",
+    authenticate,
+    resolveProfileRole,
+    requireRole("TUTOR"),
+    async (request, response) => {
+      const timesheetId = parseNumericId(
+        request.params.timesheetId,
+        "Timesheet",
+      );
+      if ("error" in timesheetId) {
+        const result = error(
+          400,
+          "VALIDATION_ERROR",
+          timesheetId.error ??
+            "Timesheet identifier must be a positive whole number.",
+        );
+        response.status(result.status).json(result.body);
+        return;
+      }
+
+      const auth = (request as AuthenticatedRequest).auth!;
+      try {
+        if (!dependencies.getTutorTimesheetHistory) {
+          throw createRouteError(
+            503,
+            "TIMESHEET_CORRECTIONS_UNAVAILABLE",
+            "Timesheet corrections are not configured.",
+          );
+        }
+        const history = await dependencies.getTutorTimesheetHistory(
+          auth.subject,
+          timesheetId.value,
+        );
+        response.status(200).json({ data: { history } });
+      } catch (value) {
+        sendRouteError(response, value);
+      }
+    },
+  );
+
+  /**
+   * Corrects one work log on a draft or returned timesheet. The prior hours and
+   * description are written to the history in the same transaction as the
+   * change, so a correction can never replace what was previously claimed
+   * without leaving a record of it.
+   */
+  app.patch(
+    "/api/tutor/timesheets/:timesheetId/work-logs/:workLogId",
+    authenticate,
+    resolveProfileRole,
+    requireRole("TUTOR"),
+    async (request, response) => {
+      const timesheetId = parseNumericId(
+        request.params.timesheetId,
+        "Timesheet",
+      );
+      if ("error" in timesheetId) {
+        const result = error(
+          400,
+          "VALIDATION_ERROR",
+          timesheetId.error ??
+            "Timesheet identifier must be a positive whole number.",
+        );
+        response.status(result.status).json(result.body);
+        return;
+      }
+
+      const workLogId = parseNumericId(request.params.workLogId, "Work log");
+      if ("error" in workLogId) {
+        const result = error(
+          400,
+          "VALIDATION_ERROR",
+          workLogId.error ??
+            "Work log identifier must be a positive whole number.",
+        );
+        response.status(result.status).json(result.body);
+        return;
+      }
+
+      const parsed = parseTutorWorkLogCorrectionInput(request.body);
+      if ("error" in parsed) {
+        const result = error(
+          400,
+          "VALIDATION_ERROR",
+          parsed.error ?? "Enter a valid correction.",
+        );
+        response.status(result.status).json(result.body);
+        return;
+      }
+
+      const auth = (request as AuthenticatedRequest).auth!;
+      try {
+        if (!dependencies.correctTutorTimesheetWorkLog) {
+          throw createRouteError(
+            503,
+            "TIMESHEET_CORRECTIONS_UNAVAILABLE",
+            "Timesheet corrections are not configured.",
+          );
+        }
+        const correction = await dependencies.correctTutorTimesheetWorkLog(
+          auth.subject,
+          timesheetId.value,
+          workLogId.value,
+          parsed.value,
+        );
+        response.status(200).json({
+          data: { workLog: correction.workLog, revision: correction.revision },
+        });
+      } catch (value) {
+        sendRouteError(response, value);
+      }
+    },
+  );
+
+  /**
+   * Acknowledges the declaration wording the client was shown. Resubmitting a
+   * returned timesheet is refused until a declaration newer than the return and
+   * newer than the last correction has been recorded.
+   */
+  app.post(
+    "/api/tutor/timesheets/:timesheetId/declaration",
+    authenticate,
+    resolveProfileRole,
+    requireRole("TUTOR"),
+    async (request, response) => {
+      const timesheetId = parseNumericId(
+        request.params.timesheetId,
+        "Timesheet",
+      );
+      if ("error" in timesheetId) {
+        const result = error(
+          400,
+          "VALIDATION_ERROR",
+          timesheetId.error ??
+            "Timesheet identifier must be a positive whole number.",
+        );
+        response.status(result.status).json(result.body);
+        return;
+      }
+
+      const parsed = parseTimesheetDeclarationInput(request.body);
+      if ("error" in parsed) {
+        const result = error(
+          400,
+          "VALIDATION_ERROR",
+          parsed.error ?? "Enter a valid declaration.",
+        );
+        response.status(result.status).json(result.body);
+        return;
+      }
+
+      const auth = (request as AuthenticatedRequest).auth!;
+      try {
+        if (!dependencies.declareTutorTimesheet) {
+          throw createRouteError(
+            503,
+            "TIMESHEET_CORRECTIONS_UNAVAILABLE",
+            "Timesheet corrections are not configured.",
+          );
+        }
+        const declaration = await dependencies.declareTutorTimesheet(
+          auth.subject,
+          timesheetId.value,
+          parsed.value.statementVersion,
+        );
+        response.status(201).json({ data: { declaration } });
+      } catch (value) {
+        sendRouteError(response, value);
+      }
+    },
+  );
+
+  /**
+   * Raises an objection to a decision. Any submitted sheet can be disputed, and
+   * only one objection may be open at a time, so an organiser always has a
+   * single question to answer.
+   */
+  app.post(
+    "/api/tutor/timesheets/:timesheetId/disputes",
+    authenticate,
+    resolveProfileRole,
+    requireRole("TUTOR"),
+    async (request, response) => {
+      const timesheetId = parseNumericId(
+        request.params.timesheetId,
+        "Timesheet",
+      );
+      if ("error" in timesheetId) {
+        const result = error(
+          400,
+          "VALIDATION_ERROR",
+          timesheetId.error ??
+            "Timesheet identifier must be a positive whole number.",
+        );
+        response.status(result.status).json(result.body);
+        return;
+      }
+
+      const parsed = parseTimesheetDisputeInput(request.body);
+      if ("error" in parsed) {
+        const result = error(
+          400,
+          "VALIDATION_ERROR",
+          parsed.error ?? "Enter a valid dispute.",
+        );
+        response.status(result.status).json(result.body);
+        return;
+      }
+
+      const auth = (request as AuthenticatedRequest).auth!;
+      try {
+        if (!dependencies.raiseTutorTimesheetDispute) {
+          throw createRouteError(
+            503,
+            "TIMESHEET_CORRECTIONS_UNAVAILABLE",
+            "Timesheet corrections are not configured.",
+          );
+        }
+        const dispute = await dependencies.raiseTutorTimesheetDispute(
+          auth.subject,
+          timesheetId.value,
+          parsed.value,
+        );
+        response.status(201).json({ data: { dispute } });
       } catch (value) {
         sendRouteError(response, value);
       }

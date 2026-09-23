@@ -31,6 +31,18 @@ enum TimesheetStatus {
   RETURNED
 }
 
+/// RETURN rows record an organiser sending a timesheet back; CORRECTION rows
+/// record the tutor amending a work log while the sheet is still editable.
+enum TimesheetRevisionKind {
+  RETURN
+  CORRECTION
+}
+
+enum TimesheetDisputeStatus {
+  OPEN
+  RESOLVED
+}
+
 enum ExcuseStatus {
   PENDING
   APPROVED
@@ -64,6 +76,10 @@ enum NotificationType {
   TIMESHEET_RESUBMIT_DUE
   VOLUNTEER_CLAIM_DUE
   EXCUSE_REVIEW_DUE
+  // Appended by the timesheet correction work so the stored enum order matches
+  // the order PostgreSQL actually holds after ALTER TYPE ... ADD VALUE.
+  TIMESHEET_DISPUTED
+  TIMESHEET_DISPUTE_RESOLVED
 }
 
 enum StaffingRequirementStatus {
@@ -90,6 +106,9 @@ model Profile {
   volunteerClaims     VolunteerClaim[]
   notifications       Notification[]
   staffingRequirements StaffingRequirement[]
+  timesheetRevisions  TimesheetRevision[] @relation("TimesheetRevisionAuthor")
+  raisedDisputes      TimesheetDispute[]  @relation("TimesheetDisputeRaisedBy")
+  resolvedDisputes    TimesheetDispute[]  @relation("TimesheetDisputeResolvedBy")
   createdAt           DateTime         @default(now())
   updatedAt           DateTime         @updatedAt
 }
@@ -136,6 +155,21 @@ model TutorMark {
 
   @@unique([tutorId, courseId])
   @@index([courseId, mark])
+}
+
+/// An academic teaching period. It bounds how far a recurring schedule entry
+/// may repeat, so an imported timetable always stops at the end of the term it
+/// was imported against. Terms belong to the institution, not to a profile, so
+/// there is no owner column. Dates are stored as DATE (not timestamps) because
+/// a term boundary is a calendar day, not an instant, and must not shift with
+/// the reader's timezone.
+model AcademicTerm {
+  id        Int      @id @default(autoincrement())
+  name      String   @unique @db.VarChar(120)
+  startsOn  DateTime @db.Date
+  endsOn    DateTime @db.Date
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 
 model TimeSlot {
@@ -198,6 +232,9 @@ model Timesheet {
   tutor        Profile         @relation("TutorTimesheets", fields: [tutorId], references: [id], onDelete: Restrict)
   reviewedBy   Profile?        @relation("TimesheetReviewer", fields: [reviewedById], references: [id], onDelete: Restrict)
   workLogs     WorkLog[]
+  revisions    TimesheetRevision[]
+  declarations TimesheetDeclaration[]
+  disputes     TimesheetDispute[]
   createdAt    DateTime        @default(now())
   updatedAt    DateTime        @updatedAt
 
@@ -205,6 +242,68 @@ model Timesheet {
   @@unique([id, tutorId])
   @@index([status, submittedAt])
   @@index([tutorId, status, weekStart])
+}
+
+/// Append-only history of a timesheet's evidence. A correction never overwrites
+/// the work log it replaces: the prior hours and description are kept here
+/// beside the new ones, together with the reason that prompted the change.
+model TimesheetRevision {
+  id                  Int                   @id @default(autoincrement())
+  timesheetId         Int
+  tutorId             Int
+  kind                TimesheetRevisionKind
+  workLogId           Int?
+  /// Nullable for the same reason as Timesheet.reviewedById: deleting the account
+  /// that wrote a line of history clears who wrote it and keeps the history.
+  authorProfileId     Int?
+  reason              String?
+  previousHours       Decimal?              @db.Decimal(5, 2)
+  previousDescription String?
+  newHours            Decimal?              @db.Decimal(5, 2)
+  newDescription      String?
+  timesheet           Timesheet             @relation(fields: [timesheetId, tutorId], references: [id, tutorId], onDelete: Restrict)
+  workLog             WorkLog?              @relation(fields: [workLogId], references: [id], onDelete: Restrict)
+  author              Profile?              @relation("TimesheetRevisionAuthor", fields: [authorProfileId], references: [id], onDelete: Restrict)
+  createdAt           DateTime              @default(now())
+
+  @@index([timesheetId, createdAt])
+}
+
+/// The tutor's explicit acknowledgement of the submission statement, stored per
+/// resubmission. Resubmitting a returned timesheet requires one recorded after
+/// both the return and the last correction, so the declaration always covers the
+/// figures actually being sent.
+model TimesheetDeclaration {
+  id               Int       @id @default(autoincrement())
+  timesheetId      Int
+  tutorId          Int
+  statementVersion String    @db.VarChar(32)
+  timesheet        Timesheet @relation(fields: [timesheetId, tutorId], references: [id, tutorId], onDelete: Restrict)
+  declaredAt       DateTime  @default(now())
+
+  @@index([timesheetId, declaredAt])
+}
+
+/// A tutor's formal objection to a timesheet decision. An open dispute is a
+/// payroll hold: the affected work must not be paid while it stands.
+model TimesheetDispute {
+  id                  Int                    @id @default(autoincrement())
+  timesheetId         Int
+  tutorId             Int
+  reason              String
+  status              TimesheetDisputeStatus @default(OPEN)
+  raisedByProfileId   Int
+  resolvedByProfileId Int?
+  resolutionReason    String?
+  resolvedAt          DateTime?
+  timesheet           Timesheet              @relation(fields: [timesheetId, tutorId], references: [id, tutorId], onDelete: Restrict)
+  raisedBy            Profile                @relation("TimesheetDisputeRaisedBy", fields: [raisedByProfileId], references: [id], onDelete: Restrict)
+  resolvedBy          Profile?               @relation("TimesheetDisputeResolvedBy", fields: [resolvedByProfileId], references: [id], onDelete: Restrict)
+  createdAt           DateTime               @default(now())
+  updatedAt           DateTime               @updatedAt
+
+  @@index([timesheetId, status])
+  @@index([status, createdAt])
 }
 
 model WorkLog {
@@ -218,6 +317,7 @@ model WorkLog {
   tutor        Profile    @relation(fields: [tutorId], references: [id], onDelete: Restrict)
   allocation   Allocation @relation(fields: [allocationId, tutorId], references: [id, tutorId], onDelete: Restrict)
   timesheet    Timesheet? @relation(fields: [timesheetId, tutorId], references: [id, tutorId], onDelete: Restrict)
+  revisions    TimesheetRevision[]
   createdAt    DateTime   @default(now())
   updatedAt    DateTime   @updatedAt
 

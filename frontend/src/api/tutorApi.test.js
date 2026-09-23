@@ -3,6 +3,13 @@ import { submitTimeSlot } from './availability'
 import { fetchExcuseStatus, parseExcuseStatusResponse, submitExcuse } from './excuse'
 import { fetchTutorDashboard, parseTutorDashboardResponse } from './tutorDashboard'
 import { fetchTimesheetStatus, parseTimesheetResponse, submitTimesheet } from './timesheet'
+import {
+  correctTimesheetWorkLog,
+  declareTimesheet,
+  fetchTimesheetHistory,
+  parseTimesheetHistory,
+  raiseTimesheetDispute,
+} from './timesheetCorrections'
 import { submitWorkLog } from './workLog'
 
 const fetchWithBearerToken = vi.fn()
@@ -275,5 +282,206 @@ describe('tutor API contract', () => {
     expect(() =>
       parseExcuseStatusResponse({ data: { excuse: { ...excuseStatus, reviewReason: 7 } } }),
     ).toThrow(/agreed contract/i)
+  })
+})
+
+describe('tutor timesheet correction contract', () => {
+  const returnRevision = {
+    id: 5,
+    kind: 'RETURN',
+    workLogId: null,
+    authorProfileId: 8,
+    reason: 'Please correct Tuesday hours',
+    previousHours: null,
+    previousDescription: null,
+    newHours: null,
+    newDescription: null,
+    createdAt: '2030-09-09T08:30:05.000Z',
+  }
+  const correctionRevision = {
+    id: 6,
+    kind: 'CORRECTION',
+    workLogId: 2,
+    authorProfileId: 7,
+    reason: 'Please correct Tuesday hours',
+    previousHours: 2.5,
+    previousDescription: 'Tuesday lab',
+    newHours: 1.5,
+    newDescription: 'Shortened Tuesday lab',
+    createdAt: '2030-09-10T09:00:00.000Z',
+  }
+  const history = {
+    timesheet: {
+      id: 12,
+      weekStart: '2030-09-02',
+      status: 'RETURNED',
+      submittedAt: '2030-09-06T12:00:00.000Z',
+      reviewedAt: '2030-09-09T08:30:00.000Z',
+      reviewReason: 'Please correct Tuesday hours',
+      totalHours: 3.5,
+      editable: true,
+    },
+    workLogs: [
+      {
+        id: 2,
+        timesheetId: 12,
+        allocationId: 2,
+        workDate: '2030-09-03',
+        hours: 2.5,
+        description: 'Tuesday lab',
+      },
+    ],
+    revisions: [returnRevision, correctionRevision],
+    declarations: [
+      {
+        id: 3,
+        timesheetId: 12,
+        statementVersion: 's3-m3-v1',
+        declaredAt: '2030-09-10T09:05:00.000Z',
+      },
+    ],
+    disputes: [],
+    declaration: {
+      statementVersion: 's3-m3-v1',
+      statement: 'I confirm the hours and descriptions on this timesheet are complete and accurate.',
+    },
+  }
+
+  beforeEach(() => {
+    fetchWithBearerToken.mockReset()
+    tokenGetter.mockReset()
+  })
+
+  it('reads the whole correction history of one timesheet', async () => {
+    fetchWithBearerToken.mockResolvedValueOnce({ data: { history } })
+
+    await expect(fetchTimesheetHistory(12, tokenGetter)).resolves.toEqual(history)
+    expect(fetchWithBearerToken).toHaveBeenLastCalledWith(
+      '/api/tutor/timesheets/12/history',
+      {},
+      tokenGetter,
+    )
+  })
+
+  it('patches one work log with the corrected figures', async () => {
+    const workLog = { ...history.workLogs[0], hours: 1.5, description: 'Shortened Tuesday lab' }
+    fetchWithBearerToken.mockResolvedValueOnce({
+      data: { workLog, revision: correctionRevision },
+    })
+
+    await expect(
+      correctTimesheetWorkLog(
+        12,
+        2,
+        { hours: 1.5, description: 'Shortened Tuesday lab' },
+        tokenGetter,
+      ),
+    ).resolves.toEqual({ workLog, revision: correctionRevision })
+    expect(fetchWithBearerToken).toHaveBeenLastCalledWith(
+      '/api/tutor/timesheets/12/work-logs/2',
+      {
+        method: 'PATCH',
+        body: JSON.stringify({ hours: 1.5, description: 'Shortened Tuesday lab' }),
+      },
+      tokenGetter,
+    )
+  })
+
+  it('echoes the declaration wording version that was on screen', async () => {
+    const declaration = {
+      id: 3,
+      timesheetId: 12,
+      statementVersion: 's3-m3-v1',
+      declaredAt: '2030-09-10T09:05:00.000Z',
+    }
+    fetchWithBearerToken.mockResolvedValueOnce({ data: { declaration } })
+
+    await expect(declareTimesheet(12, 's3-m3-v1', tokenGetter)).resolves.toEqual(declaration)
+    expect(fetchWithBearerToken).toHaveBeenLastCalledWith(
+      '/api/tutor/timesheets/12/declaration',
+      { method: 'POST', body: JSON.stringify({ statementVersion: 's3-m3-v1' }) },
+      tokenGetter,
+    )
+  })
+
+  it('raises a dispute with its reason', async () => {
+    const dispute = {
+      id: 4,
+      timesheetId: 12,
+      tutorId: 7,
+      reason: 'The session ran the full two hours',
+      status: 'OPEN',
+      raisedByProfileId: 7,
+      resolvedByProfileId: null,
+      resolutionReason: null,
+      resolvedAt: null,
+      createdAt: '2030-09-11T10:00:00.000Z',
+    }
+    fetchWithBearerToken.mockResolvedValueOnce({ data: { dispute } })
+
+    await expect(
+      raiseTimesheetDispute(12, 'The session ran the full two hours', tokenGetter),
+    ).resolves.toEqual(dispute)
+    expect(fetchWithBearerToken).toHaveBeenLastCalledWith(
+      '/api/tutor/timesheets/12/disputes',
+      {
+        method: 'POST',
+        body: JSON.stringify({ reason: 'The session ran the full two hours' }),
+      },
+      tokenGetter,
+    )
+  })
+
+  it('rejects a correction history it cannot fully account for', async () => {
+    fetchWithBearerToken.mockResolvedValue({ data: {} })
+    await expect(fetchTimesheetHistory(12, tokenGetter)).rejects.toThrow(/agreed contract/i)
+
+    expect(() =>
+      parseTimesheetHistory({
+        data: { history: { ...history, timesheet: { ...history.timesheet, status: 'PENDING' } } },
+      }),
+    ).toThrow(/agreed contract/i)
+    expect(() =>
+      parseTimesheetHistory({
+        data: {
+          history: { ...history, revisions: [{ ...returnRevision, kind: 'AMENDMENT' }] },
+        },
+      }),
+    ).toThrow(/agreed contract/i)
+    expect(() =>
+      parseTimesheetHistory({ data: { history: { ...history, declaration: null } } }),
+    ).toThrow(/agreed contract/i)
+  })
+
+  it('rejects malformed correction, declaration and dispute responses', async () => {
+    fetchWithBearerToken.mockResolvedValue({ data: {} })
+    await expect(
+      correctTimesheetWorkLog(12, 2, { hours: 1.5, description: 'Shortened' }, tokenGetter),
+    ).rejects.toThrow(/agreed contract/i)
+    await expect(declareTimesheet(12, 's3-m3-v1', tokenGetter)).rejects.toThrow(/agreed contract/i)
+    await expect(raiseTimesheetDispute(12, 'Reason', tokenGetter)).rejects.toThrow(
+      /agreed contract/i,
+    )
+
+    // A dispute that comes back already answered is not the one just raised.
+    fetchWithBearerToken.mockResolvedValue({
+      data: {
+        dispute: {
+          id: 4,
+          timesheetId: 12,
+          tutorId: 7,
+          reason: 'Reason',
+          status: 'RESOLVED',
+          raisedByProfileId: 7,
+          resolvedByProfileId: 8,
+          resolutionReason: 'Answered',
+          resolvedAt: '2030-09-12T09:00:00.000Z',
+          createdAt: '2030-09-11T10:00:00.000Z',
+        },
+      },
+    })
+    await expect(raiseTimesheetDispute(12, 'Reason', tokenGetter)).rejects.toThrow(
+      /agreed contract/i,
+    )
   })
 })

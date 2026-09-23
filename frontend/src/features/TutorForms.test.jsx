@@ -14,6 +14,7 @@ const submitTimesheet = vi.fn().mockResolvedValue({})
 const listOwnTimeSlots = vi.fn().mockResolvedValue([])
 const deleteOwnTimeSlot = vi.fn()
 const updateOwnTimeSlot = vi.fn()
+const listAcademicTerms = vi.fn()
 
 vi.mock('@auth0/auth0-react', () => ({
   useAuth0: () => ({
@@ -41,6 +42,16 @@ vi.mock('../api/timesheet', () => ({
   fetchTimesheetStatus: (...args) => fetchTimesheetStatus(...args),
   submitTimesheet: (...args) => submitTimesheet(...args),
 }))
+vi.mock('../api/timetableImport', () => ({
+  listAcademicTerms: (...args) => listAcademicTerms(...args),
+  previewTimetableImport: vi.fn(),
+  commitTimetableImport: vi.fn(),
+  currentTimeZone: () => 'UTC',
+}))
+
+const academicTerms = [
+  { id: 2, name: 'Demo 2030 Semester 2', startsOn: '2030-08-26', endsOn: '2030-11-29' },
+]
 
 const dashboard = {
   allocations: [
@@ -65,12 +76,16 @@ describe('TutorForms accessibility', () => {
     window.sessionStorage.clear()
     fetchTutorDashboard.mockResolvedValue(dashboard)
     listOwnTimeSlots.mockResolvedValue([])
+    listAcademicTerms.mockResolvedValue(academicTerms)
   })
 
   it('reaches every labelled control and action in keyboard order', async () => {
     const user = userEvent.setup()
     render(<TutorForms />)
     await screen.findByRole('heading', { name: /forms and submissions/i })
+    // The import card only becomes reachable once its terms have loaded, which is
+    // the state a tutor is in when they work down the page.
+    await waitFor(() => expect(screen.getByLabelText(/academic term/i)).not.toBeDisabled())
 
     const expectedControls = [
       await screen.findByRole('button', { name: /previous week/i }),
@@ -82,6 +97,11 @@ describe('TutorForms accessibility', () => {
       screen.getByLabelText(/description \(optional\)/i),
       screen.getByLabelText(/repeat weekly/i),
       screen.getByRole('button', { name: /add schedule entry/i }),
+      screen.getByLabelText(/academic term/i),
+      // Only the selected radio is a tab stop; arrow keys move within the group.
+      screen.getByLabelText(/pasted rows or a \.csv file/i),
+      screen.getByLabelText(/choose a file \(optional\)/i),
+      screen.getByLabelText(/timetable rows/i),
       screen.getAllByLabelText(/^session$/i)[0],
       screen.getByLabelText(/^date$/i),
       screen.getByLabelText(/hours worked/i),
