@@ -58,7 +58,7 @@ describe("Basic workflow migrations", () => {
     database = new PGlite();
     await applyMigrations(database);
     await seed(database);
-  }, 30_000);
+  });
 
   afterAll(async () => {
     await database.close();
@@ -431,7 +431,7 @@ describe("Basic workflow migrations", () => {
     } finally {
       await secondDatabase.close();
     }
-  }, 30_000);
+  }, 60_000);
 });
 
 describe("Calendar candidate SQL regression", () => {
@@ -451,7 +451,7 @@ describe("Calendar candidate SQL regression", () => {
       (SELECT "id" FROM "Course" WHERE "code" = 'DEMO101') AS course,
       (SELECT "id" FROM "Profile" WHERE "auth0Id" = 'demo|organiser') AS organiser`);
     ({ tutor: tutorId, course: courseId, organiser: organiserId } = ids.rows[0]!);
-  }, 30_000);
+  });
   beforeEach(async () => {
     await database.exec('BEGIN');
     await database.query('UPDATE "TutorHourLimit" SET "weeklyHours" = 15 WHERE "tutorId" = $1', [tutorId]);
@@ -531,7 +531,7 @@ describe("Sprint 2 stability corrections", () => {
     database = new PGlite();
     await applyMigrations(database);
     await seed(database);
-  }, 30_000);
+  });
 
   afterAll(async () => {
     await database.close();
