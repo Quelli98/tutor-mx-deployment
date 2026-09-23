@@ -480,3 +480,94 @@ export async function setStaffingRequirementStatus(input, tokenOrGetter) {
   )
   return staffingRequirementFrom(body)
 }
+
+function isBulkProposal(value) {
+  return (
+    !!value &&
+    typeof value === 'object' &&
+    Number.isInteger(value.tutorId) &&
+    typeof value.fullName === 'string' &&
+    ['hours', 'mark', 'markBand', 'usedHours', 'weeklyLimit'].every((field) =>
+      Number.isFinite(value[field]),
+    )
+  )
+}
+
+function isBulkPreviewItem(value) {
+  return (
+    !!value &&
+    typeof value === 'object' &&
+    Number.isInteger(value.requirementId) &&
+    Number.isInteger(value.courseId) &&
+    typeof value.courseCode === 'string' &&
+    typeof value.courseName === 'string' &&
+    isDate(value.startsAt) &&
+    isDate(value.endsAt) &&
+    Number.isFinite(value.windowHours) &&
+    Number.isFinite(value.shortageHours) &&
+    Number.isInteger(value.tutorsWanted) &&
+    Number.isInteger(value.unfilled) &&
+    (value.note === null || typeof value.note === 'string') &&
+    Array.isArray(value.proposals) &&
+    value.proposals.every(isBulkProposal) &&
+    Array.isArray(value.alternatives) &&
+    value.alternatives.every(isBulkProposal)
+  )
+}
+
+function isBulkResult(value) {
+  return (
+    !!value &&
+    typeof value === 'object' &&
+    Number.isInteger(value.requirementId) &&
+    Number.isInteger(value.tutorId) &&
+    ['saved', 'failed'].includes(value.outcome) &&
+    (value.allocationId === undefined || Number.isInteger(value.allocationId)) &&
+    (value.code === undefined || typeof value.code === 'string') &&
+    (value.message === undefined || typeof value.message === 'string')
+  )
+}
+
+export async function previewBulkAllocations(input, tokenOrGetter) {
+  const body = await fetchWithBearerToken(
+    '/api/allocations/bulk-preview',
+    {
+      method: 'POST',
+      body: JSON.stringify({
+        requirementIds: input.requirementIds,
+        minimumMark: input.minimumMark,
+      }),
+    },
+    tokenOrGetter,
+  )
+  const items = body?.data?.items
+  if (!Array.isArray(items) || !items.every(isBulkPreviewItem)) {
+    throw new Error('The bulk allocation response did not match the agreed contract.')
+  }
+  return items
+}
+
+export async function commitBulkAllocations(input, tokenOrGetter) {
+  const body = await fetchWithBearerToken(
+    '/api/allocations/bulk-commit',
+    {
+      method: 'POST',
+      body: JSON.stringify({
+        minimumMark: input.minimumMark,
+        items: input.items.map((item) => ({
+          requirementId: item.requirementId,
+          tutorId: item.tutorId,
+          proposedTutorId: item.proposedTutorId,
+          // Sent only when the organiser actually changed the suggestion.
+          ...(item.overrideReason ? { overrideReason: item.overrideReason } : {}),
+        })),
+      }),
+    },
+    tokenOrGetter,
+  )
+  const results = body?.data?.results
+  if (!Array.isArray(results) || !results.every(isBulkResult)) {
+    throw new Error('The bulk allocation response did not match the agreed contract.')
+  }
+  return results
+}

@@ -227,6 +227,8 @@ export interface AllocationWriteInput {
   minimumMark: number;
   requestedHours: number;
   status?: AllocationWriteStatus;
+  /** Set only when an organiser overrode a bulk allocation suggestion. */
+  overrideReason?: string;
 }
 
 export interface AllocationSummary {
@@ -288,6 +290,63 @@ export interface StaffingRequirementWriteInput {
   tutorsNeeded: number;
   /** Absent leaves an existing note untouched; null clears it. */
   notes?: string | null;
+}
+
+/** One tutor bulk allocation proposes for one place on a requirement. */
+export interface BulkAllocationProposal {
+  tutorId: number;
+  fullName: string;
+  hours: number;
+  mark: number;
+  markBand: number;
+  usedHours: number;
+  weeklyLimit: number;
+}
+
+export interface BulkAllocationPreviewItem {
+  requirementId: number;
+  courseId: number;
+  courseCode: string;
+  courseName: string;
+  startsAt: string;
+  endsAt: string;
+  windowHours: number;
+  shortageHours: number;
+  /** Places the shortage calls for, from the S3-M2-1 calculation. */
+  tutorsWanted: number;
+  proposals: BulkAllocationProposal[];
+  /** Places nobody could be proposed for, with the reason in note. */
+  unfilled: number;
+  note: string | null;
+  /** Eligible tutors the organiser may choose instead. Never anyone ineligible. */
+  alternatives: BulkAllocationProposal[];
+}
+
+export interface BulkAllocationPreviewQuery {
+  requirementIds: number[];
+  minimumMark: number;
+}
+
+export interface BulkAllocationCommitItem {
+  requirementId: number;
+  tutorId: number;
+  /** Who preview proposed, so a deliberate change is explicit, not inferred. */
+  proposedTutorId: number;
+  overrideReason?: string;
+}
+
+export interface BulkAllocationCommitInput {
+  minimumMark: number;
+  items: BulkAllocationCommitItem[];
+}
+
+export interface BulkAllocationCommitResult {
+  requirementId: number;
+  tutorId: number;
+  outcome: "saved" | "failed";
+  allocationId?: number;
+  code?: string;
+  message?: string;
 }
 
 export interface StaffingRequirementListQuery {
@@ -519,6 +578,13 @@ export interface AppDependencies {
   markAllNotificationsRead?: (auth0Id: string) => Promise<{ updated: number }>;
   runDueReminders?: () => Promise<{ generated: number }>;
   search?: (auth0Id: string, query: ResolvedSearchQuery) => Promise<SearchResponse>;
+  previewBulkAllocations?: (
+    query: BulkAllocationPreviewQuery,
+  ) => Promise<BulkAllocationPreviewItem[]>;
+  commitBulkAllocations?: (
+    auth0Id: string,
+    input: BulkAllocationCommitInput,
+  ) => Promise<BulkAllocationCommitResult[]>;
   listStaffingRequirements?: (
     query: StaffingRequirementListQuery,
   ) => Promise<StaffingRequirementSummary[]>;
@@ -780,6 +846,117 @@ const STAFFING_REQUIREMENT_STATUSES = [
 
 /** Matches the "StaffingRequirement_tutors_needed_range" database constraint. */
 const MAX_TUTORS_NEEDED = 20;
+
+/** The board's default bar, reused so bulk judges eligibility the same way. */
+const DEFAULT_MINIMUM_MARK = 65;
+
+/** One screenful of work; a larger run should be split rather than timed out. */
+const MAX_BULK_ITEMS = 50;
+
+function bulkAllocationUnavailable() {
+  return createRouteError(
+    503,
+    "BULK_ALLOCATION_UNAVAILABLE",
+    "Bulk allocation is not configured.",
+  );
+}
+
+/** Ids of the requirements to plan for, plus the bar eligibility is judged at. */
+function parseBulkPreviewQuery(body: unknown) {
+  if (!hasOnlyFields(body, ["requirementIds", "minimumMark"])) {
+    return { error: "Provide only requirementIds and minimumMark." } as const;
+  }
+
+  const requirementIds = Array.isArray(body.requirementIds)
+    ? body.requirementIds.map((value) => parseJsonPositiveInteger(value))
+    : null;
+  const minimumMark = parseMarkValue(body.minimumMark ?? DEFAULT_MINIMUM_MARK);
+
+  if (
+    !requirementIds ||
+    requirementIds.length === 0 ||
+    requirementIds.length > MAX_BULK_ITEMS ||
+    requirementIds.some((value) => value === null) ||
+    minimumMark === null
+  ) {
+    return {
+      error: `Choose between 1 and ${MAX_BULK_ITEMS} staffing requirements and a minimum mark from 0 to 100.`,
+    } as const;
+  }
+
+  // The same requirement twice would plan it twice over.
+  const value: BulkAllocationPreviewQuery = {
+    requirementIds: [...new Set(requirementIds as number[])],
+    minimumMark,
+  };
+  return { value } as const;
+}
+
+function parseBulkCommitItem(value: unknown) {
+  if (
+    !hasOnlyFields(value, [
+      "requirementId",
+      "tutorId",
+      "proposedTutorId",
+      "overrideReason",
+    ])
+  ) {
+    return null;
+  }
+
+  const requirementId = parseJsonPositiveInteger(value.requirementId);
+  const tutorId = parseJsonPositiveInteger(value.tutorId);
+  const proposedTutorId = parseJsonPositiveInteger(value.proposedTutorId);
+  const hasReason = value.overrideReason !== undefined && value.overrideReason !== null;
+  const overrideReason = hasReason
+    ? parseRequiredText(value.overrideReason, "overrideReason", 1000)
+    : undefined;
+
+  if (!requirementId || !tutorId || !proposedTutorId || (hasReason && !overrideReason)) {
+    return null;
+  }
+  // A reason only means something when the suggestion was actually changed.
+  if (tutorId === proposedTutorId && overrideReason) {
+    return null;
+  }
+
+  return {
+    requirementId,
+    tutorId,
+    proposedTutorId,
+    ...(overrideReason ? { overrideReason } : {}),
+  };
+}
+
+function parseBulkCommitInput(body: unknown) {
+  if (!hasOnlyFields(body, ["items", "minimumMark"])) {
+    return { error: "Provide only items and minimumMark." } as const;
+  }
+
+  const minimumMark = parseMarkValue(body.minimumMark ?? DEFAULT_MINIMUM_MARK);
+  const items = Array.isArray(body.items)
+    ? body.items.map((item) => parseBulkCommitItem(item))
+    : null;
+
+  if (
+    !items ||
+    items.length === 0 ||
+    items.length > MAX_BULK_ITEMS ||
+    items.some((item) => item === null) ||
+    minimumMark === null
+  ) {
+    return {
+      error: `Send between 1 and ${MAX_BULK_ITEMS} allocations, each with a requirement, a tutor, the tutor that was proposed, and a reason when the two differ.`,
+    } as const;
+  }
+
+  return {
+    value: {
+      minimumMark,
+      items: items as NonNullable<(typeof items)[number]>[],
+    },
+  } as const;
+}
 
 function staffingRequirementsUnavailable() {
   return createRouteError(
@@ -1891,6 +2068,70 @@ export function createApp(
           allocationId.value,
         );
         response.status(204).end();
+      } catch (value) {
+        sendRouteError(response, value);
+      }
+    },
+  );
+
+  app.post(
+    "/api/allocations/bulk-preview",
+    authenticate,
+    resolveProfileRole,
+    requireRole("ORGANISER"),
+    async (request, response) => {
+      const parsed = parseBulkPreviewQuery(request.body);
+      if ("error" in parsed) {
+        const result = error(
+          400,
+          "VALIDATION_ERROR",
+          parsed.error ?? "Choose staffing requirements to preview.",
+        );
+        response.status(result.status).json(result.body);
+        return;
+      }
+
+      try {
+        if (!dependencies.previewBulkAllocations) {
+          throw bulkAllocationUnavailable();
+        }
+        // Reads only: nothing is saved until the organiser confirms.
+        const items = await dependencies.previewBulkAllocations(parsed.value);
+        response.status(200).json({ data: { items } });
+      } catch (value) {
+        sendRouteError(response, value);
+      }
+    },
+  );
+
+  app.post(
+    "/api/allocations/bulk-commit",
+    authenticate,
+    resolveProfileRole,
+    requireRole("ORGANISER"),
+    async (request, response) => {
+      const parsed = parseBulkCommitInput(request.body);
+      if ("error" in parsed) {
+        const result = error(
+          400,
+          "VALIDATION_ERROR",
+          parsed.error ?? "Send the allocations to save.",
+        );
+        response.status(result.status).json(result.body);
+        return;
+      }
+
+      try {
+        if (!dependencies.commitBulkAllocations) {
+          throw bulkAllocationUnavailable();
+        }
+        // Every item reports its own outcome, so a 200 here does not mean they
+        // all saved: the results say which did.
+        const results = await dependencies.commitBulkAllocations(
+          (request as AuthenticatedRequest).auth!.subject,
+          parsed.value,
+        );
+        response.status(200).json({ data: { results } });
       } catch (value) {
         sendRouteError(response, value);
       }

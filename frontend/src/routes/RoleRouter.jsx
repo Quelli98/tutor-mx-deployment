@@ -10,6 +10,7 @@ import TutorManagement from '../features/TutorManagement'
 import OrganiserDashboard from '../features/OrganiserDashboard'
 import OrganiserApprovals from '../features/OrganiserApprovals'
 import StaffingRequirements from '../features/StaffingRequirements'
+import BulkAllocation from '../features/BulkAllocation'
 import { SkipToContent } from '../components/shared/SkipToContent'
 import { NotificationBell } from '../components/shared/NotificationBell'
 import { CommandPalette } from '../components/shared/CommandPalette'
@@ -128,6 +129,10 @@ export function RoleRouter({ currentRole, onSignOut }) {
         <Route
           path="/organiser/staffing"
           element={protect(currentRole, ['ORGANISER'], <StaffingRequirements />)}
+        />
+        <Route
+          path="/organiser/staffing/bulk"
+          element={protect(currentRole, ['ORGANISER'], <BulkAllocation />)}
         />
         <Route
           path="/organiser/approvals"

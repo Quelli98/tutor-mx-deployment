@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { useAuth0 } from '@auth0/auth0-react'
 import {
   createStaffingRequirement,
@@ -322,6 +323,9 @@ export default function StaffingRequirements() {
             Record the tutoring work that still needs filling, so it can be staffed.
           </p>
         </div>
+        <Link className="secondary-button" to="/organiser/staffing/bulk">
+          Bulk allocate
+        </Link>
       </header>
 
       <section className="role-card" aria-labelledby="staffing-form-heading">

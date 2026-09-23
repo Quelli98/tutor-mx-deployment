@@ -24,6 +24,7 @@ import {
 } from "./services/allocation-queries.js";
 import { createCourseService } from "./services/course-service.js";
 import { createStaffingRequirementService } from "./services/staffing-requirement-service.js";
+import { createBulkAllocationService } from "./services/bulk-allocation-service.js";
 import { createExcuseWorkflowService } from "./services/excuse-workflows.js";
 import { createOrganiserService } from "./services/organiser-service.js";
 import { createStudentWorkflowService } from "./services/student-workflows.js";
@@ -230,6 +231,24 @@ const staffingRequirementService = createStaffingRequirementService(
   prisma,
   queryClient,
 );
+
+// Built from a reader and a query client only. It is never handed the Prisma
+// client, so preview has no way to write; saving goes through createAllocation
+// below, which keeps its own transaction and rule checks.
+const bulkAllocationService = createBulkAllocationService(
+  queryClient,
+  staffingRequirementService.listStaffingRequirements,
+  async (organiserAuth0Id, input) => {
+    const allocation = await organiserService.createAllocation(
+      organiserAuth0Id,
+      input,
+    );
+    await emitNotifications(
+      buildAllocationNotifications(allocation, { created: true }),
+    );
+    return allocation;
+  },
+);
 const publicHolidayService = createSouthAfricaPublicHolidayService();
 const notificationService = createNotificationService(
   prisma as unknown as NotificationDataClient,
@@ -301,6 +320,8 @@ const app = createApp(
       }
       return searchService.search({ id: profile.id, role }, query);
     },
+    previewBulkAllocations: bulkAllocationService.preview,
+    commitBulkAllocations: bulkAllocationService.commit,
     listStaffingRequirements: staffingRequirementService.listStaffingRequirements,
     createStaffingRequirement: staffingRequirementService.createStaffingRequirement,
     updateStaffingRequirement: staffingRequirementService.updateStaffingRequirement,

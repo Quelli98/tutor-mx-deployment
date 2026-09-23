@@ -169,6 +169,8 @@ model Allocation {
   reviewedBy     Profile?         @relation("AllocationReviewer", fields: [reviewedById], references: [id], onDelete: SetNull)
   reviewedById   Int?
   reviewedAt     DateTime?
+  /** Why an organiser chose a tutor other than the one bulk allocation proposed. */
+  overrideReason String?
   workLogs       WorkLog[]
   excuses        Excuse[]
   overflowWork   OverflowWork?

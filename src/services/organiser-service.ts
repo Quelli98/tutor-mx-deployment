@@ -354,6 +354,11 @@ export function createOrganiserService(client: PrismaClient) {
                 startsAt: input.startsAt,
                 endsAt: input.endsAt,
                 allocatedHours: input.requestedHours,
+                // Set only when an organiser overrode a bulk suggestion; the
+                // rules above are unaffected by it.
+                ...(input.overrideReason
+                  ? { overrideReason: input.overrideReason }
+                  : {}),
               },
               select: allocationSelection,
             });

@@ -1133,3 +1133,238 @@ describe("allocation hours must fit the session", () => {
     );
   });
 });
+
+describe("bulk allocation routes", () => {
+  const previewItem = {
+    requirementId: 100,
+    courseId: 10,
+    courseCode: "COMS3011",
+    courseName: "Software Design Project",
+    startsAt: "2030-09-04T10:00:00.000Z",
+    endsAt: "2030-09-04T14:00:00.000Z",
+    windowHours: 4,
+    shortageHours: 8,
+    tutorsWanted: 2,
+    proposals: [
+      {
+        tutorId: 7,
+        fullName: "Sam Tutor",
+        hours: 4,
+        mark: 84,
+        markBand: 80,
+        usedHours: 2,
+        weeklyLimit: 10,
+      },
+    ],
+    unfilled: 1,
+    note: "1 of 2 places could be proposed; no further eligible tutor is free for this session.",
+    alternatives: [],
+  };
+
+  function bulkRequests(app: Express, authenticated = false) {
+    const withAuth = <T extends request.Test>(pending: T) =>
+      authenticated ? pending.set("Authorization", "Bearer valid-token") : pending;
+    return [
+      withAuth(
+        request(app)
+          .post("/api/allocations/bulk-preview")
+          .send({ requirementIds: [100], minimumMark: 65 }),
+      ),
+      withAuth(
+        request(app)
+          .post("/api/allocations/bulk-commit")
+          .send({
+            minimumMark: 65,
+            items: [{ requirementId: 100, tutorId: 7, proposedTutorId: 7 }],
+          }),
+      ),
+    ];
+  }
+
+  it("previews without saving and returns the proposals", async () => {
+    const previewBulkAllocations = vi.fn().mockResolvedValue([previewItem]);
+    const commitBulkAllocations = vi.fn();
+    const app = makeApp({ previewBulkAllocations, commitBulkAllocations });
+
+    const response = await request(app)
+      .post("/api/allocations/bulk-preview")
+      .set("Authorization", "Bearer valid-token")
+      .send({ requirementIds: [100, 101], minimumMark: 70 });
+
+    expect(response.status).toBe(200);
+    expect(response.body).toEqual({ data: { items: [previewItem] } });
+    expect(previewBulkAllocations).toHaveBeenCalledWith({
+      requirementIds: [100, 101],
+      minimumMark: 70,
+    });
+    // Preview is a read: nothing may be committed by it.
+    expect(commitBulkAllocations).not.toHaveBeenCalled();
+  });
+
+  it("defaults the minimum mark to the board's own bar", async () => {
+    const previewBulkAllocations = vi.fn().mockResolvedValue([]);
+    const app = makeApp({ previewBulkAllocations });
+
+    await request(app)
+      .post("/api/allocations/bulk-preview")
+      .set("Authorization", "Bearer valid-token")
+      .send({ requirementIds: [100] });
+
+    expect(previewBulkAllocations).toHaveBeenCalledWith({
+      requirementIds: [100],
+      minimumMark: 65,
+    });
+  });
+
+  it("asks for each requirement once, however often it is sent", async () => {
+    const previewBulkAllocations = vi.fn().mockResolvedValue([]);
+    const app = makeApp({ previewBulkAllocations });
+
+    await request(app)
+      .post("/api/allocations/bulk-preview")
+      .set("Authorization", "Bearer valid-token")
+      .send({ requirementIds: [100, 100, 101] });
+
+    expect(previewBulkAllocations.mock.calls[0]![0].requirementIds).toEqual([100, 101]);
+  });
+
+  it.each([
+    ["no requirements", { requirementIds: [] }],
+    ["a requirement that is not a positive whole number", { requirementIds: [0] }],
+    ["more than the run limit", { requirementIds: Array.from({ length: 51 }, (_, index) => index + 1) }],
+    ["a minimum mark above 100", { requirementIds: [100], minimumMark: 101 }],
+    ["an unexpected field", { requirementIds: [100], courseId: 3 }],
+  ])("refuses a preview with %s", async (_label, body) => {
+    const previewBulkAllocations = vi.fn();
+    const app = makeApp({ previewBulkAllocations });
+
+    const response = await request(app)
+      .post("/api/allocations/bulk-preview")
+      .set("Authorization", "Bearer valid-token")
+      .send(body);
+
+    expect(response.status).toBe(400);
+    expect(response.body.error.code).toBe("VALIDATION_ERROR");
+    expect(previewBulkAllocations).not.toHaveBeenCalled();
+  });
+
+  it("reports each committed item individually", async () => {
+    const results = [
+      { requirementId: 100, tutorId: 7, outcome: "saved", allocationId: 41 },
+      {
+        requirementId: 100,
+        tutorId: 9,
+        outcome: "failed",
+        code: "schedule-clash",
+        message: "The tutor has a timetable clash for this allocation.",
+      },
+    ];
+    const commitBulkAllocations = vi.fn().mockResolvedValue(results);
+    const app = makeApp({ commitBulkAllocations });
+
+    const response = await request(app)
+      .post("/api/allocations/bulk-commit")
+      .set("Authorization", "Bearer valid-token")
+      .send({
+        minimumMark: 65,
+        items: [
+          { requirementId: 100, tutorId: 7, proposedTutorId: 7 },
+          {
+            requirementId: 100,
+            tutorId: 9,
+            proposedTutorId: 8,
+            overrideReason: "Sam knows this lab.",
+          },
+        ],
+      });
+
+    expect(response.status).toBe(200);
+    expect(response.body).toEqual({ data: { results } });
+    expect(commitBulkAllocations).toHaveBeenCalledWith("auth0|organiser", {
+      minimumMark: 65,
+      items: [
+        { requirementId: 100, tutorId: 7, proposedTutorId: 7 },
+        {
+          requirementId: 100,
+          tutorId: 9,
+          proposedTutorId: 8,
+          overrideReason: "Sam knows this lab.",
+        },
+      ],
+    });
+  });
+
+  it.each([
+    ["no items", { items: [] }],
+    ["a missing proposed tutor", { items: [{ requirementId: 100, tutorId: 7 }] }],
+    [
+      "a blank override reason",
+      { items: [{ requirementId: 100, tutorId: 9, proposedTutorId: 7, overrideReason: "   " }] },
+    ],
+    [
+      "a reason when nothing was changed",
+      { items: [{ requirementId: 100, tutorId: 7, proposedTutorId: 7, overrideReason: "why" }] },
+    ],
+    [
+      "an unexpected field on an item",
+      { items: [{ requirementId: 100, tutorId: 7, proposedTutorId: 7, startsAt: "2030-09-04T10:00:00.000Z" }] },
+    ],
+  ])("refuses a commit with %s", async (_label, body) => {
+    const commitBulkAllocations = vi.fn();
+    const app = makeApp({ commitBulkAllocations });
+
+    const response = await request(app)
+      .post("/api/allocations/bulk-commit")
+      .set("Authorization", "Bearer valid-token")
+      .send({ minimumMark: 65, ...body });
+
+    expect(response.status).toBe(400);
+    expect(response.body.error.code).toBe("VALIDATION_ERROR");
+    expect(commitBulkAllocations).not.toHaveBeenCalled();
+  });
+
+  it("requires authentication on both bulk routes", async () => {
+    const app = makeApp();
+
+    for (const pending of bulkRequests(app)) {
+      const response = await pending;
+      expect(response.status).toBe(401);
+      expect(response.body.error.code).toBe("AUTHENTICATION_REQUIRED");
+    }
+  });
+
+  it("rejects an authenticated tutor on both bulk routes", async () => {
+    const app = makeApp({}, "TUTOR");
+
+    for (const pending of bulkRequests(app, true)) {
+      const response = await pending;
+      expect(response.status).toBe(403);
+      expect(response.body.error.code).toBe("FORBIDDEN");
+    }
+  });
+
+  it("reports bulk allocation as unavailable when it is not configured", async () => {
+    const app = makeApp();
+
+    for (const pending of bulkRequests(app, true)) {
+      const response = await pending;
+      expect(response.status).toBe(503);
+      expect(response.body.error.code).toBe("BULK_ALLOCATION_UNAVAILABLE");
+    }
+  });
+
+  it("sanitizes an unexpected failure on either bulk route", async () => {
+    const fail = vi.fn().mockRejectedValue(new Error("private connection detail"));
+    const app = makeApp({
+      previewBulkAllocations: fail,
+      commitBulkAllocations: fail,
+    });
+
+    for (const pending of bulkRequests(app, true)) {
+      const response = await pending;
+      expect(response.status).toBe(500);
+      expect(response.body.error.code).toBe("INTERNAL_ERROR");
+      expect(response.text).not.toContain("private connection detail");
+    }
+  });
+});
