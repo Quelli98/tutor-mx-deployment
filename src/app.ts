@@ -197,6 +197,15 @@ export interface AllocationCandidateSummary {
   hasClash: boolean;
   isEligible: boolean;
   reasonCodes: AllocationReasonCode[];
+  /** The mark rounded down to its band of ten: 84 becomes 80. */
+  markBand: number;
+  /**
+   * Weekly hours already used as a fraction of the tutor's limit, the second
+   * ranking step. A ranking input only - never shown to anyone. The board says
+   * "4 of 10 hours used that week", from usedHours and weeklyLimit, because a
+   * raw decimal like 0.4 means nothing to an organiser. Do not render it.
+   */
+  capacityShare: number;
 }
 
 export interface AllocationCandidateQuery {

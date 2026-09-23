@@ -159,6 +159,21 @@ function CandidateCard({ candidate, minimumMark, requestedHours, selected, onSel
         </button>}
       </header>
 
+      {canSelectCandidate(candidate) && (
+        <ul
+          className="candidate-chips"
+          aria-label={`Why ${candidate.fullName} is ranked here`}
+        >
+          {/* Only factors the ranking actually used: the mark drives the band
+              and the exact-mark step, and hours used against the weekly limit is
+              the share step, said in numbers an organiser can act on. */}
+          <li className="summary-pill">Mark {candidate.mark}%</li>
+          <li className="summary-pill">
+            {candidate.usedHours} of {candidate.weeklyLimit} hours used that week
+          </li>
+        </ul>
+      )}
+
       <ul className="rule-result-list" aria-label={`Allocation checks for ${candidate.fullName}`}>
         <RuleResult
           label="Mark"
@@ -748,6 +763,7 @@ export default function OrganiserDashboard() {
               {eligibleCandidates.length > 0 ? (
                 <>
                   <p className="helper-text">
+                    <strong>Ranked by mark band, then who is least busy that week.</strong>{' '}
                     These tutors meet all allocation rules. Select one to assign.
                   </p>
                   <div className="candidate-grid">

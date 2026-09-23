@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import TutorManagement from './TutorManagement'
 
 const listTutors = vi.fn()
@@ -76,6 +76,15 @@ describe('TutorManagement', () => {
   })
 
   it('shows workload metric cards and a clear inclusive week without UTC jargon', async () => {
+    // The week label comes from the browser's clock, not from the response: the
+    // component starts on localMonday(new Date()). Without a fixed clock this
+    // assertion only passes during the week of 14 September 2026. The instant
+    // below is midday UTC on Wednesday 16 September, which lands inside that
+    // week in every timezone, so the expected label holds on any day the suite
+    // is run and in any timezone a runner uses.
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    vi.setSystemTime(new Date('2026-09-16T12:00:00.000Z'))
+
     listTutors.mockResolvedValue([{ ...tutorWithHours, weeklyHours: 15, usedHours: 0, remainingHours: 15, workedHours: 0, weekStart: '2026-09-14T00:00:00.000Z', weekEnd: '2026-09-21T00:00:00.000Z' }])
     renderPage()
     await screen.findByText('Sam Tutor')
@@ -87,6 +96,11 @@ describe('TutorManagement', () => {
     expect(screen.getAllByText('15 h')).toHaveLength(2)
     expect(screen.getAllByText('0 h')).toHaveLength(2)
     expect(screen.queryByText(/UTC Monday week/)).not.toBeInTheDocument()
+  })
+
+  afterEach(() => {
+    // Only the test above installs a fake clock; this is a no-op for the rest.
+    vi.useRealTimers()
   })
 
   it.each([null, '', 'sam@tutormx.example'])('does not repeat email when fullName is %s', async (fullName) => {

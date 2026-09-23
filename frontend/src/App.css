@@ -1405,6 +1405,16 @@ a:focus-visible {
   color: #5e6784;
 }
 
+/* The factors the ranking used, shown beside each eligible tutor. */
+.candidate-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
 /* min(100%, 280px) keeps the card minimum from overflowing a container that is
    itself narrower than 280px, so three or more cards always wrap cleanly. */
 .candidate-grid {

@@ -38,6 +38,8 @@ const eligibleCandidate = {
   isEligible: true,
   reasonCodes: [],
   clashDetails: [],
+  markBand: 60,
+  capacityShare: 0.4,
 }
 const ineligibleCandidate = {
   tutorId: 8,
@@ -461,5 +463,95 @@ describe('OrganiserDashboard', () => {
     expect(await screen.findByText(/no tutors have marks recorded for this course yet/i)).toBeInTheDocument()
     expect(screen.queryByRole('heading', { name: /^eligible tutors$/i })).not.toBeInTheDocument()
     expect(screen.queryByRole('heading', { name: /^not eligible$/i })).not.toBeInTheDocument()
+  })
+})
+
+describe('OrganiserDashboard candidate ranking', () => {
+  beforeEach(() => {
+    listCourses.mockReset().mockResolvedValue(courses)
+    listAllocationCandidates.mockReset()
+    listAllocations.mockReset().mockResolvedValue([])
+    createAllocation.mockReset().mockResolvedValue({ id: 11 })
+    updateAllocation.mockReset().mockResolvedValue({ id: 11 })
+    removeAllocation.mockReset().mockResolvedValue(undefined)
+    getAccessTokenSilently.mockReset()
+  })
+
+  const ranked = [
+    {
+      ...eligibleCandidate,
+      tutorId: 7,
+      fullName: 'Freer Tutor',
+      mark: 84,
+      weeklyLimit: 10,
+      usedHours: 2,
+      remainingHours: 8,
+      markBand: 80,
+      capacityShare: 0.2,
+    },
+    {
+      ...eligibleCandidate,
+      tutorId: 9,
+      fullName: 'Busier Tutor',
+      mark: 88,
+      weeklyLimit: 10,
+      usedHours: 7,
+      remainingHours: 3,
+      markBand: 80,
+      capacityShare: 0.7,
+    },
+  ]
+
+  async function showCandidates(candidates) {
+    listAllocationCandidates.mockResolvedValue(candidates)
+    render(<OrganiserDashboard />)
+    await screen.findByRole('option', { name: /COMS3011/i })
+    fillBoard()
+    fireEvent.click(screen.getByRole('button', { name: /check candidates/i }))
+    return screen.findByRole('heading', { name: /^eligible tutors$/i })
+  }
+
+  it('states the ranking rule once, above the eligible tutors', async () => {
+    await showCandidates(ranked)
+
+    expect(
+      screen.getByText(/ranked by mark band, then who is least busy that week/i),
+    ).toBeVisible()
+    // Said once, not repeated on every card.
+    expect(screen.getAllByText(/ranked by mark band/i)).toHaveLength(1)
+  })
+
+  it('shows each eligible tutor the factors the ranking used', async () => {
+    await showCandidates(ranked)
+
+    const card = screen.getByRole('heading', { name: 'Freer Tutor' }).closest('article')
+    const chips = within(card).getByRole('list', { name: /why Freer Tutor is ranked here/i })
+    expect(within(chips).getByText('Mark 84%')).toBeVisible()
+    expect(within(chips).getByText('2 of 10 hours used that week')).toBeVisible()
+  })
+
+  it('never shows a score or the raw capacity share', async () => {
+    await showCandidates(ranked)
+
+    // capacityShare is a ranking input only; 0.2 and 0.7 must never reach the page.
+    expect(screen.queryByText(/0\.2|0\.7/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/score/i)).not.toBeInTheDocument()
+  })
+
+  it('keeps the order the server returned', async () => {
+    await showCandidates(ranked)
+
+    const names = screen
+      .getAllByRole('article')
+      .map((card) => within(card).getByRole('heading', { level: 3 }).textContent)
+    expect(names).toEqual(['Freer Tutor', 'Busier Tutor'])
+  })
+
+  it('shows no ranking chips on an ineligible tutor', async () => {
+    await showCandidates([ranked[0], ineligibleCandidate])
+
+    const blocked = screen.getByRole('heading', { name: 'Blocked Tutor' }).closest('article')
+    expect(within(blocked).queryByRole('list', { name: /is ranked here/i })).not.toBeInTheDocument()
+    expect(within(blocked).getByText(/mark: fail/i)).toBeVisible()
   })
 })

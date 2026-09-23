@@ -761,6 +761,8 @@ const app = createApp(
         isEligible: candidate.isEligible,
         reasonCodes: candidate.reasonCodes,
         clashDetails: candidate.clashDetails,
+        markBand: candidate.markBand,
+        capacityShare: candidate.capacityShare,
       }));
     },
     listOrganiserAllocations: organiserService.listAllocations,
