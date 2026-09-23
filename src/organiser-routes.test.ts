@@ -1621,6 +1621,94 @@ describe("workload report route", () => {
   });
 });
 
+describe("payroll export route", () => {
+  const file = {
+    filename: "tutor-mx-payroll-2030-09-02-1-week.csv",
+    csv: [
+      "period_start,period_end,tutor,course_code,course_name,hours,status",
+      "2030-09-02,2030-09-08,Ada Tutor,COMS3011,Software Design Project,3,APPROVED",
+      "",
+    ].join("\r\n"),
+  };
+
+  it("sends the file as a download named for its period", async () => {
+    const payrollExportCsv = vi.fn().mockResolvedValue(file);
+    const app = makeApp({ payrollExportCsv });
+
+    const response = await request(app)
+      .get("/api/reports/payroll-export")
+      .query({ weekStart: "2030-09-02" })
+      .set("Authorization", "Bearer valid-token");
+
+    expect(response.status).toBe(200);
+    expect(response.headers["content-type"]).toMatch(/text\/csv/);
+    expect(response.headers["content-disposition"]).toBe(
+      `attachment; filename="${file.filename}"`,
+    );
+    // A file to save, not a page to read: the body is the file itself, with no
+    // JSON wrapper around it.
+    expect(response.text).toBe(file.csv);
+  });
+
+  it("asks for the same period the workload report measures", async () => {
+    const payrollExportCsv = vi.fn().mockResolvedValue(file);
+    const app = makeApp({ payrollExportCsv });
+
+    await request(app)
+      .get("/api/reports/payroll-export")
+      .query({ weekStart: "2030-09-02", weeks: "4" })
+      .set("Authorization", "Bearer valid-token");
+
+    expect(payrollExportCsv).toHaveBeenCalledWith({
+      weekStart: new Date("2030-09-02T00:00:00.000Z"),
+      weeks: 4,
+    });
+  });
+
+  it.each([
+    ["a day that is not a Monday", { weekStart: "2030-09-03" }],
+    ["no week at all", {}],
+    ["a malformed date", { weekStart: "not-a-date" }],
+    ["zero weeks", { weekStart: "2030-09-02", weeks: "0" }],
+    ["more than a year", { weekStart: "2030-09-02", weeks: "53" }],
+  ])("refuses %s", async (_label, query) => {
+    const payrollExportCsv = vi.fn();
+    const app = makeApp({ payrollExportCsv });
+
+    const response = await request(app)
+      .get("/api/reports/payroll-export")
+      .query(query)
+      .set("Authorization", "Bearer valid-token");
+
+    expect(response.status).toBe(400);
+    expect(response.body.error.code).toBe("VALIDATION_ERROR");
+    expect(payrollExportCsv).not.toHaveBeenCalled();
+  });
+
+  it("requires an organiser", async () => {
+    const unauthenticated = await request(makeApp())
+      .get("/api/reports/payroll-export")
+      .query({ weekStart: "2030-09-02" });
+    expect(unauthenticated.status).toBe(401);
+
+    const tutor = await request(makeApp({}, "TUTOR"))
+      .get("/api/reports/payroll-export")
+      .query({ weekStart: "2030-09-02" })
+      .set("Authorization", "Bearer valid-token");
+    expect(tutor.status).toBe(403);
+  });
+
+  it("reports the export as unavailable when it is not configured", async () => {
+    const response = await request(makeApp())
+      .get("/api/reports/payroll-export")
+      .query({ weekStart: "2030-09-02" })
+      .set("Authorization", "Bearer valid-token");
+
+    expect(response.status).toBe(503);
+    expect(response.body.error.code).toBe("PAYROLL_EXPORT_UNAVAILABLE");
+  });
+});
+
 describe("course money fields", () => {
   it.each([
     ["a rate of zero", { hourlyRate: 0 }],

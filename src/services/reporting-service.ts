@@ -1,5 +1,7 @@
 import type {
   CourseReportRow,
+  PayrollExport,
+  PayrollExportRow,
   TutorReportRow,
   WorkloadReport,
   WorkloadReportQuery,
@@ -72,6 +74,39 @@ WHERE p."role" = 'TUTOR'
 ORDER BY p."fullName" ASC, p."id" ASC;
 `;
 
+/**
+ * The payroll lines: approved work, split into the weeks it was signed off in and
+ * the tutor and course that earned it. The week is the timesheet's own, which the
+ * work-log rules keep equal to the week the work was done in, so a line cannot be
+ * labelled with a week that does not contain it.
+ *
+ * The where clause is the one the two reports above count with - an approved
+ * sheet, and a date inside the period - and the join to the sheet is an inner one,
+ * so work that was never submitted cannot reach payroll. An objection that is
+ * still open is flagged on the line rather than dropped from it: those hours are
+ * then held, and remain visible as the reason the totals differ from the report.
+ */
+export const payrollExportSql = `
+SELECT to_char(t."weekStart", 'YYYY-MM-DD') AS "periodStart",
+  to_char(t."weekStart" + INTERVAL '6 days', 'YYYY-MM-DD') AS "periodEnd",
+  p."id" AS "tutorId", p."fullName" AS "tutor",
+  c."code" AS "courseCode", c."name" AS "courseName",
+  SUM(w."hours")::double precision AS "hours",
+  EXISTS (
+    SELECT 1 FROM "TimesheetDispute" d
+    WHERE d."timesheetId" = t."id" AND d."status" = 'OPEN'
+  ) AS "held"
+FROM "WorkLog" w
+JOIN "Timesheet" t ON t."id" = w."timesheetId"
+JOIN "Allocation" a ON a."id" = w."allocationId"
+JOIN "Course" c ON c."id" = a."courseId"
+JOIN "Profile" p ON p."id" = w."tutorId"
+WHERE t."status" = 'APPROVED'
+  AND w."workDate" >= $1::date AND w."workDate" < $2::date
+GROUP BY t."id", t."weekStart", p."id", p."fullName", c."id", c."code", c."name"
+ORDER BY t."weekStart" ASC, p."fullName" ASC, p."id" ASC, c."code" ASC;
+`;
+
 interface CourseRow {
   courseId: number;
   courseCode: string;
@@ -90,8 +125,41 @@ interface TutorRow {
   approvedWorkedHours: number;
 }
 
+/**
+ * One week of one tutor's work on one course. The week is read as text because
+ * it names a week rather than an instant, and payroll reads it as a label.
+ */
+interface PayrollRow {
+  periodStart: string;
+  periodEnd: string;
+  tutorId: number;
+  tutor: string;
+  courseCode: string;
+  courseName: string;
+  hours: number;
+  held: boolean;
+}
+
 function round(value: number): number {
   return Math.round(value * 100) / 100;
+}
+
+/**
+ * A period is whole weeks from the chosen Monday, and every figure in this
+ * service measures exactly those weeks. Both the workload report and the payroll
+ * export ask for it here, so the two can be compared figure for figure instead
+ * of agreeing by convention.
+ */
+function periodOf(query: WorkloadReportQuery) {
+  const weekStart = query.weekStart;
+  const weekEnd = new Date(weekStart.valueOf() + query.weeks * WEEK_MS);
+  return {
+    weekStart,
+    weekEnd,
+    // Naive text, because the columns these are compared against are plain
+    // timestamps and dates rather than instants with a zone.
+    parameters: [toNaiveUtcText(weekStart), toNaiveUtcText(weekEnd)],
+  };
 }
 
 function money(hours: number, hourlyRate: number | null): number | null {
@@ -106,9 +174,7 @@ export function createReportingService(queryClient: QueryClient) {
      * client, so a report cannot change anything it reports on.
      */
     async workloadReport(query: WorkloadReportQuery): Promise<WorkloadReport> {
-      const weekStart = query.weekStart;
-      const weekEnd = new Date(weekStart.valueOf() + query.weeks * WEEK_MS);
-      const parameters = [toNaiveUtcText(weekStart), toNaiveUtcText(weekEnd)];
+      const { weekStart, weekEnd, parameters } = periodOf(query);
 
       const [courseResult, tutorResult] = await Promise.all([
         queryClient.query<CourseRow>(courseReportSql, parameters),
@@ -163,6 +229,54 @@ export function createReportingService(queryClient: QueryClient) {
         },
         courses,
         tutors,
+      };
+    },
+
+    /**
+     * The lines a payroll run is built from, in the order a payroll clerk reads
+     * them: by week, then tutor, then course. Payable and held lines are
+     * reported side by side rather than netted off, so a total that differs from
+     * the workload report can be explained from the file itself.
+     */
+    async payrollExport(query: WorkloadReportQuery): Promise<PayrollExport> {
+      const { weekStart, weekEnd, parameters } = periodOf(query);
+      const result = await queryClient.query<PayrollRow>(
+        payrollExportSql,
+        parameters,
+      );
+
+      const lines: PayrollExportRow[] = result.rows.map((row) => ({
+        periodStart: row.periodStart,
+        periodEnd: row.periodEnd,
+        tutorId: row.tutorId,
+        tutor: row.tutor,
+        courseCode: row.courseCode,
+        courseName: row.courseName,
+        hours: round(row.hours),
+        status: "APPROVED",
+        held: row.held,
+      }));
+
+      const rows = lines.filter((line) => !line.held);
+      const heldRows = lines.filter((line) => line.held);
+      const totalOf = (list: PayrollExportRow[]) =>
+        round(list.reduce((sum, line) => sum + line.hours, 0));
+
+      return {
+        period: {
+          weekStart: weekStart.toISOString(),
+          weekEnd: weekEnd.toISOString(),
+          weeks: query.weeks,
+        },
+        rows,
+        heldRows,
+        totals: {
+          payableHours: totalOf(rows),
+          heldHours: totalOf(heldRows),
+          // All of it, so the parts always add up to the whole and the whole is
+          // what the workload report shows.
+          approvedHours: totalOf(lines),
+        },
       };
     },
   };

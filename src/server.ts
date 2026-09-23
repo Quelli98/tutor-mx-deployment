@@ -26,6 +26,7 @@ import { createCourseService } from "./services/course-service.js";
 import { createStaffingRequirementService } from "./services/staffing-requirement-service.js";
 import { createBulkAllocationService } from "./services/bulk-allocation-service.js";
 import { createReportingService } from "./services/reporting-service.js";
+import { payrollFilename, toPayrollCsv } from "./services/payroll-export.js";
 import { createExcuseWorkflowService } from "./services/excuse-workflows.js";
 import { createOrganiserService } from "./services/organiser-service.js";
 import { createStudentWorkflowService } from "./services/student-workflows.js";
@@ -394,6 +395,16 @@ const app = createApp(
       return searchService.search({ id: profile.id, role }, query);
     },
     workloadReport: reportingService.workloadReport,
+    async payrollExportCsv(query) {
+      // The same human-checked rules the report counts with, written as the file
+      // a payroll run reads. Held lines stay out of it entirely: this file is
+      // what is owed, and the report is where the hold is visible.
+      const exportRows = await reportingService.payrollExport(query);
+      return {
+        filename: payrollFilename(query),
+        csv: toPayrollCsv(exportRows.rows),
+      };
+    },
     previewBulkAllocations: bulkAllocationService.preview,
     commitBulkAllocations: bulkAllocationService.commit,
     listStaffingRequirements: staffingRequirementService.listStaffingRequirements,

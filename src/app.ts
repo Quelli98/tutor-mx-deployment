@@ -485,6 +485,46 @@ export interface WorkloadReportQuery {
   weeks: number;
 }
 
+/**
+ * One line of a payroll run: what one tutor did on one course in one week. The
+ * period is the week of the timesheet that was signed off, so every line can be
+ * traced back to the sheet behind it.
+ */
+export interface PayrollExportRow {
+  periodStart: string;
+  periodEnd: string;
+  tutorId: number;
+  tutor: string;
+  courseCode: string;
+  courseName: string;
+  hours: number;
+  status: "APPROVED";
+  /** Approved, but held back by an objection that is still open. */
+  held: boolean;
+}
+
+/**
+ * Approved work splits into what may be paid and what is held back, and the two
+ * halves are reported rather than netted off: an hour is either payable or it is
+ * waiting on an answer, never quietly missing. Payable plus held is the same
+ * total the workload report shows for the period, which is what makes the two
+ * reconcilable.
+ */
+export interface PayrollExport {
+  period: { weekStart: string; weekEnd: string; weeks: number };
+  /** What may be paid now. */
+  rows: PayrollExportRow[];
+  /** Approved work an open dispute holds back. Never paid, never hidden. */
+  heldRows: PayrollExportRow[];
+  totals: { payableHours: number; heldHours: number; approvedHours: number };
+}
+
+/** The file a payroll run downloads: the name to save it under, and its text. */
+export interface PayrollExportCsv {
+  filename: string;
+  csv: string;
+}
+
 export interface TimesheetDecisionInput {
   decision: "APPROVE" | "RETURN";
   reason?: string;
@@ -695,6 +735,9 @@ export interface AppDependencies {
   runDueReminders?: () => Promise<{ generated: number }>;
   search?: (auth0Id: string, query: ResolvedSearchQuery) => Promise<SearchResponse>;
   workloadReport?: (query: WorkloadReportQuery) => Promise<WorkloadReport>;
+  payrollExportCsv?: (
+    query: WorkloadReportQuery,
+  ) => Promise<PayrollExportCsv>;
   previewBulkAllocations?: (
     query: BulkAllocationPreviewQuery,
   ) => Promise<BulkAllocationPreviewItem[]>;
@@ -2432,6 +2475,48 @@ export function createApp(
         }
         const report = await dependencies.workloadReport(parsed.value);
         response.status(200).json({ data: report });
+      } catch (value) {
+        sendRouteError(response, value);
+      }
+    },
+  );
+
+  app.get(
+    "/api/reports/payroll-export",
+    authenticate,
+    resolveProfileRole,
+    requireRole("ORGANISER"),
+    async (request, response) => {
+      // The same period contract as the workload report, because the export is
+      // reconciled against that report for the same weeks.
+      const parsed = parseWorkloadReportQuery(request.query);
+      if ("error" in parsed) {
+        const result = error(
+          400,
+          "VALIDATION_ERROR",
+          parsed.error ??
+            "Choose a week starting on a Monday and a length of 1 to 52 weeks.",
+        );
+        response.status(result.status).json(result.body);
+        return;
+      }
+
+      try {
+        if (!dependencies.payrollExportCsv) {
+          throw createRouteError(
+            503,
+            "PAYROLL_EXPORT_UNAVAILABLE",
+            "Payroll export is not configured.",
+          );
+        }
+        const file = await dependencies.payrollExportCsv(parsed.value);
+        // A download, not a page: the browser saves the body as it is sent.
+        response.setHeader("Content-Type", "text/csv; charset=utf-8");
+        response.setHeader(
+          "Content-Disposition",
+          `attachment; filename="${file.filename}"`,
+        );
+        response.status(200).send(file.csv);
       } catch (value) {
         sendRouteError(response, value);
       }
