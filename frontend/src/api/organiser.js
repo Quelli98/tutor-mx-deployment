@@ -1,13 +1,19 @@
 import { fetchWithBearerToken } from './client'
 import { isTimeSlotSummary } from './availability'
 
+function isMoneyOrUnset(value) {
+  return value === null || (typeof value === 'number' && Number.isFinite(value))
+}
+
 function isCourse(value) {
   return (
     !!value &&
     typeof value === 'object' &&
     Number.isInteger(value.id) &&
     typeof value.code === 'string' &&
-    typeof value.name === 'string'
+    typeof value.name === 'string' &&
+    isMoneyOrUnset(value.hourlyRate) &&
+    isMoneyOrUnset(value.budget)
   )
 }
 
@@ -191,7 +197,13 @@ export async function createCourse(input, tokenOrGetter) {
     '/api/courses',
     {
       method: 'POST',
-      body: JSON.stringify({ code: input.code, name: input.name }),
+      body: JSON.stringify({
+        code: input.code,
+        name: input.name,
+        // Absent leaves the stored value alone; null clears it.
+        ...(input.hourlyRate === undefined ? {} : { hourlyRate: input.hourlyRate }),
+        ...(input.budget === undefined ? {} : { budget: input.budget }),
+      }),
     },
     tokenOrGetter,
   )
@@ -203,7 +215,12 @@ export async function updateCourse(input, tokenOrGetter) {
     `/api/courses/${input.courseId}`,
     {
       method: 'PATCH',
-      body: JSON.stringify({ code: input.code, name: input.name }),
+      body: JSON.stringify({
+        code: input.code,
+        name: input.name,
+        ...(input.hourlyRate === undefined ? {} : { hourlyRate: input.hourlyRate }),
+        ...(input.budget === undefined ? {} : { budget: input.budget }),
+      }),
     },
     tokenOrGetter,
   )
@@ -298,19 +315,40 @@ export async function removeAllocation(allocationId, tokenOrGetter) {
   )
 }
 
+function isExcuseApproval(value) {
+  return (
+    !!value &&
+    typeof value === 'object' &&
+    Number.isInteger(value.id) &&
+    Number.isInteger(value.tutorId) &&
+    typeof value.tutorName === 'string' &&
+    typeof value.tutorEmail === 'string' &&
+    Number.isInteger(value.allocationId) &&
+    typeof value.courseCode === 'string' &&
+    typeof value.courseName === 'string' &&
+    isDate(value.startsAt) &&
+    isDate(value.endsAt) &&
+    typeof value.reason === 'string' &&
+    isDate(value.createdAt)
+  )
+}
+
 export async function listOrganiserApprovals(tokenOrGetter) {
   const body = await fetchWithBearerToken('/api/organiser/approvals', {}, tokenOrGetter)
   const timesheets = body?.data?.timesheets
   const volunteerClaims = body?.data?.volunteerClaims
+  const excuses = body?.data?.excuses
   if (
     !Array.isArray(timesheets) ||
     !timesheets.every(isTimesheetApproval) ||
     !Array.isArray(volunteerClaims) ||
-    !volunteerClaims.every(isVolunteerClaimApproval)
+    !volunteerClaims.every(isVolunteerClaimApproval) ||
+    !Array.isArray(excuses) ||
+    !excuses.every(isExcuseApproval)
   ) {
     throw new Error('The organiser-approval response did not match the agreed contract.')
   }
-  return { timesheets, volunteerClaims }
+  return { timesheets, volunteerClaims, excuses }
 }
 
 export async function decideTimesheet(input, tokenOrGetter) {
@@ -570,4 +608,79 @@ export async function commitBulkAllocations(input, tokenOrGetter) {
     throw new Error('The bulk allocation response did not match the agreed contract.')
   }
   return results
+}
+
+function isCourseReportRow(value) {
+  return (
+    !!value &&
+    typeof value === 'object' &&
+    Number.isInteger(value.courseId) &&
+    typeof value.courseCode === 'string' &&
+    typeof value.courseName === 'string' &&
+    Number.isFinite(value.allocatedHours) &&
+    Number.isFinite(value.approvedWorkedHours) &&
+    isMoneyOrUnset(value.hourlyRate) &&
+    isMoneyOrUnset(value.budget) &&
+    isMoneyOrUnset(value.spend) &&
+    isMoneyOrUnset(value.committed) &&
+    isMoneyOrUnset(value.budgetRemaining)
+  )
+}
+
+function isTutorReportRow(value) {
+  return (
+    !!value &&
+    typeof value === 'object' &&
+    Number.isInteger(value.tutorId) &&
+    typeof value.fullName === 'string' &&
+    (value.capacityHours === null || Number.isFinite(value.capacityHours)) &&
+    Number.isFinite(value.allocatedHours) &&
+    Number.isFinite(value.approvedWorkedHours) &&
+    Number.isFinite(value.shareOfAllocatedHours)
+  )
+}
+
+export async function getWorkloadReport(input, tokenOrGetter) {
+  const query = new URLSearchParams({
+    weekStart: input.weekStart,
+    weeks: String(input.weeks),
+  })
+  const body = await fetchWithBearerToken(
+    `/api/reports/workload?${query.toString()}`,
+    {},
+    tokenOrGetter,
+  )
+  const report = body?.data
+  if (
+    !report ||
+    typeof report.period?.weekStart !== 'string' ||
+    !Number.isInteger(report.period?.weeks) ||
+    !Array.isArray(report.courses) ||
+    !report.courses.every(isCourseReportRow) ||
+    !Array.isArray(report.tutors) ||
+    !report.tutors.every(isTutorReportRow)
+  ) {
+    throw new Error('The report response did not match the agreed contract.')
+  }
+  return report
+}
+
+export async function decideExcuse(input, tokenOrGetter) {
+  const body = await fetchWithBearerToken(
+    `/api/excuses/${input.excuseId}/decision`,
+    {
+      method: 'PATCH',
+      body: JSON.stringify({
+        decision: input.decision,
+        // The server requires a reason to reject; approving may carry a note.
+        ...(input.reason ? { reason: input.reason } : {}),
+      }),
+    },
+    tokenOrGetter,
+  )
+  const excuse = body?.data?.excuse
+  if (!excuse || !Number.isInteger(excuse.id) || typeof excuse.status !== 'string') {
+    throw new Error('The excuse response did not match the agreed contract.')
+  }
+  return excuse
 }

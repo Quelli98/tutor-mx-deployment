@@ -697,6 +697,28 @@ textarea[aria-invalid='true'] {
   font-size: 0.82rem;
 }
 
+/* Spend against budget. The sentence beside it carries the meaning; the bar is
+   decoration and is hidden from screen readers. */
+.spend-bar {
+  display: block;
+  height: 6px;
+  width: 100%;
+  min-width: 120px;
+  border-radius: 999px;
+  background: #e4e9f2;
+  overflow: hidden;
+}
+
+.spend-bar-fill {
+  display: block;
+  height: 100%;
+  background: #2457ae;
+}
+
+.spend-bar-full .spend-bar-fill {
+  background: #a32020;
+}
+
 .tutor-actions {
   display: flex;
   justify-content: flex-end;

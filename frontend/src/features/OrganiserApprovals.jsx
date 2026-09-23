@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useAuth0 } from '@auth0/auth0-react'
 import {
+  decideExcuse,
   decideTimesheet,
   decideVolunteerClaim,
   listOrganiserApprovals,
@@ -21,7 +22,8 @@ function formatDateTime(value) {
 function approvalError(error) {
   if (
     error?.code === 'TIMESHEET_DECISION_CONFLICT' ||
-    error?.code === 'VOLUNTEER_CLAIM_DECISION_CONFLICT'
+    error?.code === 'VOLUNTEER_CLAIM_DECISION_CONFLICT' ||
+    error?.code === 'EXCUSE_DECISION_CONFLICT'
   ) {
     return 'This request changed before your decision was saved. The queue has been refreshed.'
   }
@@ -37,7 +39,7 @@ function approvalError(error) {
 export default function OrganiserApprovals() {
   const { getAccessTokenSilently } = useAuth0()
   const [status, setStatus] = useState('loading')
-  const [queues, setQueues] = useState({ timesheets: [], volunteerClaims: [] })
+  const [queues, setQueues] = useState({ timesheets: [], volunteerClaims: [], excuses: [] })
   const [error, setError] = useState('')
   const [message, setMessage] = useState('')
   const [pendingKey, setPendingKey] = useState('')
@@ -79,7 +81,12 @@ export default function OrganiserApprovals() {
     if (negativeDecision && !reason) {
       setReasonErrors((current) => ({
         ...current,
-        [key]: decision === 'RETURN' ? 'Add a reason for returning this timesheet.' : 'Add a reason for rejecting this claim.',
+        [key]:
+          decision === 'RETURN'
+            ? 'Add a reason for returning this timesheet.'
+            : type === 'excuse'
+              ? 'Add a reason for rejecting this excuse.'
+              : 'Add a reason for rejecting this claim.',
       }))
       return
     }
@@ -91,6 +98,12 @@ export default function OrganiserApprovals() {
       if (type === 'timesheet') {
         await decideTimesheet(
           { timesheetId: id, decision, ...(reason ? { reason } : {}) },
+          getAccessTokenSilently,
+        )
+      } else if (type === 'excuse') {
+        // The existing decision endpoint, reused as it is.
+        await decideExcuse(
+          { excuseId: id, decision, ...(reason ? { reason } : {}) },
           getAccessTokenSilently,
         )
       } else {
@@ -110,7 +123,10 @@ export default function OrganiserApprovals() {
       setError(approvalError(decisionError))
       if (
         decisionError?.code === 'TIMESHEET_DECISION_CONFLICT' ||
-        decisionError?.code === 'VOLUNTEER_CLAIM_DECISION_CONFLICT'
+        decisionError?.code === 'VOLUNTEER_CLAIM_DECISION_CONFLICT' ||
+        // A decision someone else already made: show the server's state rather
+        // than letting the card sit there as though it worked twice.
+        decisionError?.code === 'EXCUSE_DECISION_CONFLICT'
       ) {
         await loadApprovals({ silent: true })
       }
@@ -304,6 +320,81 @@ export default function OrganiserApprovals() {
                             onClick={() => submitDecision({ type: 'claim', id: claim.id, decision: 'APPROVE', personName: claim.studentName })}
                           >
                             {pendingKey === `${key}-APPROVE` ? 'Approving...' : 'Approve claim'}
+                          </button>
+                        </div>
+                      </div>
+                    </article>
+                  )
+                })}
+              </div>
+            )}
+          </section>
+
+          <section className="role-card" aria-labelledby="excuse-approvals-heading">
+            <div className="section-heading-row">
+              <div>
+                <p className="section-kicker">Tutor excuses</p>
+                <h2 id="excuse-approvals-heading">Excuses</h2>
+              </div>
+              <span className="count-badge">{queues.excuses.length}</span>
+            </div>
+
+            {queues.excuses.length === 0 ? (
+              <EmptyState
+                title="No excuses waiting"
+                message="Excuses appear here while a tutor is asking to be released from a session."
+              />
+            ) : (
+              <div className="approval-list">
+                {queues.excuses.map((excuse) => {
+                  const key = `excuse-${excuse.id}`
+                  const busy = pendingKey.startsWith(`${key}-`)
+                  return (
+                    <article className="approval-card" key={excuse.id}>
+                      <div className="approval-card-header">
+                        <div>
+                          <h3>{excuse.tutorName}</h3>
+                          <p>{excuse.tutorEmail}</p>
+                        </div>
+                        <span className="status-badge status-pending">Pending</span>
+                      </div>
+                      <p className="approval-course"><strong>{excuse.courseCode}</strong> · {excuse.courseName}</p>
+                      <dl className="approval-facts">
+                        <div><dt>Session</dt><dd>{formatDateTime(excuse.startsAt)}</dd></div>
+                        <div><dt>Asked</dt><dd>{formatDateTime(excuse.createdAt)}</dd></div>
+                        <div><dt>Their reason</dt><dd>{excuse.reason}</dd></div>
+                      </dl>
+                      <div className="approval-decision">
+                        <div className="field-group">
+                          <label htmlFor={`${key}-reason`}>Rejection reason</label>
+                          <textarea
+                            id={`${key}-reason`}
+                            rows="2"
+                            value={reasons[key] ?? ''}
+                            onChange={(event) => updateReason(key, event.target.value)}
+                            disabled={busy}
+                            aria-invalid={Boolean(reasonErrors[key])}
+                            aria-describedby={reasonErrors[key] ? `${key}-reason-error` : undefined}
+                            placeholder="Required only when rejecting"
+                          />
+                          {reasonErrors[key] && <p id={`${key}-reason-error`} className="error-text">{reasonErrors[key]}</p>}
+                        </div>
+                        <div className="approval-actions">
+                          <button
+                            type="button"
+                            className="secondary-button"
+                            disabled={busy}
+                            onClick={() => submitDecision({ type: 'excuse', id: excuse.id, decision: 'REJECT', personName: excuse.tutorName })}
+                          >
+                            {pendingKey === `${key}-REJECT` ? 'Rejecting...' : 'Reject excuse'}
+                          </button>
+                          <button
+                            type="button"
+                            className="primary-button"
+                            disabled={busy}
+                            onClick={() => submitDecision({ type: 'excuse', id: excuse.id, decision: 'APPROVE', personName: excuse.tutorName })}
+                          >
+                            {pendingKey === `${key}-APPROVE` ? 'Approving...' : 'Approve excuse'}
                           </button>
                         </div>
                       </div>

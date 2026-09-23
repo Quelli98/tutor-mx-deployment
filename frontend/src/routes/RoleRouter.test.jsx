@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react'
+import { fireEvent, render, screen, within } from '@testing-library/react'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { describe, expect, it, vi } from 'vitest'
 import { RoleRouter } from './RoleRouter'
@@ -40,9 +40,18 @@ vi.mock('../api/organiser', () => ({
   updateTutor: vi.fn(),
   listAllocations: vi.fn().mockResolvedValue([]),
   listAllocationCandidates: vi.fn().mockResolvedValue([]),
-  listOrganiserApprovals: vi.fn().mockResolvedValue({ timesheets: [], volunteerClaims: [] }),
+  listOrganiserApprovals: vi
+    .fn()
+    .mockResolvedValue({ timesheets: [], volunteerClaims: [], excuses: [] }),
   decideTimesheet: vi.fn(),
   decideVolunteerClaim: vi.fn(),
+  decideExcuse: vi.fn(),
+  listStaffingRequirements: vi.fn().mockResolvedValue([]),
+  getWorkloadReport: vi.fn().mockResolvedValue({
+    period: { weekStart: '2026-09-14T00:00:00.000Z', weekEnd: '2026-09-21T00:00:00.000Z', weeks: 1 },
+    courses: [],
+    tutors: [],
+  }),
 }))
 
 vi.mock('../api/tutorDashboard', () => ({
@@ -198,6 +207,30 @@ describe('RoleRouter', () => {
     renderRole('ORGANISER', '/organiser/approvals')
 
     expect(await screen.findByRole('heading', { name: 'Approvals' })).toBeInTheDocument()
+  })
+
+  it('opens the reports screen for an organiser', async () => {
+    renderRole('ORGANISER', '/organiser/reports')
+
+    expect(await screen.findByRole('heading', { name: 'Reports' })).toBeInTheDocument()
+  })
+
+  it('keeps reports away from a tutor', () => {
+    renderRole('TUTOR', '/organiser/reports')
+
+    expect(screen.getByRole('heading', { name: /access denied/i })).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: 'Reports' })).not.toBeInTheDocument()
+  })
+
+  it('reaches reports from the organiser dashboard, not the main navigation', () => {
+    renderRole('ORGANISER', '/organiser')
+
+    const navigation = screen.getByRole('navigation', { name: /primary navigation/i })
+    expect(within(navigation).queryByRole('link', { name: 'Reports' })).not.toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Reports' })).toHaveAttribute(
+      'href',
+      '/organiser/reports',
+    )
   })
 
   it('keeps course management away from a tutor', () => {

@@ -46,6 +46,9 @@ export interface CourseSummary {
   id: number;
   code: string;
   name: string;
+  /** Unset until an organiser records them; no rate means no money figures. */
+  hourlyRate: number | null;
+  budget: number | null;
 }
 
 export interface TutorSummary {
@@ -65,6 +68,9 @@ export interface TutorSummary {
 export interface CourseWriteInput {
   code: string;
   name: string;
+  /** Absent leaves the stored value untouched; null clears it. */
+  hourlyRate?: number | null;
+  budget?: number | null;
 }
 
 export interface TutorWeeklyCapacity {
@@ -396,9 +402,66 @@ export interface OrganiserVolunteerClaimApprovalSummary {
   createdAt: string;
 }
 
+/** A pending excuse, with everything an organiser needs to decide on it. */
+export interface OrganiserExcuseApprovalSummary {
+  id: number;
+  tutorId: number;
+  tutorName: string;
+  tutorEmail: string;
+  allocationId: number;
+  courseCode: string;
+  courseName: string;
+  startsAt: string;
+  endsAt: string;
+  reason: string;
+  createdAt: string;
+}
+
 export interface OrganiserApprovalQueuesSummary {
   timesheets: OrganiserTimesheetApprovalSummary[];
   volunteerClaims: OrganiserVolunteerClaimApprovalSummary[];
+  excuses: OrganiserExcuseApprovalSummary[];
+}
+
+/**
+ * Reporting keeps three kinds of hours apart and never adds them together:
+ * capacity (what a tutor could work), allocated (what they are booked for) and
+ * approved worked (what they did and had signed off).
+ */
+export interface CourseReportRow {
+  courseId: number;
+  courseCode: string;
+  courseName: string;
+  allocatedHours: number;
+  approvedWorkedHours: number;
+  hourlyRate: number | null;
+  budget: number | null;
+  /** Approved worked hours x rate: money owed. Null when no rate is set. */
+  spend: number | null;
+  /** Allocated hours x rate: booked but not yet worked. */
+  committed: number | null;
+  budgetRemaining: number | null;
+}
+
+export interface TutorReportRow {
+  tutorId: number;
+  fullName: string;
+  /** Weekly limit x weeks, at today's limit. Limits are not kept historically. */
+  capacityHours: number | null;
+  allocatedHours: number;
+  approvedWorkedHours: number;
+  shareOfAllocatedHours: number;
+}
+
+export interface WorkloadReport {
+  period: { weekStart: string; weekEnd: string; weeks: number };
+  courses: CourseReportRow[];
+  tutors: TutorReportRow[];
+}
+
+export interface WorkloadReportQuery {
+  weekStart: Date;
+  weeks: number;
 }
 
 export interface TimesheetDecisionInput {
@@ -578,6 +641,7 @@ export interface AppDependencies {
   markAllNotificationsRead?: (auth0Id: string) => Promise<{ updated: number }>;
   runDueReminders?: () => Promise<{ generated: number }>;
   search?: (auth0Id: string, query: ResolvedSearchQuery) => Promise<SearchResponse>;
+  workloadReport?: (query: WorkloadReportQuery) => Promise<WorkloadReport>;
   previewBulkAllocations?: (
     query: BulkAllocationPreviewQuery,
   ) => Promise<BulkAllocationPreviewItem[]>;
@@ -826,16 +890,66 @@ function parseTutorWeeklyCapacity(body: unknown) {
   return { value: { weeklyHours } } as const;
 }
 
-function parseCourseInput(body: unknown) {
-  const payload = body as { code?: unknown; name?: unknown } | null;
-  const code = parseRequiredText(payload?.code, "code", 50);
-  const name = parseRequiredText(payload?.name, "name", 120);
+function parseMoneyField(
+  value: unknown,
+  { allowZero }: { allowZero: boolean },
+) {
+  if (value === undefined) {
+    return { kind: "absent" } as const;
+  }
+  if (value === null || value === "") {
+    return { kind: "clear" } as const;
+  }
+  if (
+    typeof value !== "number" ||
+    !Number.isFinite(value) ||
+    value < 0 ||
+    (!allowZero && value === 0) ||
+    !hasAtMostTwoDecimalPlaces(value)
+  ) {
+    return { kind: "invalid" } as const;
+  }
+  return { kind: "value", value } as const;
+}
 
-  if (!code || !name) {
-    return { error: "Enter a valid course code and name." } as const;
+function parseCourseInput(body: unknown) {
+  if (!hasOnlyFields(body, ["code", "name", "hourlyRate", "budget"])) {
+    return {
+      error: "Provide only course code, name, hourly rate and budget.",
+    } as const;
   }
 
-  return { value: { code, name } } as const;
+  const code = parseRequiredText(body.code, "code", 50);
+  const name = parseRequiredText(body.name, "name", 120);
+  // A rate of zero would make every hour look free; a budget of zero is a real
+  // decision, so zero is allowed there.
+  const hourlyRate = parseMoneyField(body.hourlyRate, { allowZero: false });
+  const budget = parseMoneyField(body.budget, { allowZero: true });
+
+  if (
+    !code ||
+    !name ||
+    hourlyRate.kind === "invalid" ||
+    budget.kind === "invalid"
+  ) {
+    return {
+      error:
+        "Enter a valid course code and name, an hourly rate above 0, and a budget of 0 or more.",
+    } as const;
+  }
+
+  return {
+    value: {
+      code,
+      name,
+      ...(hourlyRate.kind === "absent"
+        ? {}
+        : { hourlyRate: hourlyRate.kind === "clear" ? null : hourlyRate.value }),
+      ...(budget.kind === "absent"
+        ? {}
+        : { budget: budget.kind === "clear" ? null : budget.value }),
+    },
+  } as const;
 }
 
 const STAFFING_REQUIREMENT_STATUSES = [
@@ -853,6 +967,9 @@ const DEFAULT_MINIMUM_MARK = 65;
 /** One screenful of work; a larger run should be split rather than timed out. */
 const MAX_BULK_ITEMS = 50;
 
+/** A year of weeks is the longest period worth reporting in one go. */
+const MAX_REPORT_WEEKS = 52;
+
 function bulkAllocationUnavailable() {
   return createRouteError(
     503,
@@ -862,6 +979,24 @@ function bulkAllocationUnavailable() {
 }
 
 /** Ids of the requirements to plan for, plus the bar eligibility is judged at. */
+/** Whole weeks only: capacity is stored per week, so part-weeks mean nothing. */
+function parseWorkloadReportQuery(query: unknown) {
+  const params = (query ?? {}) as { weekStart?: unknown; weeks?: unknown };
+  // parseWeekStart already insists on a Monday, the same rule the rest of the
+  // system uses for a week.
+  const weekStart = parseWeekStart(params.weekStart);
+  const rawWeeks = firstQueryParam(params.weeks);
+  const weeks = rawWeeks === undefined ? 1 : parsePositiveInteger(rawWeeks);
+
+  if (!weekStart || !weeks || weeks > MAX_REPORT_WEEKS) {
+    return {
+      error: `Choose a week starting on a Monday and a length of 1 to ${MAX_REPORT_WEEKS} weeks.`,
+    } as const;
+  }
+
+  return { value: { weekStart, weeks } } as const;
+}
+
 function parseBulkPreviewQuery(body: unknown) {
   if (!hasOnlyFields(body, ["requirementIds", "minimumMark"])) {
     return { error: "Provide only requirementIds and minimumMark." } as const;
@@ -2068,6 +2203,40 @@ export function createApp(
           allocationId.value,
         );
         response.status(204).end();
+      } catch (value) {
+        sendRouteError(response, value);
+      }
+    },
+  );
+
+  app.get(
+    "/api/reports/workload",
+    authenticate,
+    resolveProfileRole,
+    requireRole("ORGANISER"),
+    async (request, response) => {
+      const parsed = parseWorkloadReportQuery(request.query);
+      if ("error" in parsed) {
+        const result = error(
+          400,
+          "VALIDATION_ERROR",
+          parsed.error ??
+            "Choose a week starting on a Monday and a length of 1 to 52 weeks.",
+        );
+        response.status(result.status).json(result.body);
+        return;
+      }
+
+      try {
+        if (!dependencies.workloadReport) {
+          throw createRouteError(
+            503,
+            "REPORTING_UNAVAILABLE",
+            "Reporting is not configured.",
+          );
+        }
+        const report = await dependencies.workloadReport(parsed.value);
+        response.status(200).json({ data: report });
       } catch (value) {
         sendRouteError(response, value);
       }

@@ -31,7 +31,7 @@ vi.mock('./client', () => ({
 
 const tokenGetter = vi.fn()
 
-const course = { id: 1, code: 'DEMO101', name: 'Demo Course' }
+const course = { id: 1, code: 'DEMO101', name: 'Demo Course', hourlyRate: 30, budget: 5000 }
 const tutor = {
   id: 7,
   email: 'tutor@tutormx.example',
@@ -91,6 +91,23 @@ describe('organiser course API contract', () => {
     )
   })
 
+  it('rejects a course whose money fields are missing', async () => {
+    fetchWithBearerToken.mockResolvedValue({
+      data: { courses: [{ id: 1, code: 'DEMO101', name: 'Demo Course' }] },
+    })
+
+    await expect(listCourses(tokenGetter)).rejects.toThrow(
+      'The course response did not match the agreed contract.',
+    )
+  })
+
+  it('accepts a course with no rate or budget set', async () => {
+    const unpriced = { id: 1, code: 'DEMO101', name: 'Demo Course', hourlyRate: null, budget: null }
+    fetchWithBearerToken.mockResolvedValue({ data: { courses: [unpriced] } })
+
+    await expect(listCourses(tokenGetter)).resolves.toEqual([unpriced])
+  })
+
   it('posts the exact course body when creating', async () => {
     fetchWithBearerToken.mockResolvedValue({ data: { course } })
 
@@ -104,6 +121,18 @@ describe('organiser course API contract', () => {
         body: JSON.stringify({ code: 'DEMO101', name: 'Demo Course' }),
       },
       tokenGetter,
+    )
+  })
+
+  it('sends the money fields only when the caller supplies them', async () => {
+    fetchWithBearerToken.mockResolvedValue({ data: { course } })
+
+    await createCourse(
+      { code: 'DEMO101', name: 'Demo Course', hourlyRate: 30, budget: null },
+      tokenGetter,
+    )
+    expect(fetchWithBearerToken.mock.calls[0][1].body).toBe(
+      JSON.stringify({ code: 'DEMO101', name: 'Demo Course', hourlyRate: 30, budget: null }),
     )
   })
 
@@ -395,8 +424,22 @@ describe('organiser allocation and tutor-detail API contracts', () => {
       hours: 2,
       createdAt: '2030-09-08T10:00:00.000Z',
     }
-    fetchWithBearerToken.mockResolvedValueOnce({ data: { timesheets: [timesheet], volunteerClaims: [claim] } })
-    await expect(listOrganiserApprovals(tokenGetter)).resolves.toEqual({ timesheets: [timesheet], volunteerClaims: [claim] })
+    const excuse = {
+      id: 71,
+      tutorId: 7,
+      tutorName: 'Sam Tutor',
+      tutorEmail: 'sam@tutormx.example',
+      allocationId: 11,
+      courseCode: 'COMS3011',
+      courseName: 'Software Design Project',
+      startsAt: '2030-09-11T14:00:00.000Z',
+      endsAt: '2030-09-11T16:00:00.000Z',
+      reason: 'Hospital appointment.',
+      createdAt: '2030-09-09T08:00:00.000Z',
+    }
+    const queues = { timesheets: [timesheet], volunteerClaims: [claim], excuses: [excuse] }
+    fetchWithBearerToken.mockResolvedValueOnce({ data: queues })
+    await expect(listOrganiserApprovals(tokenGetter)).resolves.toEqual(queues)
 
     fetchWithBearerToken.mockResolvedValueOnce({ data: { timesheet: { id: 31 } } })
     await decideTimesheet({ timesheetId: 31, decision: 'RETURN', reason: 'Add notes' }, tokenGetter)

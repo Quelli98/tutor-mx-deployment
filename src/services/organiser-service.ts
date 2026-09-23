@@ -81,6 +81,23 @@ const pendingVolunteerClaimSelection = {
   },
 } as const;
 
+/** Enough for an organiser to decide: who, which session, and why they asked. */
+const pendingExcuseSelection = {
+  id: true,
+  tutorId: true,
+  allocationId: true,
+  reason: true,
+  createdAt: true,
+  tutor: { select: { fullName: true, email: true } },
+  allocation: {
+    select: {
+      startsAt: true,
+      endsAt: true,
+      course: { select: { code: true, name: true } },
+    },
+  },
+} as const;
+
 const timesheetDecisionSelection = {
   id: true,
   tutorId: true,
@@ -291,7 +308,7 @@ export function createOrganiserService(client: PrismaClient) {
     },
 
     async listApprovals(): Promise<OrganiserApprovalQueuesSummary> {
-      const [timesheets, volunteerClaims] = await Promise.all([
+      const [timesheets, volunteerClaims, excuses] = await Promise.all([
         client.timesheet.findMany({
           where: { status: "SUBMITTED" },
           orderBy: [{ submittedAt: "asc" }, { id: "asc" }],
@@ -301,6 +318,13 @@ export function createOrganiserService(client: PrismaClient) {
           where: { status: "PENDING" },
           orderBy: [{ createdAt: "asc" }, { id: "asc" }],
           select: pendingVolunteerClaimSelection,
+        }),
+        // Oldest first: an excuse is about a session that is coming, so the one
+        // waiting longest is the most urgent.
+        client.excuse.findMany({
+          where: { status: "PENDING" },
+          orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+          select: pendingExcuseSelection,
         }),
       ]);
 
@@ -335,6 +359,19 @@ export function createOrganiserService(client: PrismaClient) {
           endsAt: claim.overflowWork.endsAt.toISOString(),
           hours: Number(claim.overflowWork.hours),
           createdAt: claim.createdAt.toISOString(),
+        })),
+        excuses: excuses.map((excuse) => ({
+          id: excuse.id,
+          tutorId: excuse.tutorId,
+          tutorName: excuse.tutor.fullName,
+          tutorEmail: excuse.tutor.email,
+          allocationId: excuse.allocationId,
+          courseCode: excuse.allocation.course.code,
+          courseName: excuse.allocation.course.name,
+          startsAt: excuse.allocation.startsAt.toISOString(),
+          endsAt: excuse.allocation.endsAt.toISOString(),
+          reason: excuse.reason,
+          createdAt: excuse.createdAt.toISOString(),
         })),
       };
     },

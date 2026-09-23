@@ -86,8 +86,8 @@ function makeApp(
       reason: "unavailable",
     }),
     listCourses: async () => [],
-    createCourse: async (input) => ({ id: 1, ...input }),
-    updateCourse: async (id, input) => ({ id, ...input }),
+    createCourse: async (input) => ({ id: 1, ...input, hourlyRate: input.hourlyRate ?? null, budget: input.budget ?? null }),
+    updateCourse: async (id, input) => ({ id, ...input, hourlyRate: input.hourlyRate ?? null, budget: input.budget ?? null }),
     deleteCourse: async () => undefined,
     listTutors: async () => [],
     getTutorDashboard: async () => ({
@@ -191,7 +191,7 @@ function makeApp(
     }),
     listAllocationCandidates: async () => [],
     listOrganiserAllocations: async () => [],
-    listOrganiserApprovals: async () => ({ timesheets: [], volunteerClaims: [] }),
+    listOrganiserApprovals: async () => ({ timesheets: [], volunteerClaims: [], excuses: [] }),
     createAllocation: async () => allocationSummary,
     updateAllocation: async () => allocationSummary,
     removeAllocation: async () => undefined,
@@ -1366,5 +1366,169 @@ describe("bulk allocation routes", () => {
       expect(response.body.error.code).toBe("INTERNAL_ERROR");
       expect(response.text).not.toContain("private connection detail");
     }
+  });
+});
+
+describe("workload report route", () => {
+  const report = {
+    period: { weekStart: "2030-09-02T00:00:00.000Z", weekEnd: "2030-09-09T00:00:00.000Z", weeks: 1 },
+    courses: [
+      {
+        courseId: 10,
+        courseCode: "COMS3011",
+        courseName: "Software Design Project",
+        allocatedHours: 4,
+        approvedWorkedHours: 3,
+        hourlyRate: 180,
+        budget: 5000,
+        spend: 540,
+        committed: 720,
+        budgetRemaining: 4460,
+      },
+    ],
+    tutors: [
+      {
+        tutorId: 7,
+        fullName: "Sam Tutor",
+        capacityHours: 10,
+        allocatedHours: 4,
+        approvedWorkedHours: 3,
+        shareOfAllocatedHours: 1,
+      },
+    ],
+  };
+
+  it("returns the report for a whole number of weeks", async () => {
+    const workloadReport = vi.fn().mockResolvedValue(report);
+    const app = makeApp({ workloadReport });
+
+    const response = await request(app)
+      .get("/api/reports/workload")
+      .query({ weekStart: "2030-09-02", weeks: "4" })
+      .set("Authorization", "Bearer valid-token");
+
+    expect(response.status).toBe(200);
+    expect(response.body).toEqual({ data: report });
+    expect(workloadReport).toHaveBeenCalledWith({
+      weekStart: new Date("2030-09-02T00:00:00.000Z"),
+      weeks: 4,
+    });
+  });
+
+  it("reports a single week when no length is given", async () => {
+    const workloadReport = vi.fn().mockResolvedValue(report);
+    const app = makeApp({ workloadReport });
+
+    await request(app)
+      .get("/api/reports/workload")
+      .query({ weekStart: "2030-09-02" })
+      .set("Authorization", "Bearer valid-token");
+
+    expect(workloadReport).toHaveBeenCalledWith(expect.objectContaining({ weeks: 1 }));
+  });
+
+  it.each([
+    ["a day that is not a Monday", { weekStart: "2030-09-03" }],
+    ["no week at all", {}],
+    ["a malformed date", { weekStart: "not-a-date" }],
+    ["zero weeks", { weekStart: "2030-09-02", weeks: "0" }],
+    ["a fraction of a week", { weekStart: "2030-09-02", weeks: "1.5" }],
+    ["more than a year", { weekStart: "2030-09-02", weeks: "53" }],
+  ])("refuses %s", async (_label, query) => {
+    const workloadReport = vi.fn();
+    const app = makeApp({ workloadReport });
+
+    const response = await request(app)
+      .get("/api/reports/workload")
+      .query(query)
+      .set("Authorization", "Bearer valid-token");
+
+    expect(response.status).toBe(400);
+    expect(response.body.error.code).toBe("VALIDATION_ERROR");
+    expect(workloadReport).not.toHaveBeenCalled();
+  });
+
+  it("requires an organiser", async () => {
+    const unauthenticated = await request(makeApp())
+      .get("/api/reports/workload")
+      .query({ weekStart: "2030-09-02" });
+    expect(unauthenticated.status).toBe(401);
+
+    const tutor = await request(makeApp({}, "TUTOR"))
+      .get("/api/reports/workload")
+      .query({ weekStart: "2030-09-02" })
+      .set("Authorization", "Bearer valid-token");
+    expect(tutor.status).toBe(403);
+  });
+
+  it("reports reporting as unavailable when it is not configured", async () => {
+    const response = await request(makeApp())
+      .get("/api/reports/workload")
+      .query({ weekStart: "2030-09-02" })
+      .set("Authorization", "Bearer valid-token");
+
+    expect(response.status).toBe(503);
+    expect(response.body.error.code).toBe("REPORTING_UNAVAILABLE");
+  });
+});
+
+describe("course money fields", () => {
+  it.each([
+    ["a rate of zero", { hourlyRate: 0 }],
+    ["a negative rate", { hourlyRate: -10 }],
+    ["a negative budget", { budget: -1 }],
+    ["fractions of a cent", { hourlyRate: 1.234 }],
+    ["a rate sent as text", { hourlyRate: "180" }],
+  ])("refuses %s", async (_label, extra) => {
+    const createCourse = vi.fn();
+    const app = makeApp({ createCourse });
+
+    const response = await request(app)
+      .post("/api/courses")
+      .set("Authorization", "Bearer valid-token")
+      .send({ code: "PAY101", name: "Paid Course", ...extra });
+
+    expect(response.status).toBe(400);
+    expect(createCourse).not.toHaveBeenCalled();
+  });
+
+  it("accepts a rate and budget, and lets either be cleared", async () => {
+    const createCourse = vi.fn().mockResolvedValue({
+      id: 1, code: "PAY101", name: "Paid Course", hourlyRate: 180, budget: 5000,
+    });
+    const updateCourse = vi.fn().mockResolvedValue({
+      id: 1, code: "PAY101", name: "Paid Course", hourlyRate: null, budget: null,
+    });
+    const app = makeApp({ createCourse, updateCourse });
+
+    await request(app)
+      .post("/api/courses")
+      .set("Authorization", "Bearer valid-token")
+      .send({ code: "PAY101", name: "Paid Course", hourlyRate: 180, budget: 5000 });
+    expect(createCourse).toHaveBeenCalledWith({
+      code: "PAY101", name: "Paid Course", hourlyRate: 180, budget: 5000,
+    });
+
+    await request(app)
+      .patch("/api/courses/1")
+      .set("Authorization", "Bearer valid-token")
+      .send({ code: "PAY101", name: "Paid Course", hourlyRate: null, budget: null });
+    expect(updateCourse).toHaveBeenCalledWith(1, {
+      code: "PAY101", name: "Paid Course", hourlyRate: null, budget: null,
+    });
+  });
+
+  it("leaves the stored money untouched when the fields are absent", async () => {
+    const updateCourse = vi.fn().mockResolvedValue({
+      id: 1, code: "PAY101", name: "Renamed", hourlyRate: 180, budget: 5000,
+    });
+    const app = makeApp({ updateCourse });
+
+    await request(app)
+      .patch("/api/courses/1")
+      .set("Authorization", "Bearer valid-token")
+      .send({ code: "PAY101", name: "Renamed" });
+
+    expect(updateCourse).toHaveBeenCalledWith(1, { code: "PAY101", name: "Renamed" });
   });
 });

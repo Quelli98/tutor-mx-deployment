@@ -31,8 +31,8 @@ function makeApp(overrides: Partial<AppDependencies> = {}) {
       reason: "unavailable",
     }),
     listCourses: async () => [],
-    createCourse: async (input) => ({ id: 1, ...input }),
-    updateCourse: async (id, input) => ({ id, ...input }),
+    createCourse: async (input) => ({ id: 1, ...input, hourlyRate: input.hourlyRate ?? null, budget: input.budget ?? null }),
+    updateCourse: async (id, input) => ({ id, ...input, hourlyRate: input.hourlyRate ?? null, budget: input.budget ?? null }),
     deleteCourse: async () => undefined,
     listTutors: async () => [],
     getTutorDashboard: async () => ({
@@ -136,7 +136,7 @@ function makeApp(overrides: Partial<AppDependencies> = {}) {
     }),
     listAllocationCandidates: async () => [],
     listOrganiserAllocations: async () => [],
-    listOrganiserApprovals: async () => ({ timesheets: [], volunteerClaims: [] }),
+    listOrganiserApprovals: async () => ({ timesheets: [], volunteerClaims: [], excuses: [] }),
     createAllocation: async (_auth0Id, input) => ({
       id: 1,
       tutorId: input.tutorId,

@@ -311,8 +311,9 @@ describe("server-side API persistence", () => {
     mocks.courseFindMany.mockResolvedValueOnce([
       { id: 3, code: "DEMO101", name: "Demo Course", internal: "discard" },
     ]);
+    // A course with no rate or budget recorded reports them as unset, never 0.
     await expect(dependencies.listCourses()).resolves.toEqual([
-      { id: 3, code: "DEMO101", name: "Demo Course" },
+      { id: 3, code: "DEMO101", name: "Demo Course", hourlyRate: null, budget: null },
     ]);
 
     mocks.profileFindMany.mockResolvedValueOnce([
@@ -382,7 +383,40 @@ describe("server-side API persistence", () => {
     });
     await expect(
       dependencies.createCourse({ code: "NEW101", name: "New Course" }),
-    ).resolves.toEqual({ id: 6, code: "NEW101", name: "New Course" });
+    ).resolves.toEqual({
+      id: 6,
+      code: "NEW101",
+      name: "New Course",
+      hourlyRate: null,
+      budget: null,
+    });
+
+    // Money fields are written when given, and come back as numbers.
+    mocks.courseCreate.mockResolvedValueOnce({
+      id: 7,
+      code: "PAY101",
+      name: "Paid Course",
+      hourlyRate: "180.00",
+      budget: "5000.00",
+    });
+    await expect(
+      dependencies.createCourse({
+        code: "PAY101",
+        name: "Paid Course",
+        hourlyRate: 180,
+        budget: 5000,
+      }),
+    ).resolves.toEqual({
+      id: 7,
+      code: "PAY101",
+      name: "Paid Course",
+      hourlyRate: 180,
+      budget: 5000,
+    });
+    expect(mocks.courseCreate.mock.calls[1]![0].data).toMatchObject({
+      hourlyRate: 180,
+      budget: 5000,
+    });
 
     mocks.courseUpdate.mockResolvedValueOnce({
       id: 6,
@@ -398,6 +432,8 @@ describe("server-side API persistence", () => {
       id: 6,
       code: "NEW102",
       name: "Updated Course",
+      hourlyRate: null,
+      budget: null,
     });
 
     mocks.courseServiceDelete.mockResolvedValueOnce(undefined);

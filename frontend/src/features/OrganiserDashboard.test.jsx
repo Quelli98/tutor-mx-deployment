@@ -1,4 +1,5 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { MemoryRouter } from 'react-router-dom'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import OrganiserDashboard from './OrganiserDashboard'
@@ -104,7 +105,7 @@ describe('OrganiserDashboard', () => {
       }),
     )
 
-    render(<OrganiserDashboard />)
+    render(<OrganiserDashboard />, { wrapper: MemoryRouter })
 
     expect(screen.getByRole('heading', { name: /allocation board/i })).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: /loading courses/i })).toBeInTheDocument()
@@ -117,7 +118,7 @@ describe('OrganiserDashboard', () => {
     listCourses.mockResolvedValue(courses)
     listAllocationCandidates.mockResolvedValue([eligibleCandidate, ineligibleCandidate])
 
-    render(<OrganiserDashboard />)
+    render(<OrganiserDashboard />, { wrapper: MemoryRouter })
     await screen.findByRole('option', { name: /COMS3011/i })
     fillBoard()
     fireEvent.click(screen.getByRole('button', { name: /check candidates/i }))
@@ -158,7 +159,7 @@ describe('OrganiserDashboard', () => {
       const reasonCodes = allocationReasonCodesFor({ mark: 90, minimumMark: input.minimumMark, hasClash, remainingHours: 15, requestedHours: input.requestedHours })
       return [{ ...eligibleCandidate, mark: 90, weeklyLimit: 15, usedHours: 0, remainingHours: 15, hasClash, reasonCodes, isEligible: reasonCodes.length === 0 }]
     })
-    render(<OrganiserDashboard />)
+    render(<OrganiserDashboard />, { wrapper: MemoryRouter })
     await screen.findByRole('option', { name: /COMS3011/i })
     fillBoard()
     fireEvent.change(screen.getByLabelText(/session starts/i), { target: { value: '2026-09-14T08:00' } })
@@ -179,7 +180,7 @@ describe('OrganiserDashboard', () => {
   ])('shows %s separately and never offers a failed tutor selection', async (reason, text, overrides) => {
     listCourses.mockResolvedValue(courses)
     listAllocationCandidates.mockResolvedValue([{ ...eligibleCandidate, ...overrides, isEligible: false, reasonCodes: [reason] }])
-    render(<OrganiserDashboard />)
+    render(<OrganiserDashboard />, { wrapper: MemoryRouter })
     await screen.findByRole('option', { name: /COMS3011/i })
     fillBoard()
     fireEvent.click(screen.getByRole('button', { name: /check candidates/i }))
@@ -196,7 +197,7 @@ describe('OrganiserDashboard', () => {
   it('explains missing course marks without blaming availability', async () => {
     listCourses.mockResolvedValue(courses)
     listAllocationCandidates.mockResolvedValue([])
-    render(<OrganiserDashboard />)
+    render(<OrganiserDashboard />, { wrapper: MemoryRouter })
     await screen.findByRole('option', { name: /COMS3011/i })
     fillBoard()
     fireEvent.click(screen.getByRole('button', { name: /check candidates/i }))
@@ -216,7 +217,7 @@ describe('OrganiserDashboard', () => {
       },
     ])
 
-    render(<OrganiserDashboard />)
+    render(<OrganiserDashboard />, { wrapper: MemoryRouter })
     await screen.findByRole('option', { name: /COMS3011/i })
     fillBoard()
     fireEvent.click(screen.getByRole('button', { name: /check candidates/i }))
@@ -229,7 +230,7 @@ describe('OrganiserDashboard', () => {
     listCourses.mockResolvedValue(courses)
     listAllocationCandidates.mockResolvedValue([eligibleCandidate, ineligibleCandidate])
 
-    render(<OrganiserDashboard />)
+    render(<OrganiserDashboard />, { wrapper: MemoryRouter })
     await screen.findByRole('option', { name: /COMS3011/i })
     fillBoard()
     fireEvent.click(screen.getByRole('button', { name: /check candidates/i }))
@@ -263,7 +264,7 @@ describe('OrganiserDashboard', () => {
   it('shows field-level validation and sends no invalid request', async () => {
     listCourses.mockResolvedValue(courses)
 
-    render(<OrganiserDashboard />)
+    render(<OrganiserDashboard />, { wrapper: MemoryRouter })
     await screen.findByRole('option', { name: /COMS3011/i })
     fireEvent.click(screen.getByRole('button', { name: /check candidates/i }))
 
@@ -277,9 +278,13 @@ describe('OrganiserDashboard', () => {
     const user = userEvent.setup()
     listCourses.mockResolvedValue(courses)
 
-    render(<OrganiserDashboard />)
+    render(<OrganiserDashboard />, { wrapper: MemoryRouter })
     const courseSelect = await screen.findByLabelText(/^course$/i)
     await waitFor(() => expect(courseSelect).not.toBeDisabled())
+    // The header's Reports link comes first in the document, then the list
+    // controls, then the board itself.
+    await user.tab()
+    expect(screen.getByRole('link', { name: /^reports$/i })).toHaveFocus()
     await user.tab()
     expect(screen.getByRole('button', { name: /^refresh$/i })).toHaveFocus()
     await user.tab()
@@ -292,7 +297,7 @@ describe('OrganiserDashboard', () => {
       .mockRejectedValueOnce(Object.assign(new Error('private detail'), { code: 'REQUEST_FAILED' }))
       .mockResolvedValueOnce([])
 
-    render(<OrganiserDashboard />)
+    render(<OrganiserDashboard />, { wrapper: MemoryRouter })
     await screen.findByRole('option', { name: /COMS3011/i })
     fillBoard()
     fireEvent.click(screen.getByRole('button', { name: /check candidates/i }))
@@ -310,7 +315,7 @@ describe('OrganiserDashboard', () => {
     listAllocations.mockResolvedValue([allocation])
     listAllocationCandidates.mockResolvedValue([eligibleCandidate])
 
-    render(<OrganiserDashboard />)
+    render(<OrganiserDashboard />, { wrapper: MemoryRouter })
     fireEvent.click(await screen.findByRole('button', { name: /edit allocation/i }))
     fireEvent.click(screen.getByRole('button', { name: /check candidates/i }))
 
@@ -335,7 +340,7 @@ describe('OrganiserDashboard', () => {
     listCourses.mockResolvedValue(courses)
     listAllocations.mockResolvedValueOnce([allocation]).mockResolvedValueOnce([])
 
-    render(<OrganiserDashboard />)
+    render(<OrganiserDashboard />, { wrapper: MemoryRouter })
     fireEvent.click(await screen.findByRole('button', { name: /^remove$/i }))
     expect(screen.getByRole('dialog')).toHaveTextContent(/weekly hours will be released/i)
     fireEvent.click(screen.getByRole('button', { name: /remove allocation/i }))
@@ -358,7 +363,7 @@ describe('OrganiserDashboard', () => {
       }),
     )
 
-    render(<OrganiserDashboard />)
+    render(<OrganiserDashboard />, { wrapper: MemoryRouter })
     await screen.findByRole('option', { name: /COMS3011/i })
     fillBoard()
     fireEvent.click(screen.getByRole('button', { name: /check candidates/i }))
@@ -376,7 +381,7 @@ describe('OrganiserDashboard', () => {
     listAllocationCandidates.mockResolvedValue([eligibleCandidate])
     createAllocation.mockResolvedValue({ id: 99 })
 
-    render(<OrganiserDashboard />)
+    render(<OrganiserDashboard />, { wrapper: MemoryRouter })
     await screen.findByRole('option', { name: /COMS3011/i })
     fillBoard()
     fireEvent.click(screen.getByRole('button', { name: /check candidates/i }))
@@ -399,7 +404,7 @@ describe('OrganiserDashboard', () => {
     listAllocations.mockResolvedValue([allocation])
     listAllocationCandidates.mockResolvedValue([eligibleCandidate])
 
-    render(<OrganiserDashboard />)
+    render(<OrganiserDashboard />, { wrapper: MemoryRouter })
     fireEvent.click(await screen.findByRole('button', { name: /edit allocation/i }))
     fireEvent.click(screen.getByRole('button', { name: /check candidates/i }))
     fireEvent.click(await screen.findByRole('button', { name: /update allocation/i }))
@@ -419,7 +424,7 @@ describe('OrganiserDashboard', () => {
     listCourses.mockResolvedValue(courses)
     listAllocationCandidates.mockResolvedValue([ineligibleCandidate])
 
-    render(<OrganiserDashboard />)
+    render(<OrganiserDashboard />, { wrapper: MemoryRouter })
     await screen.findByRole('option', { name: /COMS3011/i })
     fillBoard()
     fireEvent.click(screen.getByRole('button', { name: /check candidates/i }))
@@ -436,7 +441,7 @@ describe('OrganiserDashboard', () => {
       .mockResolvedValueOnce([eligibleCandidate])
     createAllocation.mockResolvedValue({ id: 99 })
 
-    render(<OrganiserDashboard />)
+    render(<OrganiserDashboard />, { wrapper: MemoryRouter })
     await screen.findByRole('option', { name: /COMS3011/i })
     fillBoard()
     fireEvent.click(screen.getByRole('button', { name: /check candidates/i }))
@@ -455,7 +460,7 @@ describe('OrganiserDashboard', () => {
     listCourses.mockResolvedValue(courses)
     listAllocationCandidates.mockResolvedValue([])
 
-    render(<OrganiserDashboard />)
+    render(<OrganiserDashboard />, { wrapper: MemoryRouter })
     await screen.findByRole('option', { name: /COMS3011/i })
     fillBoard()
     fireEvent.click(screen.getByRole('button', { name: /check candidates/i }))
@@ -504,7 +509,7 @@ describe('OrganiserDashboard candidate ranking', () => {
 
   async function showCandidates(candidates) {
     listAllocationCandidates.mockResolvedValue(candidates)
-    render(<OrganiserDashboard />)
+    render(<OrganiserDashboard />, { wrapper: MemoryRouter })
     await screen.findByRole('option', { name: /COMS3011/i })
     fillBoard()
     fireEvent.click(screen.getByRole('button', { name: /check candidates/i }))
@@ -568,7 +573,7 @@ describe('OrganiserDashboard session-length check', () => {
   })
 
   async function boardWith(startsAt, endsAt, hours) {
-    render(<OrganiserDashboard />)
+    render(<OrganiserDashboard />, { wrapper: MemoryRouter })
     await screen.findByRole('option', { name: /COMS3011/i })
     fireEvent.change(screen.getByLabelText(/^course$/i), { target: { value: '3' } })
     fireEvent.change(screen.getByLabelText(/session starts/i), { target: { value: startsAt } })

@@ -181,10 +181,10 @@ function smokeApp(overrides: SmokeOverrides = {}): Express {
     }),
 
     listCourses: async () => [
-      { id: 1, code: "DEMO101", name: "Demo Course" },
+      { id: 1, code: "DEMO101", name: "Demo Course", hourlyRate: null, budget: null },
     ],
-    createCourse: async (input) => ({ id: 11, ...input }),
-    updateCourse: async (courseId, input) => ({ id: courseId, ...input }),
+    createCourse: async (input) => ({ id: 11, ...input, hourlyRate: input.hourlyRate ?? null, budget: input.budget ?? null }),
+    updateCourse: async (courseId, input) => ({ id: courseId, ...input, hourlyRate: input.hourlyRate ?? null, budget: input.budget ?? null }),
     deleteCourse: async () => undefined,
 
     listTutors: async () => [
@@ -290,7 +290,7 @@ function smokeApp(overrides: SmokeOverrides = {}): Express {
 
     listAllocationCandidates: async () => [],
     listOrganiserAllocations: async () => [],
-    listOrganiserApprovals: async () => ({ timesheets: [], volunteerClaims: [] }),
+    listOrganiserApprovals: async () => ({ timesheets: [], volunteerClaims: [], excuses: [] }),
     createAllocation: async (_auth0Id, input): Promise<AllocationSummary> => ({
       id: 61,
       tutorId: input.tutorId,

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { useAuth0 } from '@auth0/auth0-react'
 import {
   canSelectCandidate,
@@ -490,6 +491,9 @@ export default function OrganiserDashboard() {
             Create, recheck and maintain tutor allocations with every server rule visible.
           </p>
         </div>
+        <Link className="secondary-button" to="/organiser/reports">
+          Reports
+        </Link>
       </header>
 
       <section className="role-card" aria-labelledby="current-allocations-heading">

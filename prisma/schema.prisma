@@ -115,6 +115,9 @@ model Course {
   id           Int            @id @default(autoincrement())
   code         String         @unique
   name         String
+  /** What one tutor-hour on this course costs. Every tutor is paid the same. */
+  hourlyRate   Decimal?       @db.Decimal(8, 2)
+  budget       Decimal?       @db.Decimal(12, 2)
   tutorMarks   TutorMark[]
   allocations  Allocation[]
   overflowWork OverflowWork[]
