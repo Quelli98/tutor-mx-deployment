@@ -138,6 +138,21 @@ model TutorMark {
   @@index([courseId, mark])
 }
 
+/// An academic teaching period. It bounds how far a recurring schedule entry
+/// may repeat, so an imported timetable always stops at the end of the term it
+/// was imported against. Terms belong to the institution, not to a profile, so
+/// there is no owner column. Dates are stored as DATE (not timestamps) because
+/// a term boundary is a calendar day, not an instant, and must not shift with
+/// the reader's timezone.
+model AcademicTerm {
+  id        Int      @id @default(autoincrement())
+  name      String   @unique @db.VarChar(120)
+  startsOn  DateTime @db.Date
+  endsOn    DateTime @db.Date
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
 model TimeSlot {
   id               Int          @id @default(autoincrement())
   tutorId          Int

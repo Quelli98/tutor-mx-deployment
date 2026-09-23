@@ -30,6 +30,18 @@ import {
   resolveSearchCategories,
 } from "./services/search.js";
 import type { ResolvedSearchQuery, SearchResponse } from "./services/search-service.js";
+import {
+  parseAcademicTermInput,
+  type AcademicTermInput,
+  type AcademicTermSummary,
+} from "./services/academic-terms.js";
+import { checkTimeSlotRules } from "./services/time-slot-rules.js";
+import {
+  parseTimetableImportRequest,
+  type TimetableImportPreview,
+  type TimetableImportRequest,
+} from "./services/timetable-import.js";
+import type { TimetableImportCommitResult } from "./services/timetable-import-service.js";
 
 type ReadinessCheck = () => Promise<void>;
 
@@ -664,6 +676,19 @@ export interface AppDependencies {
     requirementId: number,
     status: StaffingRequirementStatus,
   ) => Promise<StaffingRequirementSummary>;
+  /** Academic terms bound how far an imported recurring schedule entry repeats. */
+  listAcademicTerms?: () => Promise<AcademicTermSummary[]>;
+  createAcademicTerm?: (
+    input: AcademicTermInput,
+  ) => Promise<AcademicTermSummary>;
+  previewTutorTimetableImport?: (
+    auth0Id: string,
+    request: TimetableImportRequest,
+  ) => Promise<TimetableImportPreview>;
+  commitTutorTimetableImport?: (
+    auth0Id: string,
+    request: TimetableImportRequest,
+  ) => Promise<TimetableImportCommitResult>;
   verifyAccessToken: AccessTokenVerifier;
 }
 
@@ -1290,23 +1315,26 @@ function parseTutorTimeSlotInput(body: unknown) {
   const label = typeof body.label === "string" ? body.label.trim() : body.label;
   const recurrenceUntil = body.recurrenceUntil == null ? null : scheduleDate(body.recurrenceUntil);
 
-  if (
-    (type !== "AVAILABLE" && type !== "BUSY") ||
-    !startsAt || !endsAt || endsAt <= startsAt ||
-    (recurrence !== undefined && recurrence !== "WEEKLY") ||
-    (recurrence === "WEEKLY" && endsAt.valueOf() - startsAt.valueOf() > 7 * 24 * 60 * 60 * 1000) ||
-    (label !== undefined && label !== null && (typeof label !== "string" || label.length > 120)) ||
-    (body.recurrenceUntil != null && (!recurrenceUntil || recurrence !== "WEEKLY" || recurrenceUntil < startsAt))
-  ) {
-    return { error: "Enter a valid schedule interval, label (up to 120 characters) and weekly recurrence end." } as const;
+  // The rules themselves live in src/services/time-slot-rules.ts so that the
+  // timetable import cannot drift away from what the manual form accepts. Key
+  // presence is passed through because an explicit null label and an omitted
+  // one have always meant the same thing here.
+  const checked = checkTimeSlotRules({
+    type,
+    startsAt,
+    endsAt,
+    recurrence,
+    labelSupplied: body.label !== undefined,
+    label,
+    recurrenceUntilSupplied: body.recurrenceUntil !== undefined,
+    recurrenceUntilProvided: body.recurrenceUntil != null,
+    recurrenceUntil,
+  });
+  if ("error" in checked) {
+    return { error: checked.error } as const;
   }
 
-  const value: TutorTimeSlotWriteInput = {
-    type, startsAt, endsAt,
-    ...(recurrence === "WEEKLY" ? { recurrence } : {}),
-    ...(label !== undefined ? { label } : {}),
-    ...(body.recurrenceUntil !== undefined ? { recurrenceUntil } : {}),
-  };
+  const value: TutorTimeSlotWriteInput = checked.value;
   return { value } as const;
 }
 
@@ -2839,6 +2867,136 @@ export function createApp(
           (request as AuthenticatedRequest).auth!.subject, timeSlotId.value,
         );
         response.status(204).end();
+      } catch (value) {
+        sendRouteError(response, value);
+      }
+    },
+  );
+
+  app.get(
+    "/api/academic-terms",
+    authenticate,
+    resolveProfileRole,
+    async (request, response) => {
+      try {
+        if (!dependencies.listAcademicTerms) {
+          throw createRouteError(
+            503,
+            "ACADEMIC_TERMS_UNAVAILABLE",
+            "Academic terms are not configured.",
+          );
+        }
+        const academicTerms = await dependencies.listAcademicTerms();
+        response.status(200).json({ data: { academicTerms } });
+      } catch (value) {
+        sendRouteError(response, value);
+      }
+    },
+  );
+
+  app.post(
+    "/api/organiser/academic-terms",
+    authenticate,
+    resolveProfileRole,
+    requireRole("ORGANISER"),
+    async (request, response) => {
+      const parsed = parseAcademicTermInput(request.body);
+      if ("error" in parsed) {
+        const result = error(
+          400,
+          "VALIDATION_ERROR",
+          parsed.error ?? "Enter a term name and ordered start and end dates.",
+        );
+        response.status(result.status).json(result.body);
+        return;
+      }
+
+      try {
+        if (!dependencies.createAcademicTerm) {
+          throw createRouteError(
+            503,
+            "ACADEMIC_TERMS_UNAVAILABLE",
+            "Academic terms are not configured.",
+          );
+        }
+        const academicTerm = await dependencies.createAcademicTerm(parsed.value);
+        response.status(201).json({ data: { academicTerm } });
+      } catch (value) {
+        sendRouteError(response, value);
+      }
+    },
+  );
+
+  app.post(
+    "/api/tutor/time-slots/import/preview",
+    authenticate,
+    resolveProfileRole,
+    requireRole("TUTOR"),
+    async (request, response) => {
+      const parsed = parseTimetableImportRequest(request.body);
+      if ("error" in parsed) {
+        const result = error(
+          400,
+          "VALIDATION_ERROR",
+          parsed.error ?? "Send a CSV or ICS timetable with a term to import against.",
+        );
+        response.status(result.status).json(result.body);
+        return;
+      }
+
+      try {
+        if (!dependencies.previewTutorTimetableImport) {
+          throw createRouteError(
+            503,
+            "TIMETABLE_IMPORT_UNAVAILABLE",
+            "Timetable import is not configured.",
+          );
+        }
+        const preview = await dependencies.previewTutorTimetableImport(
+          (request as AuthenticatedRequest).auth!.subject,
+          parsed.value,
+        );
+        response.status(200).json({ data: { preview } });
+      } catch (value) {
+        sendRouteError(response, value);
+      }
+    },
+  );
+
+  app.post(
+    "/api/tutor/time-slots/import/commit",
+    authenticate,
+    resolveProfileRole,
+    requireRole("TUTOR"),
+    async (request, response) => {
+      const parsed = parseTimetableImportRequest(request.body);
+      if ("error" in parsed) {
+        const result = error(
+          400,
+          "VALIDATION_ERROR",
+          parsed.error ?? "Send a CSV or ICS timetable with a term to import against.",
+        );
+        response.status(result.status).json(result.body);
+        return;
+      }
+
+      try {
+        if (!dependencies.commitTutorTimetableImport) {
+          throw createRouteError(
+            503,
+            "TIMETABLE_IMPORT_UNAVAILABLE",
+            "Timetable import is not configured.",
+          );
+        }
+        // Atomic by design: the whole file lands as one transaction, or nothing
+        // does. This is why the batch endpoint exists rather than a client loop
+        // over the single-time-slot route, which would leave partial writes
+        // behind once a later row failed.
+        const result = await dependencies.commitTutorTimetableImport(
+          (request as AuthenticatedRequest).auth!.subject,
+          parsed.value,
+        );
+        response.status(200).json({ data: { result } });
       } catch (value) {
         sendRouteError(response, value);
       }

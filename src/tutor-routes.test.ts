@@ -343,3 +343,251 @@ describe("own-tutor form routes", () => {
     expect(response.text).not.toContain("private database details");
   });
 });
+
+describe("tutor timetable import routes", () => {
+  const term = {
+    id: 1,
+    name: "Demo 2030 Semester 2",
+    startsOn: "2030-08-26",
+    endsOn: "2030-11-29",
+  };
+
+  const previewBody = {
+    source: "CSV" as const,
+    text: "date,start,end,label\n2030-09-02,09:00,11:00,Maths",
+    timeZone: "UTC",
+    termId: 1,
+  };
+
+  it("requires a Tutor token on both import routes", async () => {
+    const previewTutorTimetableImport = vi.fn();
+    const commitTutorTimetableImport = vi.fn();
+
+    for (const path of [
+      "/api/tutor/time-slots/import/preview",
+      "/api/tutor/time-slots/import/commit",
+    ]) {
+      const withoutToken = await request(
+        makeApp({ previewTutorTimetableImport, commitTutorTimetableImport }),
+      )
+        .post(path)
+        .send(previewBody);
+      expect(withoutToken.status).toBe(401);
+
+      const wrongRole = await request(
+        makeApp({
+          previewTutorTimetableImport,
+          commitTutorTimetableImport,
+          verifyAccessToken: async () => auth("STUDENT"),
+        }),
+      )
+        .post(path)
+        .set("Authorization", "Bearer valid-token")
+        .send(previewBody);
+      expect(wrongRole.status).toBe(403);
+    }
+
+    expect(previewTutorTimetableImport).not.toHaveBeenCalled();
+    expect(commitTutorTimetableImport).not.toHaveBeenCalled();
+  });
+
+  it("rejects a malformed request before reaching the service", async () => {
+    const previewTutorTimetableImport = vi.fn();
+    const app = makeApp({ previewTutorTimetableImport });
+
+    const badSource = await request(app)
+      .post("/api/tutor/time-slots/import/preview")
+      .set("Authorization", "Bearer valid-token")
+      .send({ ...previewBody, source: "XLSX" });
+    expect(badSource.status).toBe(400);
+    expect(badSource.body.error.code).toBe("VALIDATION_ERROR");
+
+    const extraField = await request(app)
+      .post("/api/tutor/time-slots/import/preview")
+      .set("Authorization", "Bearer valid-token")
+      .send({ ...previewBody, tutorId: 999 });
+    expect(extraField.status).toBe(400);
+
+    const missingTerm = await request(app)
+      .post("/api/tutor/time-slots/import/preview")
+      .set("Authorization", "Bearer valid-token")
+      .send({ source: "CSV", text: previewBody.text, timeZone: "UTC" });
+    expect(missingTerm.status).toBe(400);
+
+    expect(previewTutorTimetableImport).not.toHaveBeenCalled();
+  });
+
+  it("derives the tutor from the token and returns the preview", async () => {
+    const previewTutorTimetableImport = vi.fn().mockResolvedValue({
+      source: "CSV",
+      timeZone: "UTC",
+      term,
+      rows: [],
+      validCount: 0,
+      invalidCount: 0,
+      duplicateCount: 0,
+    });
+
+    const response = await request(makeApp({ previewTutorTimetableImport }))
+      .post("/api/tutor/time-slots/import/preview")
+      .set("Authorization", "Bearer valid-token")
+      .send(previewBody);
+
+    expect(response.status).toBe(200);
+    expect(response.body.data.preview.term).toEqual(term);
+    // The subject comes from the token, never from the body.
+    expect(previewTutorTimetableImport).toHaveBeenCalledWith(
+      "auth0|current-tutor",
+      previewBody,
+    );
+  });
+
+  it("returns the commit result, including the rows it skipped", async () => {
+    const commitTutorTimetableImport = vi.fn().mockResolvedValue({
+      created: 1,
+      createdIds: [7],
+      skipped: [{ sourceRow: 3, duplicate: false, errors: ["A date is required."] }],
+      invalidCount: 1,
+      duplicateCount: 0,
+    });
+
+    const response = await request(makeApp({ commitTutorTimetableImport }))
+      .post("/api/tutor/time-slots/import/commit")
+      .set("Authorization", "Bearer valid-token")
+      .send(previewBody);
+
+    expect(response.status).toBe(200);
+    expect(response.body.data.result).toEqual({
+      created: 1,
+      createdIds: [7],
+      skipped: [{ sourceRow: 3, duplicate: false, errors: ["A date is required."] }],
+      invalidCount: 1,
+      duplicateCount: 0,
+    });
+  });
+
+  it("surfaces an import conflict with its own code", async () => {
+    const commitTutorTimetableImport = vi.fn().mockRejectedValue(
+      createRouteError(
+        409,
+        "TIMETABLE_IMPORT_CONFLICT",
+        "The timetable could not be saved and nothing was changed.",
+      ),
+    );
+
+    const response = await request(makeApp({ commitTutorTimetableImport }))
+      .post("/api/tutor/time-slots/import/commit")
+      .set("Authorization", "Bearer valid-token")
+      .send(previewBody);
+
+    expect(response.status).toBe(409);
+    expect(response.body.error.code).toBe("TIMETABLE_IMPORT_CONFLICT");
+  });
+
+  it("fails closed when the import dependency is not configured", async () => {
+    const response = await request(makeApp({ previewTutorTimetableImport: undefined }))
+      .post("/api/tutor/time-slots/import/preview")
+      .set("Authorization", "Bearer valid-token")
+      .send(previewBody);
+
+    expect(response.status).toBe(503);
+    expect(response.body.error.code).toBe("TIMETABLE_IMPORT_UNAVAILABLE");
+  });
+});
+
+describe("academic term routes", () => {
+  const term = {
+    id: 1,
+    name: "Demo 2030 Semester 2",
+    startsOn: "2030-08-26",
+    endsOn: "2030-11-29",
+  };
+
+  /**
+   * The stored profile is the authority on the role, so an Organiser request
+   * needs both an Organiser token claim and an Organiser profile row.
+   */
+  const organiserOverrides = {
+    findProfileByAuth0Id: async () => ({
+      id: 8,
+      email: "organiser@tutormx.example",
+      fullName: "Demo Organiser",
+      role: "ORGANISER" as const,
+    }),
+    verifyAccessToken: async () => auth("ORGANISER"),
+  };
+
+  it("lists terms for any signed-in role", async () => {
+    const listAcademicTerms = vi.fn().mockResolvedValue([term]);
+
+    const response = await request(makeApp({ listAcademicTerms }))
+      .get("/api/academic-terms")
+      .set("Authorization", "Bearer valid-token");
+
+    expect(response.status).toBe(200);
+    expect(response.body).toEqual({ data: { academicTerms: [term] } });
+  });
+
+  it("requires an Organiser to create a term", async () => {
+    const createAcademicTerm = vi.fn();
+    const body = { name: "2031 Semester 2", startsOn: "2031-07-21", endsOn: "2031-11-28" };
+
+    const asTutor = await request(makeApp({ createAcademicTerm }))
+      .post("/api/organiser/academic-terms")
+      .set("Authorization", "Bearer valid-token")
+      .send(body);
+
+    expect(asTutor.status).toBe(403);
+    expect(createAcademicTerm).not.toHaveBeenCalled();
+  });
+
+  it("rejects backwards or malformed term dates before reaching the service", async () => {
+    const createAcademicTerm = vi.fn();
+    const app = makeApp({ createAcademicTerm, ...organiserOverrides });
+
+    for (const body of [
+      { name: "Backwards", startsOn: "2031-11-28", endsOn: "2031-07-21" },
+      { name: "Impossible", startsOn: "2031-02-30", endsOn: "2031-06-06" },
+      { name: "", startsOn: "2031-02-17", endsOn: "2031-06-06" },
+      { name: "No dates" },
+    ]) {
+      const response = await request(app)
+        .post("/api/organiser/academic-terms")
+        .set("Authorization", "Bearer valid-token")
+        .send(body);
+      expect(response.status).toBe(400);
+      expect(response.body.error.code).toBe("VALIDATION_ERROR");
+    }
+
+    expect(createAcademicTerm).not.toHaveBeenCalled();
+  });
+
+  it("creates a term for an Organiser", async () => {
+    const createAcademicTerm = vi.fn().mockResolvedValue({ ...term, id: 4 });
+
+    const response = await request(
+      makeApp({ createAcademicTerm, ...organiserOverrides }),
+    )
+      .post("/api/organiser/academic-terms")
+      .set("Authorization", "Bearer valid-token")
+      .send({ name: "Demo 2030 Semester 2", startsOn: "2030-08-26", endsOn: "2030-11-29" });
+
+    expect(response.status).toBe(201);
+    expect(response.body.data.academicTerm).toEqual({ ...term, id: 4 });
+    expect(createAcademicTerm).toHaveBeenCalledWith({
+      name: "Demo 2030 Semester 2",
+      startsOn: "2030-08-26",
+      endsOn: "2030-11-29",
+    });
+  });
+
+  it("fails closed when terms are not configured", async () => {
+    const response = await request(makeApp({ listAcademicTerms: undefined }))
+      .get("/api/academic-terms")
+      .set("Authorization", "Bearer valid-token");
+
+    expect(response.status).toBe(503);
+    expect(response.body.error.code).toBe("ACADEMIC_TERMS_UNAVAILABLE");
+  });
+});
+

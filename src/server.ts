@@ -45,6 +45,8 @@ import {
   type NotificationEvent,
 } from "./services/notifications.js";
 import { createSearchService } from "./services/search-service.js";
+import { createAcademicTermService } from "./services/academic-terms.js";
+import { createTimetableImportService } from "./services/timetable-import-service.js";
 
 const port = Number(process.env.PORT ?? 3000);
 
@@ -280,6 +282,11 @@ const notificationService = createNotificationService(
   prisma as unknown as NotificationDataClient,
 );
 const searchService = createSearchService(queryClient);
+const academicTermService = createAcademicTermService(prisma);
+
+// Writes only through one serializable transaction, so a half-imported
+// timetable cannot be left behind when a later row fails its checks.
+const timetableImportService = createTimetableImportService(prisma);
 
 async function listOrganiserProfileIds() {
   const organisers = await prisma.profile.findMany({
@@ -353,6 +360,10 @@ const app = createApp(
     createStaffingRequirement: staffingRequirementService.createStaffingRequirement,
     updateStaffingRequirement: staffingRequirementService.updateStaffingRequirement,
     setStaffingRequirementStatus: staffingRequirementService.setStaffingRequirementStatus,
+    listAcademicTerms: academicTermService.list,
+    createAcademicTerm: academicTermService.create,
+    previewTutorTimetableImport: timetableImportService.preview,
+    commitTutorTimetableImport: timetableImportService.commit,
     async onboardUser(auth0Id, role) {
       const existing = await prisma.profile.findUnique({
         where: { auth0Id },

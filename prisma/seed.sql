@@ -42,6 +42,22 @@ INSERT INTO "Profile" ("auth0Id", "email", "fullName", "role") VALUES
 INSERT INTO "Course" ("code", "name")
 VALUES ('DEMO101', 'Demo Introduction to Tutoring');
 
+-- Academic terms are upserted rather than deleted-and-recreated: they are
+-- shared institution reference data, not demo-owned rows, and a term is what
+-- bounds an imported timetable. Removing one on every seed would silently
+-- strand the schedule entries that were imported against it.
+-- Both terms are seeded so the import picker is not a single dead-end option
+-- and so a term boundary can be exercised: all demo dates below fall inside
+-- 'Demo 2030 Semester 2' and outside 'Demo 2031 Semester 1'.
+INSERT INTO "AcademicTerm" ("name", "startsOn", "endsOn", "updatedAt")
+VALUES
+  ('Demo 2030 Semester 2', DATE '2030-08-26', DATE '2030-11-29', CURRENT_TIMESTAMP),
+  ('Demo 2031 Semester 1', DATE '2031-02-17', DATE '2031-06-06', CURRENT_TIMESTAMP)
+ON CONFLICT ("name") DO UPDATE SET
+  "startsOn" = EXCLUDED."startsOn",
+  "endsOn" = EXCLUDED."endsOn",
+  "updatedAt" = CURRENT_TIMESTAMP;
+
 INSERT INTO "TutorMark" ("tutorId", "courseId", "mark")
 SELECT p."id", c."id", marks."mark"
 FROM (VALUES
