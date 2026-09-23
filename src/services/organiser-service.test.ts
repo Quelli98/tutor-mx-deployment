@@ -70,6 +70,11 @@ function createHarness() {
       findUnique: vi.fn(),
       updateMany: vi.fn(),
     },
+    excuse: {
+      findMany: vi.fn().mockResolvedValue([]),
+      findUnique: vi.fn(),
+      updateMany: vi.fn(),
+    },
   };
   const client = {
     ...transaction,
@@ -268,6 +273,22 @@ describe("organiser allocation service", () => {
       },
     ]);
 
+    harness.transaction.excuse.findMany.mockResolvedValue([
+      {
+        id: 71,
+        tutorId: 7,
+        allocationId: 11,
+        reason: "Hospital appointment.",
+        createdAt: new Date("2030-09-09T08:00:00.000Z"),
+        tutor: { fullName: "Sam Tutor", email: "sam@tutormx.example" },
+        allocation: {
+          startsAt: new Date("2030-09-11T14:00:00.000Z"),
+          endsAt: new Date("2030-09-11T16:00:00.000Z"),
+          course: { code: "COMS3011", name: "Software Design Project" },
+        },
+      },
+    ]);
+
     const result = await harness.service.listApprovals();
     expect(result.timesheets[0]).toMatchObject({
       id: 31,
@@ -281,6 +302,27 @@ describe("organiser allocation service", () => {
       courseCode: "COMS3011",
       hours: 2,
     });
+    // An organiser can only decide an excuse they can find; the queue carries
+    // who asked, which session, and the reason they gave.
+    expect(result.excuses[0]).toEqual({
+      id: 71,
+      tutorId: 7,
+      tutorName: "Sam Tutor",
+      tutorEmail: "sam@tutormx.example",
+      allocationId: 11,
+      courseCode: "COMS3011",
+      courseName: "Software Design Project",
+      startsAt: "2030-09-11T14:00:00.000Z",
+      endsAt: "2030-09-11T16:00:00.000Z",
+      reason: "Hospital appointment.",
+      createdAt: "2030-09-09T08:00:00.000Z",
+    });
+    expect(harness.transaction.excuse.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { status: "PENDING" },
+        orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+      }),
+    );
   });
 
   it("creates a proposed allocation at exact mark/hour thresholds with touching ranges", async () => {

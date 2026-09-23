@@ -21,8 +21,8 @@ vi.mock('@auth0/auth0-react', () => ({
 }))
 
 const courses = [
-  { id: 1, code: 'DEMO101', name: 'Demo Course' },
-  { id: 2, code: 'COMS3011', name: 'Software Design Project' },
+  { id: 1, code: 'DEMO101', name: 'Demo Course', hourlyRate: null, budget: null },
+  { id: 2, code: 'COMS3011', name: 'Software Design Project', hourlyRate: 30, budget: 5000 },
 ]
 
 function renderPage() {
@@ -141,7 +141,9 @@ describe('CourseManagement create, edit and delete', () => {
 
     await waitFor(() => {
       expect(createCourse).toHaveBeenCalledWith(
-        { code: 'NEW100', name: 'New Course' },
+        // Blank money fields are sent as null, which the server reads as "not
+        // set", rather than being left out.
+        { code: 'NEW100', name: 'New Course', hourlyRate: null, budget: null },
         getAccessTokenSilently,
       )
     })
@@ -203,7 +205,7 @@ describe('CourseManagement create, edit and delete', () => {
 
     await waitFor(() => {
       expect(updateCourse).toHaveBeenCalledWith(
-        { courseId: 1, code: 'DEMO101', name: 'Renamed Course' },
+        { courseId: 1, code: 'DEMO101', name: 'Renamed Course', hourlyRate: null, budget: null },
         getAccessTokenSilently,
       )
     })
@@ -360,5 +362,88 @@ describe('CourseManagement create, edit and delete', () => {
     await waitFor(() => {
       expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
     })
+  })
+})
+
+describe('CourseManagement money fields', () => {
+  beforeEach(() => {
+    listCourses.mockReset().mockResolvedValue(courses)
+    createCourse.mockReset().mockResolvedValue({ id: 3, code: 'NEW100', name: 'New Course' })
+    updateCourse.mockReset().mockResolvedValue({ id: 2, code: 'COMS3011', name: 'Software Design Project' })
+    deleteCourse.mockReset()
+    getAccessTokenSilently.mockReset()
+  })
+
+  it('shows the rate and budget, and says when they are not set', async () => {
+    renderPage()
+    const rows = within(await screen.findByRole('table')).getAllByRole('row')
+
+    expect(rows[1].querySelectorAll('td')[2]).toHaveTextContent('Not set')
+    expect(rows[2].querySelectorAll('td')[2]).toHaveTextContent('R30.00')
+    expect(rows[2].querySelectorAll('td')[3]).toHaveTextContent('R5000.00')
+  })
+
+  it('sends the rate and budget entered on a new course', async () => {
+    renderPage()
+    await screen.findByRole('table')
+
+    fireEvent.change(screen.getByLabelText(/course code/i), { target: { value: 'NEW100' } })
+    fireEvent.change(screen.getByLabelText(/course name/i), { target: { value: 'New Course' } })
+    fireEvent.change(screen.getByLabelText(/hourly rate/i), { target: { value: '42.50' } })
+    fireEvent.change(screen.getByLabelText(/budget/i), { target: { value: '1200' } })
+    fireEvent.click(screen.getByRole('button', { name: /^add course$/i }))
+
+    await waitFor(() =>
+      expect(createCourse).toHaveBeenCalledWith(
+        { code: 'NEW100', name: 'New Course', hourlyRate: 42.5, budget: 1200 },
+        getAccessTokenSilently,
+      ),
+    )
+  })
+
+  it('pre-fills the stored money when editing and clears it when emptied', async () => {
+    renderPage()
+    await screen.findByRole('table')
+
+    fireEvent.click(screen.getByRole('button', { name: /edit COMS3011/i }))
+    expect(screen.getByLabelText(/hourly rate/i)).toHaveValue(30)
+    expect(screen.getByLabelText(/budget/i)).toHaveValue(5000)
+
+    fireEvent.change(screen.getByLabelText(/budget/i), { target: { value: '' } })
+    fireEvent.click(screen.getByRole('button', { name: /save changes/i }))
+
+    await waitFor(() =>
+      expect(updateCourse).toHaveBeenCalledWith(
+        {
+          courseId: 2,
+          code: 'COMS3011',
+          name: 'Software Design Project',
+          hourlyRate: 30,
+          // An emptied field clears the stored budget rather than leaving it.
+          budget: null,
+        },
+        getAccessTokenSilently,
+      ),
+    )
+  })
+
+  it('shows what the server refused rather than deciding the rule itself', async () => {
+    createCourse.mockRejectedValue(
+      Object.assign(new Error('Enter a valid course code and name, an hourly rate above 0, and a budget of 0 or more.'), {
+        code: 'VALIDATION_ERROR',
+      }),
+    )
+
+    renderPage()
+    await screen.findByRole('table')
+
+    fireEvent.change(screen.getByLabelText(/course code/i), { target: { value: 'NEW100' } })
+    fireEvent.change(screen.getByLabelText(/course name/i), { target: { value: 'New Course' } })
+    fireEvent.change(screen.getByLabelText(/hourly rate/i), { target: { value: '0' } })
+    fireEvent.click(screen.getByRole('button', { name: /^add course$/i }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(/hourly rate above 0/i)
+    // The screen did not block it first with a rule of its own.
+    expect(createCourse).toHaveBeenCalled()
   })
 })

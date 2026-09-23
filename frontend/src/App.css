@@ -299,6 +299,19 @@
   color: var(--auth-blue);
 }
 
+/* These classes were written for <button>. An anchor is inline by default, so
+   min-height and vertical padding would be ignored and the clickable area would
+   shrink to the text line. This keeps a link that looks like a button behaving
+   like one wherever it is used, without changing how buttons themselves look. */
+a.primary-button,
+a.secondary-button,
+a.danger-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  text-decoration: none;
+}
+
 .danger-button {
   background: #fff0f2;
   color: #a81f36;
@@ -668,6 +681,42 @@ textarea[aria-invalid='true'] {
 .tutor-table th:last-child {
   width: 1%;
   white-space: nowrap;
+}
+
+/* Stacks a cell's supporting detail beneath its main figure. This must go on a
+   wrapper inside the cell, never on the <td>: display:grid stops an element being
+   a table cell, and adjacent ones then merge into one anonymous cell, shifting
+   every later column left. */
+.table-cell-stack {
+  display: grid;
+  gap: 2px;
+}
+
+.table-cell-stack .helper-text {
+  margin: 0;
+  font-size: 0.82rem;
+}
+
+/* Spend against budget. The sentence beside it carries the meaning; the bar is
+   decoration and is hidden from screen readers. */
+.spend-bar {
+  display: block;
+  height: 6px;
+  width: 100%;
+  min-width: 120px;
+  border-radius: 999px;
+  background: #e4e9f2;
+  overflow: hidden;
+}
+
+.spend-bar-fill {
+  display: block;
+  height: 100%;
+  background: #2457ae;
+}
+
+.spend-bar-full .spend-bar-fill {
+  background: #a32020;
 }
 
 .tutor-actions {
@@ -1393,6 +1442,77 @@ a:focus-visible {
   color: #5e6784;
 }
 
+/* Bulk allocation: choosing requirements, then reviewing what would be saved. */
+/* Each choice is a two-line label: what the session is, then what it still needs.
+   The second line needs its own line, or the two run together. */
+.bulk-choice-list .checkbox-field {
+  align-items: flex-start;
+}
+
+.bulk-choice-list .checkbox-field input {
+  /* Line the box up with the first line of text, not the middle of both. */
+  margin-top: 3px;
+  flex: 0 0 auto;
+}
+
+.bulk-choice-list label {
+  display: grid;
+  gap: 3px;
+}
+
+.bulk-choice-list .helper-text {
+  margin: 0;
+  /* Labels are bold; the shortage beneath is supporting detail, not a heading. */
+  font-weight: 500;
+  font-size: 0.82rem;
+}
+
+.bulk-choice-list,
+.bulk-proposal-list,
+.bulk-result-list {
+  display: grid;
+  gap: 10px;
+  margin: 0 0 18px;
+  padding: 0;
+  list-style: none;
+}
+
+.bulk-preview-item {
+  margin-bottom: 18px;
+  padding: 16px;
+  border: 1px solid #dfe5ef;
+  border-radius: 16px;
+  background: #ffffff;
+}
+
+.bulk-proposal {
+  display: grid;
+  gap: 10px;
+  padding: 14px;
+  border: 1px solid #e4e9f2;
+  border-radius: 12px;
+  background: #f8fafc;
+}
+
+.bulk-result {
+  display: grid;
+  gap: 2px;
+  padding: 12px;
+  border: 1px solid #e4e9f2;
+  border-radius: 12px;
+  background: #f8fafc;
+}
+
+/* The factors the ranking used, shown beside each eligible tutor. */
+.candidate-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
 /* min(100%, 280px) keeps the card minimum from overflowing a container that is
    itself narrower than 280px, so three or more cards always wrap cleanly. */
 .candidate-grid {
@@ -1895,6 +2015,41 @@ textarea:focus {
 .status-rejected {
   background: var(--danger-soft);
   color: var(--danger);
+}
+
+/* Fill states on the staffing board. The wording in the cell carries the
+   meaning on its own; these colours only reinforce it. */
+.fill-state {
+  font-weight: 800;
+}
+
+.fill-unfilled {
+  color: var(--danger);
+}
+
+.fill-partially-filled {
+  color: var(--warning);
+}
+
+.fill-fully-filled {
+  color: #087248;
+}
+
+.fill-not-being-filled {
+  color: #5e6784;
+}
+
+/* Staffing requirement states. Open is still wanted, so it reads as active
+   rather than as a warning; closed is finished with, so it reads as neutral.
+   Cancelled reuses the shared danger styling above. */
+.status-open {
+  background: var(--accent-bg);
+  color: var(--accent);
+}
+
+.status-closed {
+  background: #edf2f7;
+  color: #42556a;
 }
 
 .allocation-list,

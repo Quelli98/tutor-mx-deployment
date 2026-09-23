@@ -76,3 +76,37 @@ export function scheduleForWeek(slots, weekStart) {
   }
   return days
 }
+
+/**
+ * A session length said the way a person would: "2 hours", "1 hour 30 minutes",
+ * "45 minutes".
+ *
+ * The wording is duplicated from sessionLengthText in src/app.ts on purpose -
+ * the browser cannot import server code - and both sides are checked against the
+ * same table of examples so they can never drift apart.
+ */
+export function sessionLengthText(startsAt, endsAt) {
+  const totalMinutes = Math.round((endsAt.valueOf() - startsAt.valueOf()) / 60_000)
+  const hours = Math.floor(totalMinutes / 60)
+  const minutes = totalMinutes % 60
+  const parts = []
+
+  if (hours > 0) parts.push(`${hours} ${hours === 1 ? 'hour' : 'hours'}`)
+  if (minutes > 0 || hours === 0) {
+    parts.push(`${minutes} ${minutes === 1 ? 'minute' : 'minutes'}`)
+  }
+
+  return parts.join(' ')
+}
+
+/**
+ * A tutoring session is a slot in a day, not a term. Duplicated from
+ * MAX_SESSION_HOURS in src/app.ts for the same reason as sessionLengthText, and
+ * pinned by the same agreement test. The server and the database refuse anything
+ * longer; this only saves the organiser a round trip.
+ */
+export const MAX_SESSION_HOURS = 8
+
+export function maximumSessionLengthMessage(startsAt, endsAt) {
+  return `A session cannot be longer than ${MAX_SESSION_HOURS} hours. This one is ${sessionLengthText(startsAt, endsAt)}. Check the start and end dates.`
+}

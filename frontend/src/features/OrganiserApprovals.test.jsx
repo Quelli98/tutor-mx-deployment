@@ -5,12 +5,14 @@ import OrganiserApprovals from './OrganiserApprovals'
 const listOrganiserApprovals = vi.fn()
 const decideTimesheet = vi.fn()
 const decideVolunteerClaim = vi.fn()
+const decideExcuse = vi.fn()
 const getAccessTokenSilently = vi.fn()
 
 vi.mock('../api/organiser', () => ({
   listOrganiserApprovals: (...args) => listOrganiserApprovals(...args),
   decideTimesheet: (...args) => decideTimesheet(...args),
   decideVolunteerClaim: (...args) => decideVolunteerClaim(...args),
+  decideExcuse: (...args) => decideExcuse(...args),
 }))
 
 vi.mock('@auth0/auth0-react', () => ({
@@ -50,8 +52,23 @@ const claim = {
   createdAt: '2030-09-08T10:00:00.000Z',
 }
 
-const queues = { timesheets: [timesheet], volunteerClaims: [claim] }
-const emptyQueues = { timesheets: [], volunteerClaims: [] }
+const excuse = {
+  id: 71,
+  tutorId: 7,
+  tutorName: 'Sam Tutor',
+  tutorEmail: 'sam@tutormx.example',
+  allocationId: 11,
+  courseCode: 'COMS3011',
+  courseName: 'Software Design Project',
+  startsAt: '2030-09-11T14:00:00.000Z',
+  endsAt: '2030-09-11T16:00:00.000Z',
+  reason: 'Hospital appointment that morning.',
+  createdAt: '2030-09-09T08:00:00.000Z',
+}
+
+const queues = { timesheets: [timesheet], volunteerClaims: [claim], excuses: [] }
+const queuesWithExcuse = { ...queues, excuses: [excuse] }
+const emptyQueues = { timesheets: [], volunteerClaims: [], excuses: [] }
 
 describe('OrganiserApprovals', () => {
   beforeEach(() => {
@@ -145,5 +162,88 @@ describe('OrganiserApprovals', () => {
     expect(await screen.findByRole('heading', { name: /approvals unavailable/i })).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: /retry/i }))
     expect(await screen.findByRole('heading', { name: /no timesheets waiting/i })).toBeInTheDocument()
+  })
+})
+
+describe('OrganiserApprovals excuse queue', () => {
+  beforeEach(() => {
+    listOrganiserApprovals.mockReset().mockResolvedValue(queuesWithExcuse)
+    decideTimesheet.mockReset()
+    decideVolunteerClaim.mockReset()
+    decideExcuse.mockReset().mockResolvedValue({ id: 71, status: 'APPROVED' })
+    getAccessTokenSilently.mockReset()
+  })
+
+  async function excuseCard() {
+    render(<OrganiserApprovals />)
+    const heading = await screen.findByRole('heading', { name: /^excuses$/i })
+    return heading.closest('section')
+  }
+
+  it('shows enough to decide on: tutor, course, session, when asked and why', async () => {
+    const section = await excuseCard()
+
+    expect(within(section).getByText('Sam Tutor')).toBeVisible()
+    expect(within(section).getByText(/COMS3011/)).toBeVisible()
+    expect(within(section).getByText(/hospital appointment/i)).toBeVisible()
+  })
+
+  it('approves an excuse through the existing decision endpoint', async () => {
+    const section = await excuseCard()
+    fireEvent.click(within(section).getByRole('button', { name: /approve excuse/i }))
+
+    await waitFor(() => {
+      expect(decideExcuse).toHaveBeenCalledWith(
+        { excuseId: 71, decision: 'APPROVE' },
+        getAccessTokenSilently,
+      )
+    })
+    // The queue is reloaded so the decided excuse leaves the list.
+    await waitFor(() => expect(listOrganiserApprovals).toHaveBeenCalledTimes(2))
+  })
+
+  it('will not reject without a reason, and sends it once given', async () => {
+    const section = await excuseCard()
+    fireEvent.click(within(section).getByRole('button', { name: /reject excuse/i }))
+
+    expect(
+      await within(section).findByText(/add a reason for rejecting this excuse/i),
+    ).toBeVisible()
+    expect(decideExcuse).not.toHaveBeenCalled()
+
+    fireEvent.change(within(section).getByLabelText(/rejection reason/i), {
+      target: { value: 'Cover is already arranged.' },
+    })
+    fireEvent.click(within(section).getByRole('button', { name: /reject excuse/i }))
+
+    await waitFor(() => {
+      expect(decideExcuse).toHaveBeenCalledWith(
+        { excuseId: 71, decision: 'REJECT', reason: 'Cover is already arranged.' },
+        getAccessTokenSilently,
+      )
+    })
+  })
+
+  it('explains a decision someone else already made and refreshes', async () => {
+    decideExcuse.mockRejectedValue(
+      Object.assign(new Error('The excuse has already been decided or changed.'), {
+        code: 'EXCUSE_DECISION_CONFLICT',
+      }),
+    )
+
+    const section = await excuseCard()
+    fireEvent.click(within(section).getByRole('button', { name: /approve excuse/i }))
+
+    expect(await screen.findByText(/changed before your decision was saved/i)).toBeVisible()
+    // Refreshed, so the screen shows the server's state rather than a card that
+    // looks as though it was decided twice.
+    await waitFor(() => expect(listOrganiserApprovals).toHaveBeenCalledTimes(2))
+  })
+
+  it('says so when no excuse is waiting', async () => {
+    listOrganiserApprovals.mockResolvedValue(queues)
+
+    const section = await excuseCard()
+    expect(within(section).getByRole('heading', { name: /no excuses waiting/i })).toBeVisible()
   })
 })

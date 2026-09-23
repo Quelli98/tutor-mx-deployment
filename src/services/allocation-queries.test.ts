@@ -6,6 +6,9 @@ import {
   getTutorHourSummary,
   listOpenWork,
   hasEnoughRemainingHours,
+  compareEligibleCandidates,
+  rankAllocationCandidates,
+  type AllocationCandidate,
   meetsMinimumMark,
   timeRangesOverlap,
   type QueryClient,
@@ -334,6 +337,9 @@ describe("allocation queries", () => {
         hasClash: false,
         isEligible: true,
         reasonCodes: [],
+        // 50 sits in the 50s band; 6 of 8 hours is three quarters of the limit.
+        markBand: 50,
+        capacityShare: 0.75,
       },
     ]);
   });
@@ -373,6 +379,8 @@ describe("allocation queries", () => {
         isEligible: true,
         reasonCodes: [],
         clashDetails: [],
+        markBand: 80,
+        capacityShare: 0,
       },
     ]);
   });
@@ -629,5 +637,126 @@ describe("allocation queries", () => {
 
     await expect(listOpenWork(client, now)).resolves.toEqual([row]);
     expect(query.mock.calls[0]?.[1]).toEqual(["2030-09-01 00:00:00.000"]);
+  });
+});
+
+describe("ranking eligible candidates", () => {
+  function candidate(
+    overrides: Partial<AllocationCandidate> & { tutorId: number },
+  ): AllocationCandidate {
+    const mark = overrides.mark ?? 80;
+    const weeklyLimit = overrides.weeklyLimit ?? 10;
+    const usedHours = overrides.usedHours ?? 0;
+
+    return {
+      fullName: `Tutor ${overrides.tutorId}`,
+      mark,
+      weeklyLimit,
+      usedHours,
+      remainingHours: Math.max(weeklyLimit - usedHours, 0),
+      hasClash: false,
+      isEligible: true,
+      clashDetails: [],
+      reasonCodes: [],
+      markBand: Math.floor(mark / 10) * 10,
+      capacityShare: weeklyLimit > 0 ? usedHours / weeklyLimit : Number.POSITIVE_INFINITY,
+      ...overrides,
+    };
+  }
+
+  const order = (candidates: AllocationCandidate[]) =>
+    rankAllocationCandidates(candidates).map((entry) => entry.tutorId);
+
+  it("puts the better mark band first, even when the lower band is less busy", () => {
+    const lowerBandIdle = candidate({ tutorId: 1, mark: 89, usedHours: 0 });
+    const higherBandBusy = candidate({ tutorId: 2, mark: 91, usedHours: 9 });
+
+    expect(order([lowerBandIdle, higherBandBusy])).toEqual([2, 1]);
+  });
+
+  it("keeps marks inside one band together rather than splitting them", () => {
+    // 91 and 96 are both "excellent", so the busier one yields to the freer one
+    // instead of taking every session until full.
+    const topOfBandBusy = candidate({ tutorId: 1, mark: 96, usedHours: 8 });
+    const sameBandIdle = candidate({ tutorId: 2, mark: 91, usedHours: 1 });
+
+    expect(order([topOfBandBusy, sameBandIdle])).toEqual([2, 1]);
+  });
+
+  it("compares share of the weekly limit, not raw hours used", () => {
+    // Three hours used is the busier tutor at a limit of five, and the freer one
+    // at a limit of twenty.
+    const smallLimit = candidate({ tutorId: 1, mark: 85, weeklyLimit: 5, usedHours: 3 });
+    const largeLimit = candidate({ tutorId: 2, mark: 85, weeklyLimit: 20, usedHours: 3 });
+
+    expect(order([smallLimit, largeLimit])).toEqual([2, 1]);
+  });
+
+  it("falls back to the exact mark when band and share match", () => {
+    const lower = candidate({ tutorId: 1, mark: 82, usedHours: 4 });
+    const higher = candidate({ tutorId: 2, mark: 87, usedHours: 4 });
+
+    expect(order([lower, higher])).toEqual([2, 1]);
+  });
+
+  it("breaks a complete tie by tutor id so the order never drifts", () => {
+    const later = candidate({ tutorId: 9, mark: 80, usedHours: 2 });
+    const earlier = candidate({ tutorId: 4, mark: 80, usedHours: 2 });
+
+    expect(order([later, earlier])).toEqual([4, 9]);
+  });
+
+  it("gives the same order however the input arrives", () => {
+    const candidates = [
+      candidate({ tutorId: 1, mark: 91, usedHours: 9 }),
+      candidate({ tutorId: 2, mark: 85, usedHours: 0 }),
+      candidate({ tutorId: 3, mark: 85, usedHours: 0 }),
+      candidate({ tutorId: 4, mark: 88, usedHours: 5 }),
+      candidate({ tutorId: 5, mark: 74, usedHours: 0 }),
+    ];
+    const expected = [1, 2, 3, 4, 5];
+
+    expect(order(candidates)).toEqual(expected);
+    expect(order([...candidates].reverse())).toEqual(expected);
+    expect(order([candidates[3]!, candidates[0]!, candidates[4]!, candidates[2]!, candidates[1]!]))
+      .toEqual(expected);
+  });
+
+  it("ranks only eligible tutors and leaves the rest in the order they arrived", () => {
+    const eligibleBusy = candidate({ tutorId: 1, mark: 95, usedHours: 9 });
+    const eligibleFree = candidate({ tutorId: 2, mark: 95, usedHours: 0 });
+    const blockedHighMark = candidate({
+      tutorId: 3,
+      mark: 99,
+      isEligible: false,
+      hasClash: true,
+      reasonCodes: ["schedule-clash"],
+    });
+    const blockedLowMark = candidate({
+      tutorId: 4,
+      mark: 40,
+      isEligible: false,
+      reasonCodes: ["insufficient-mark"],
+    });
+
+    const ranked = rankAllocationCandidates([
+      eligibleBusy,
+      blockedHighMark,
+      blockedLowMark,
+      eligibleFree,
+    ]);
+
+    // Eligible tutors are ranked and come first; the ineligible pair keeps the
+    // order the query returned, high mark before low, untouched.
+    expect(ranked.map((entry) => entry.tutorId)).toEqual([2, 1, 3, 4]);
+    expect(ranked.slice(2).map((entry) => entry.reasonCodes)).toEqual([
+      ["schedule-clash"],
+      ["insufficient-mark"],
+    ]);
+  });
+
+  it("returns a stable comparison for a candidate against itself", () => {
+    const only = candidate({ tutorId: 1 });
+    expect(compareEligibleCandidates(only, only)).toBe(0);
   });
 });

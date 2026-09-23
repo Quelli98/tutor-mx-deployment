@@ -7,7 +7,7 @@ import { ConfirmationDialog } from '../components/shared/ConfirmationDialog'
 const MAX_CODE_LENGTH = 50
 const MAX_NAME_LENGTH = 120
 
-const EMPTY_FORM = { code: '', name: '' }
+const EMPTY_FORM = { code: '', name: '', hourlyRate: '', budget: '' }
 
 function safeErrorMessage(error, fallback) {
   if (error?.code === 'PROFILE_NOT_FOUND') {
@@ -19,7 +19,9 @@ function safeErrorMessage(error, fallback) {
   }
 
   if (error?.code === 'VALIDATION_ERROR') {
-    return 'Check the course code and name and try again.'
+    // The server explains exactly which value it refused, in wording already
+    // safe to show.
+    return error?.message || 'Check the course details and try again.'
   }
 
   if (error?.code === 'COURSE_DELETE_CONFLICT') {
@@ -38,7 +40,13 @@ function safeErrorMessage(error, fallback) {
   return fallback
 }
 
-function validateCourse({ code, name }) {
+/**
+ * Shape checks only: the text fields are filled in and a money field, if filled
+ * in at all, is a number. What counts as a valid rate or budget - above zero,
+ * zero or more, two decimal places - is the server's rule, and its answer is
+ * shown as-is.
+ */
+function validateCourse({ code, name, hourlyRate, budget }) {
   const errors = {}
   const trimmedCode = code.trim()
   const trimmedName = name.trim()
@@ -55,7 +63,30 @@ function validateCourse({ code, name }) {
     errors.name = `Use ${MAX_NAME_LENGTH} characters or fewer for the course name.`
   }
 
+  if (hourlyRate.trim() && !Number.isFinite(Number(hourlyRate))) {
+    errors.hourlyRate = 'Enter the hourly rate as a number, or leave it blank.'
+  }
+
+  if (budget.trim() && !Number.isFinite(Number(budget))) {
+    errors.budget = 'Enter the budget as a number, or leave it blank.'
+  }
+
   return errors
+}
+
+// Blank clears the stored value; anything else is sent for the server to judge.
+function moneyValue(text) {
+  return text.trim() ? Number(text) : null
+}
+
+// Plain and the same everywhere, rather than a locale format that would read
+// differently on each organiser's machine.
+function moneyText(value) {
+  return value === null || value === undefined ? 'Not set' : `R${value.toFixed(2)}`
+}
+
+function moneyFieldValue(value) {
+  return value === null || value === undefined ? '' : String(value)
 }
 
 export default function CourseManagement() {
@@ -118,7 +149,12 @@ export default function CourseManagement() {
 
   function startEditing(course) {
     setEditingCourse(course)
-    setForm({ code: course.code, name: course.name })
+    setForm({
+      code: course.code,
+      name: course.name,
+      hourlyRate: moneyFieldValue(course.hourlyRate),
+      budget: moneyFieldValue(course.budget),
+    })
     setFieldErrors({})
     setFormError('')
     setSuccessMessage('')
@@ -133,7 +169,12 @@ export default function CourseManagement() {
     setSuccessMessage('')
     if (Object.keys(errors).length > 0) return
 
-    const payload = { code: form.code.trim(), name: form.name.trim() }
+    const payload = {
+      code: form.code.trim(),
+      name: form.name.trim(),
+      hourlyRate: moneyValue(form.hourlyRate),
+      budget: moneyValue(form.budget),
+    }
     setFormStatus('saving')
 
     try {
@@ -235,6 +276,54 @@ export default function CourseManagement() {
             )}
           </div>
 
+          <div className="field-group">
+            <label htmlFor="course-rate">Hourly rate</label>
+            <input
+              id="course-rate"
+              type="number"
+              min="0"
+              step="0.01"
+              value={form.hourlyRate}
+              onChange={(event) => updateField('hourlyRate', event.target.value)}
+              aria-invalid={Boolean(fieldErrors.hourlyRate)}
+              aria-describedby={
+                fieldErrors.hourlyRate ? 'course-rate-error' : 'course-rate-hint'
+              }
+            />
+            <p id="course-rate-hint" className="helper-text">
+              What one tutor hour costs on this course. Leave blank if there is no rate yet.
+            </p>
+            {fieldErrors.hourlyRate && (
+              <p id="course-rate-error" className="error-text">
+                {fieldErrors.hourlyRate}
+              </p>
+            )}
+          </div>
+
+          <div className="field-group">
+            <label htmlFor="course-budget">Budget</label>
+            <input
+              id="course-budget"
+              type="number"
+              min="0"
+              step="0.01"
+              value={form.budget}
+              onChange={(event) => updateField('budget', event.target.value)}
+              aria-invalid={Boolean(fieldErrors.budget)}
+              aria-describedby={
+                fieldErrors.budget ? 'course-budget-error' : 'course-budget-hint'
+              }
+            />
+            <p id="course-budget-hint" className="helper-text">
+              What this course has to spend on tutoring. Leave blank if there is no budget yet.
+            </p>
+            {fieldErrors.budget && (
+              <p id="course-budget-error" className="error-text">
+                {fieldErrors.budget}
+              </p>
+            )}
+          </div>
+
           <div className="button-row">
             <button className="primary-button" type="submit" disabled={isSaving}>
               {isSaving ? 'Saving...' : editingCourse ? 'Save changes' : 'Add course'}
@@ -298,6 +387,8 @@ export default function CourseManagement() {
                 <tr>
                   <th scope="col">Course code</th>
                   <th scope="col">Course name</th>
+                  <th scope="col">Hourly rate</th>
+                  <th scope="col">Budget</th>
                   <th scope="col">Actions</th>
                 </tr>
               </thead>
@@ -306,6 +397,8 @@ export default function CourseManagement() {
                   <tr key={course.id}>
                     <td>{course.code}</td>
                     <td>{course.name}</td>
+                    <td>{moneyText(course.hourlyRate)}</td>
+                    <td>{moneyText(course.budget)}</td>
                     <td>
                       <div className="button-row">
                         <button

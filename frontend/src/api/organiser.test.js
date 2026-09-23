@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   createAllocation,
   createCourse,
+  createStaffingRequirement,
   deleteCourse,
   deleteTutorMark,
   decideTimesheet,
@@ -10,11 +11,14 @@ import {
   listAllocations,
   listCourses,
   listOrganiserApprovals,
+  listStaffingRequirements,
   listTutorMarks,
   listTutorTimeSlots,
   listTutors,
   saveTutorMark,
+  setStaffingRequirementStatus,
   updateCourse,
+  updateStaffingRequirement,
   updateAllocation,
   removeAllocation,
 } from './organiser'
@@ -27,7 +31,7 @@ vi.mock('./client', () => ({
 
 const tokenGetter = vi.fn()
 
-const course = { id: 1, code: 'DEMO101', name: 'Demo Course' }
+const course = { id: 1, code: 'DEMO101', name: 'Demo Course', hourlyRate: 30, budget: 5000 }
 const tutor = {
   id: 7,
   email: 'tutor@tutormx.example',
@@ -87,6 +91,23 @@ describe('organiser course API contract', () => {
     )
   })
 
+  it('rejects a course whose money fields are missing', async () => {
+    fetchWithBearerToken.mockResolvedValue({
+      data: { courses: [{ id: 1, code: 'DEMO101', name: 'Demo Course' }] },
+    })
+
+    await expect(listCourses(tokenGetter)).rejects.toThrow(
+      'The course response did not match the agreed contract.',
+    )
+  })
+
+  it('accepts a course with no rate or budget set', async () => {
+    const unpriced = { id: 1, code: 'DEMO101', name: 'Demo Course', hourlyRate: null, budget: null }
+    fetchWithBearerToken.mockResolvedValue({ data: { courses: [unpriced] } })
+
+    await expect(listCourses(tokenGetter)).resolves.toEqual([unpriced])
+  })
+
   it('posts the exact course body when creating', async () => {
     fetchWithBearerToken.mockResolvedValue({ data: { course } })
 
@@ -100,6 +121,18 @@ describe('organiser course API contract', () => {
         body: JSON.stringify({ code: 'DEMO101', name: 'Demo Course' }),
       },
       tokenGetter,
+    )
+  })
+
+  it('sends the money fields only when the caller supplies them', async () => {
+    fetchWithBearerToken.mockResolvedValue({ data: { course } })
+
+    await createCourse(
+      { code: 'DEMO101', name: 'Demo Course', hourlyRate: 30, budget: null },
+      tokenGetter,
+    )
+    expect(fetchWithBearerToken.mock.calls[0][1].body).toBe(
+      JSON.stringify({ code: 'DEMO101', name: 'Demo Course', hourlyRate: 30, budget: null }),
     )
   })
 
@@ -391,8 +424,22 @@ describe('organiser allocation and tutor-detail API contracts', () => {
       hours: 2,
       createdAt: '2030-09-08T10:00:00.000Z',
     }
-    fetchWithBearerToken.mockResolvedValueOnce({ data: { timesheets: [timesheet], volunteerClaims: [claim] } })
-    await expect(listOrganiserApprovals(tokenGetter)).resolves.toEqual({ timesheets: [timesheet], volunteerClaims: [claim] })
+    const excuse = {
+      id: 71,
+      tutorId: 7,
+      tutorName: 'Sam Tutor',
+      tutorEmail: 'sam@tutormx.example',
+      allocationId: 11,
+      courseCode: 'COMS3011',
+      courseName: 'Software Design Project',
+      startsAt: '2030-09-11T14:00:00.000Z',
+      endsAt: '2030-09-11T16:00:00.000Z',
+      reason: 'Hospital appointment.',
+      createdAt: '2030-09-09T08:00:00.000Z',
+    }
+    const queues = { timesheets: [timesheet], volunteerClaims: [claim], excuses: [excuse] }
+    fetchWithBearerToken.mockResolvedValueOnce({ data: queues })
+    await expect(listOrganiserApprovals(tokenGetter)).resolves.toEqual(queues)
 
     fetchWithBearerToken.mockResolvedValueOnce({ data: { timesheet: { id: 31 } } })
     await decideTimesheet({ timesheetId: 31, decision: 'RETURN', reason: 'Add notes' }, tokenGetter)
@@ -416,6 +463,117 @@ describe('organiser allocation and tutor-detail API contracts', () => {
       '/api/tutors/7/marks/3',
       { method: 'DELETE' },
       tokenGetter,
+    )
+  })
+})
+
+describe('staffing requirement API contract', () => {
+  beforeEach(() => {
+    fetchWithBearerToken.mockReset()
+    tokenGetter.mockReset()
+  })
+
+  const staffingRequirement = {
+    id: 12,
+    courseId: 3,
+    courseCode: 'COMS3011',
+    courseName: 'Software Design Project',
+    startsAt: '2030-09-04T14:00:00.000Z',
+    endsAt: '2030-09-04T18:00:00.000Z',
+    tutorsNeeded: 2,
+    windowHours: 4,
+    requiredHours: 8,
+    assignedHours: 5,
+    shortageHours: 3,
+    shortageTutors: 1,
+    fillState: 'partially-filled',
+    status: 'OPEN',
+    notes: 'Lab cover',
+    createdById: 8,
+    createdAt: '2026-09-21T09:00:00.000Z',
+    updatedAt: '2026-09-21T09:00:00.000Z',
+  }
+
+  const writeInput = {
+    courseId: 3,
+    startsAt: '2030-09-04T14:00:00.000Z',
+    endsAt: '2030-09-04T18:00:00.000Z',
+    tutorsNeeded: 2,
+    notes: 'Lab cover',
+  }
+
+  it.each([
+    ['no filters', {}, '/api/staffing-requirements'],
+    ['a course filter', { courseId: 3 }, '/api/staffing-requirements?courseId=3'],
+    ['a status filter', { status: 'OPEN' }, '/api/staffing-requirements?status=OPEN'],
+    [
+      'both filters',
+      { courseId: 3, status: 'CLOSED' },
+      '/api/staffing-requirements?courseId=3&status=CLOSED',
+    ],
+  ])('lists requirements with %s', async (_label, input, expectedUrl) => {
+    fetchWithBearerToken.mockResolvedValueOnce({
+      data: { staffingRequirements: [staffingRequirement] },
+    })
+
+    await expect(listStaffingRequirements(input, tokenGetter)).resolves.toEqual([
+      staffingRequirement,
+    ])
+    expect(fetchWithBearerToken).toHaveBeenLastCalledWith(expectedUrl, {}, tokenGetter)
+  })
+
+  it('creates, updates and changes the status of a requirement', async () => {
+    fetchWithBearerToken.mockResolvedValue({ data: { staffingRequirement } })
+
+    await createStaffingRequirement(writeInput, tokenGetter)
+    expect(fetchWithBearerToken).toHaveBeenLastCalledWith(
+      '/api/staffing-requirements',
+      { method: 'POST', body: JSON.stringify(writeInput) },
+      tokenGetter,
+    )
+
+    await updateStaffingRequirement({ requirementId: 12, ...writeInput }, tokenGetter)
+    expect(fetchWithBearerToken).toHaveBeenLastCalledWith(
+      '/api/staffing-requirements/12',
+      { method: 'PATCH', body: JSON.stringify(writeInput) },
+      tokenGetter,
+    )
+
+    await setStaffingRequirementStatus({ requirementId: 12, status: 'CLOSED' }, tokenGetter)
+    expect(fetchWithBearerToken).toHaveBeenLastCalledWith(
+      '/api/staffing-requirements/12/status',
+      { method: 'PATCH', body: JSON.stringify({ status: 'CLOSED' }) },
+      tokenGetter,
+    )
+  })
+
+  it('omits notes from the body when they are not supplied', async () => {
+    fetchWithBearerToken.mockResolvedValue({ data: { staffingRequirement } })
+    const { notes, ...withoutNotes } = writeInput
+    expect(notes).toBe('Lab cover')
+
+    await createStaffingRequirement(withoutNotes, tokenGetter)
+    expect(JSON.parse(fetchWithBearerToken.mock.calls[0][1].body)).not.toHaveProperty('notes')
+  })
+
+  it.each([
+    ['a list that is not an array', { data: { staffingRequirements: {} } }],
+    ['an unknown status', { data: { staffingRequirements: [{ ...staffingRequirement, status: 'FILLED' }] } }],
+    ['tutors sent as text', { data: { staffingRequirements: [{ ...staffingRequirement, tutorsNeeded: '2' }] } }],
+    ['a fraction of a tutor', { data: { staffingRequirements: [{ ...staffingRequirement, tutorsNeeded: 1.5 }] } }],
+    ['missing derived hours', { data: { staffingRequirements: [{ ...staffingRequirement, requiredHours: undefined }] } }],
+    ['a missing course name', { data: { staffingRequirements: [{ ...staffingRequirement, courseName: undefined }] } }],
+  ])('rejects %s', async (_label, body) => {
+    fetchWithBearerToken.mockResolvedValueOnce(body)
+    await expect(listStaffingRequirements({}, tokenGetter)).rejects.toThrow(
+      /did not match the agreed contract/i,
+    )
+  })
+
+  it('rejects a single requirement that does not match the contract', async () => {
+    fetchWithBearerToken.mockResolvedValueOnce({ data: { staffingRequirement: { id: 12 } } })
+    await expect(createStaffingRequirement(writeInput, tokenGetter)).rejects.toThrow(
+      /did not match the agreed contract/i,
     )
   })
 })

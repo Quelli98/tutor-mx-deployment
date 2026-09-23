@@ -16,7 +16,7 @@ const slot = {
 
 function respond(marks = [mark], timeSlots = [slot]) {
   request.mockImplementation(async (path) => {
-    if (path === '/api/courses') return { data: { courses: [{ id: 3, code: 'COMS3010A', name: 'Computer Science' }] } }
+    if (path === '/api/courses') return { data: { courses: [{ id: 3, code: 'COMS3010A', name: 'Computer Science', hourlyRate: null, budget: null }] } }
     if (path === '/api/tutors/7/marks') return { data: { marks } }
     if (path === '/api/tutors/7/time-slots') return { data: { timeSlots } }
     throw new Error(`Unexpected endpoint: ${path}`)

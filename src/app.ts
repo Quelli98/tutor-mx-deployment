@@ -46,6 +46,9 @@ export interface CourseSummary {
   id: number;
   code: string;
   name: string;
+  /** Unset until an organiser records them; no rate means no money figures. */
+  hourlyRate: number | null;
+  budget: number | null;
 }
 
 export interface TutorSummary {
@@ -65,6 +68,9 @@ export interface TutorSummary {
 export interface CourseWriteInput {
   code: string;
   name: string;
+  /** Absent leaves the stored value untouched; null clears it. */
+  hourlyRate?: number | null;
+  budget?: number | null;
 }
 
 export interface TutorWeeklyCapacity {
@@ -197,6 +203,15 @@ export interface AllocationCandidateSummary {
   hasClash: boolean;
   isEligible: boolean;
   reasonCodes: AllocationReasonCode[];
+  /** The mark rounded down to its band of ten: 84 becomes 80. */
+  markBand: number;
+  /**
+   * Weekly hours already used as a fraction of the tutor's limit, the second
+   * ranking step. A ranking input only - never shown to anyone. The board says
+   * "4 of 10 hours used that week", from usedHours and weeklyLimit, because a
+   * raw decimal like 0.4 means nothing to an organiser. Do not render it.
+   */
+  capacityShare: number;
 }
 
 export interface AllocationCandidateQuery {
@@ -218,6 +233,8 @@ export interface AllocationWriteInput {
   minimumMark: number;
   requestedHours: number;
   status?: AllocationWriteStatus;
+  /** Set only when an organiser overrode a bulk allocation suggestion. */
+  overrideReason?: string;
 }
 
 export interface AllocationSummary {
@@ -228,6 +245,119 @@ export interface AllocationSummary {
   endsAt: string;
   allocatedHours: number;
   status: AllocationWriteStatus | "CANCELLED";
+}
+
+export type StaffingRequirementStatus = "OPEN" | "CLOSED" | "CANCELLED";
+
+/**
+ * How much of a requirement is covered, worked out on every read from confirmed
+ * allocations. Never stored, so it cannot go stale. A closed or cancelled
+ * requirement is "not-being-filled": nobody wants it filled, so it has no
+ * shortage to add into any total.
+ */
+export type StaffingRequirementFillState =
+  | "unfilled"
+  | "partially-filled"
+  | "fully-filled"
+  | "not-being-filled";
+
+/** Recorded demand for a course. Fill level is never stored here. */
+export interface StaffingRequirementSummary {
+  id: number;
+  courseId: number;
+  courseCode: string;
+  courseName: string;
+  startsAt: string;
+  endsAt: string;
+  /** How many tutors the organiser wants on this work. */
+  tutorsNeeded: number;
+  /** How long the window runs. Derived, never stored. */
+  windowHours: number;
+  /** windowHours x tutorsNeeded. Derived, never stored. */
+  requiredHours: number;
+  /** Confirmed tutor-hours already covering this window. Derived, never stored. */
+  assignedHours: number;
+  /** requiredHours minus assignedHours, never below zero, zero once closed. */
+  shortageHours: number;
+  /** The shortage as whole tutors, rounded up. Zero once closed. */
+  shortageTutors: number;
+  fillState: StaffingRequirementFillState;
+  status: StaffingRequirementStatus;
+  notes: string | null;
+  createdById: number | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface StaffingRequirementWriteInput {
+  courseId: number;
+  startsAt: Date;
+  endsAt: Date;
+  tutorsNeeded: number;
+  /** Absent leaves an existing note untouched; null clears it. */
+  notes?: string | null;
+}
+
+/** One tutor bulk allocation proposes for one place on a requirement. */
+export interface BulkAllocationProposal {
+  tutorId: number;
+  fullName: string;
+  hours: number;
+  mark: number;
+  markBand: number;
+  usedHours: number;
+  weeklyLimit: number;
+}
+
+export interface BulkAllocationPreviewItem {
+  requirementId: number;
+  courseId: number;
+  courseCode: string;
+  courseName: string;
+  startsAt: string;
+  endsAt: string;
+  windowHours: number;
+  shortageHours: number;
+  /** Places the shortage calls for, from the S3-M2-1 calculation. */
+  tutorsWanted: number;
+  proposals: BulkAllocationProposal[];
+  /** Places nobody could be proposed for, with the reason in note. */
+  unfilled: number;
+  note: string | null;
+  /** Eligible tutors the organiser may choose instead. Never anyone ineligible. */
+  alternatives: BulkAllocationProposal[];
+}
+
+export interface BulkAllocationPreviewQuery {
+  requirementIds: number[];
+  minimumMark: number;
+}
+
+export interface BulkAllocationCommitItem {
+  requirementId: number;
+  tutorId: number;
+  /** Who preview proposed, so a deliberate change is explicit, not inferred. */
+  proposedTutorId: number;
+  overrideReason?: string;
+}
+
+export interface BulkAllocationCommitInput {
+  minimumMark: number;
+  items: BulkAllocationCommitItem[];
+}
+
+export interface BulkAllocationCommitResult {
+  requirementId: number;
+  tutorId: number;
+  outcome: "saved" | "failed";
+  allocationId?: number;
+  code?: string;
+  message?: string;
+}
+
+export interface StaffingRequirementListQuery {
+  courseId?: number;
+  status?: StaffingRequirementStatus;
 }
 
 export interface OrganiserAllocationSummary extends AllocationSummary {
@@ -272,9 +402,66 @@ export interface OrganiserVolunteerClaimApprovalSummary {
   createdAt: string;
 }
 
+/** A pending excuse, with everything an organiser needs to decide on it. */
+export interface OrganiserExcuseApprovalSummary {
+  id: number;
+  tutorId: number;
+  tutorName: string;
+  tutorEmail: string;
+  allocationId: number;
+  courseCode: string;
+  courseName: string;
+  startsAt: string;
+  endsAt: string;
+  reason: string;
+  createdAt: string;
+}
+
 export interface OrganiserApprovalQueuesSummary {
   timesheets: OrganiserTimesheetApprovalSummary[];
   volunteerClaims: OrganiserVolunteerClaimApprovalSummary[];
+  excuses: OrganiserExcuseApprovalSummary[];
+}
+
+/**
+ * Reporting keeps three kinds of hours apart and never adds them together:
+ * capacity (what a tutor could work), allocated (what they are booked for) and
+ * approved worked (what they did and had signed off).
+ */
+export interface CourseReportRow {
+  courseId: number;
+  courseCode: string;
+  courseName: string;
+  allocatedHours: number;
+  approvedWorkedHours: number;
+  hourlyRate: number | null;
+  budget: number | null;
+  /** Approved worked hours x rate: money owed. Null when no rate is set. */
+  spend: number | null;
+  /** Allocated hours x rate: booked but not yet worked. */
+  committed: number | null;
+  budgetRemaining: number | null;
+}
+
+export interface TutorReportRow {
+  tutorId: number;
+  fullName: string;
+  /** Weekly limit x weeks, at today's limit. Limits are not kept historically. */
+  capacityHours: number | null;
+  allocatedHours: number;
+  approvedWorkedHours: number;
+  shareOfAllocatedHours: number;
+}
+
+export interface WorkloadReport {
+  period: { weekStart: string; weekEnd: string; weeks: number };
+  courses: CourseReportRow[];
+  tutors: TutorReportRow[];
+}
+
+export interface WorkloadReportQuery {
+  weekStart: Date;
+  weeks: number;
 }
 
 export interface TimesheetDecisionInput {
@@ -454,6 +641,29 @@ export interface AppDependencies {
   markAllNotificationsRead?: (auth0Id: string) => Promise<{ updated: number }>;
   runDueReminders?: () => Promise<{ generated: number }>;
   search?: (auth0Id: string, query: ResolvedSearchQuery) => Promise<SearchResponse>;
+  workloadReport?: (query: WorkloadReportQuery) => Promise<WorkloadReport>;
+  previewBulkAllocations?: (
+    query: BulkAllocationPreviewQuery,
+  ) => Promise<BulkAllocationPreviewItem[]>;
+  commitBulkAllocations?: (
+    auth0Id: string,
+    input: BulkAllocationCommitInput,
+  ) => Promise<BulkAllocationCommitResult[]>;
+  listStaffingRequirements?: (
+    query: StaffingRequirementListQuery,
+  ) => Promise<StaffingRequirementSummary[]>;
+  createStaffingRequirement?: (
+    auth0Id: string,
+    input: StaffingRequirementWriteInput,
+  ) => Promise<StaffingRequirementSummary>;
+  updateStaffingRequirement?: (
+    requirementId: number,
+    input: StaffingRequirementWriteInput,
+  ) => Promise<StaffingRequirementSummary>;
+  setStaffingRequirementStatus?: (
+    requirementId: number,
+    status: StaffingRequirementStatus,
+  ) => Promise<StaffingRequirementSummary>;
   verifyAccessToken: AccessTokenVerifier;
 }
 
@@ -680,16 +890,333 @@ function parseTutorWeeklyCapacity(body: unknown) {
   return { value: { weeklyHours } } as const;
 }
 
-function parseCourseInput(body: unknown) {
-  const payload = body as { code?: unknown; name?: unknown } | null;
-  const code = parseRequiredText(payload?.code, "code", 50);
-  const name = parseRequiredText(payload?.name, "name", 120);
+function parseMoneyField(
+  value: unknown,
+  { allowZero }: { allowZero: boolean },
+) {
+  if (value === undefined) {
+    return { kind: "absent" } as const;
+  }
+  if (value === null || value === "") {
+    return { kind: "clear" } as const;
+  }
+  if (
+    typeof value !== "number" ||
+    !Number.isFinite(value) ||
+    value < 0 ||
+    (!allowZero && value === 0) ||
+    !hasAtMostTwoDecimalPlaces(value)
+  ) {
+    return { kind: "invalid" } as const;
+  }
+  return { kind: "value", value } as const;
+}
 
-  if (!code || !name) {
-    return { error: "Enter a valid course code and name." } as const;
+function parseCourseInput(body: unknown) {
+  if (!hasOnlyFields(body, ["code", "name", "hourlyRate", "budget"])) {
+    return {
+      error: "Provide only course code, name, hourly rate and budget.",
+    } as const;
   }
 
-  return { value: { code, name } } as const;
+  const code = parseRequiredText(body.code, "code", 50);
+  const name = parseRequiredText(body.name, "name", 120);
+  // A rate of zero would make every hour look free; a budget of zero is a real
+  // decision, so zero is allowed there.
+  const hourlyRate = parseMoneyField(body.hourlyRate, { allowZero: false });
+  const budget = parseMoneyField(body.budget, { allowZero: true });
+
+  if (
+    !code ||
+    !name ||
+    hourlyRate.kind === "invalid" ||
+    budget.kind === "invalid"
+  ) {
+    return {
+      error:
+        "Enter a valid course code and name, an hourly rate above 0, and a budget of 0 or more.",
+    } as const;
+  }
+
+  return {
+    value: {
+      code,
+      name,
+      ...(hourlyRate.kind === "absent"
+        ? {}
+        : { hourlyRate: hourlyRate.kind === "clear" ? null : hourlyRate.value }),
+      ...(budget.kind === "absent"
+        ? {}
+        : { budget: budget.kind === "clear" ? null : budget.value }),
+    },
+  } as const;
+}
+
+const STAFFING_REQUIREMENT_STATUSES = [
+  "OPEN",
+  "CLOSED",
+  "CANCELLED",
+] as const;
+
+/** Matches the "StaffingRequirement_tutors_needed_range" database constraint. */
+const MAX_TUTORS_NEEDED = 20;
+
+/** The board's default bar, reused so bulk judges eligibility the same way. */
+const DEFAULT_MINIMUM_MARK = 65;
+
+/** One screenful of work; a larger run should be split rather than timed out. */
+const MAX_BULK_ITEMS = 50;
+
+/** A year of weeks is the longest period worth reporting in one go. */
+const MAX_REPORT_WEEKS = 52;
+
+function bulkAllocationUnavailable() {
+  return createRouteError(
+    503,
+    "BULK_ALLOCATION_UNAVAILABLE",
+    "Bulk allocation is not configured.",
+  );
+}
+
+/** Ids of the requirements to plan for, plus the bar eligibility is judged at. */
+/** Whole weeks only: capacity is stored per week, so part-weeks mean nothing. */
+function parseWorkloadReportQuery(query: unknown) {
+  const params = (query ?? {}) as { weekStart?: unknown; weeks?: unknown };
+  // parseWeekStart already insists on a Monday, the same rule the rest of the
+  // system uses for a week.
+  const weekStart = parseWeekStart(params.weekStart);
+  const rawWeeks = firstQueryParam(params.weeks);
+  const weeks = rawWeeks === undefined ? 1 : parsePositiveInteger(rawWeeks);
+
+  if (!weekStart || !weeks || weeks > MAX_REPORT_WEEKS) {
+    return {
+      error: `Choose a week starting on a Monday and a length of 1 to ${MAX_REPORT_WEEKS} weeks.`,
+    } as const;
+  }
+
+  return { value: { weekStart, weeks } } as const;
+}
+
+function parseBulkPreviewQuery(body: unknown) {
+  if (!hasOnlyFields(body, ["requirementIds", "minimumMark"])) {
+    return { error: "Provide only requirementIds and minimumMark." } as const;
+  }
+
+  const requirementIds = Array.isArray(body.requirementIds)
+    ? body.requirementIds.map((value) => parseJsonPositiveInteger(value))
+    : null;
+  const minimumMark = parseMarkValue(body.minimumMark ?? DEFAULT_MINIMUM_MARK);
+
+  if (
+    !requirementIds ||
+    requirementIds.length === 0 ||
+    requirementIds.length > MAX_BULK_ITEMS ||
+    requirementIds.some((value) => value === null) ||
+    minimumMark === null
+  ) {
+    return {
+      error: `Choose between 1 and ${MAX_BULK_ITEMS} staffing requirements and a minimum mark from 0 to 100.`,
+    } as const;
+  }
+
+  // The same requirement twice would plan it twice over.
+  const value: BulkAllocationPreviewQuery = {
+    requirementIds: [...new Set(requirementIds as number[])],
+    minimumMark,
+  };
+  return { value } as const;
+}
+
+function parseBulkCommitItem(value: unknown) {
+  if (
+    !hasOnlyFields(value, [
+      "requirementId",
+      "tutorId",
+      "proposedTutorId",
+      "overrideReason",
+    ])
+  ) {
+    return null;
+  }
+
+  const requirementId = parseJsonPositiveInteger(value.requirementId);
+  const tutorId = parseJsonPositiveInteger(value.tutorId);
+  const proposedTutorId = parseJsonPositiveInteger(value.proposedTutorId);
+  const hasReason = value.overrideReason !== undefined && value.overrideReason !== null;
+  const overrideReason = hasReason
+    ? parseRequiredText(value.overrideReason, "overrideReason", 1000)
+    : undefined;
+
+  if (!requirementId || !tutorId || !proposedTutorId || (hasReason && !overrideReason)) {
+    return null;
+  }
+  // A reason only means something when the suggestion was actually changed.
+  if (tutorId === proposedTutorId && overrideReason) {
+    return null;
+  }
+
+  return {
+    requirementId,
+    tutorId,
+    proposedTutorId,
+    ...(overrideReason ? { overrideReason } : {}),
+  };
+}
+
+function parseBulkCommitInput(body: unknown) {
+  if (!hasOnlyFields(body, ["items", "minimumMark"])) {
+    return { error: "Provide only items and minimumMark." } as const;
+  }
+
+  const minimumMark = parseMarkValue(body.minimumMark ?? DEFAULT_MINIMUM_MARK);
+  const items = Array.isArray(body.items)
+    ? body.items.map((item) => parseBulkCommitItem(item))
+    : null;
+
+  if (
+    !items ||
+    items.length === 0 ||
+    items.length > MAX_BULK_ITEMS ||
+    items.some((item) => item === null) ||
+    minimumMark === null
+  ) {
+    return {
+      error: `Send between 1 and ${MAX_BULK_ITEMS} allocations, each with a requirement, a tutor, the tutor that was proposed, and a reason when the two differ.`,
+    } as const;
+  }
+
+  return {
+    value: {
+      minimumMark,
+      items: items as NonNullable<(typeof items)[number]>[],
+    },
+  } as const;
+}
+
+function staffingRequirementsUnavailable() {
+  return createRouteError(
+    503,
+    "STAFFING_REQUIREMENTS_UNAVAILABLE",
+    "Staffing requirements are not configured.",
+  );
+}
+
+function parseStaffingRequirementStatus(value: unknown) {
+  const normalized =
+    typeof value === "string" ? value.trim().toUpperCase() : null;
+  return (
+    STAFFING_REQUIREMENT_STATUSES.find((status) => status === normalized) ??
+    null
+  );
+}
+
+function parseStaffingRequirementInput(body: unknown) {
+  if (
+    !hasOnlyFields(body, [
+      "courseId",
+      "startsAt",
+      "endsAt",
+      "tutorsNeeded",
+      "notes",
+    ])
+  ) {
+    // status and createdById are deliberately not accepted: a new requirement
+    // always starts OPEN, the author comes from the verified token, and the
+    // status is changed through its own route. Required hours are derived from
+    // the window and the tutor count, so they are never accepted either.
+    return {
+      error:
+        "Provide only course, start and end time, tutors needed and notes.",
+    } as const;
+  }
+
+  const courseId = parseJsonPositiveInteger(body.courseId);
+  const startsAt = parseIsoDateTime(body.startsAt);
+  const endsAt = parseIsoDateTime(body.endsAt);
+  // Mirrors the database range: whole people, and no more than one session can
+  // realistically be staffed with.
+  const tutorsNeeded = parseJsonPositiveInteger(body.tutorsNeeded);
+  const hasNotes = body.notes !== undefined && body.notes !== null;
+  const notes = hasNotes
+    ? parseRequiredText(body.notes, "notes", 1000)
+    : undefined;
+
+  if (
+    !courseId ||
+    !startsAt ||
+    !endsAt ||
+    endsAt <= startsAt ||
+    !tutorsNeeded ||
+    tutorsNeeded > MAX_TUTORS_NEEDED ||
+    (hasNotes && !notes)
+  ) {
+    return {
+      error: `Enter a valid course, an end time later than the start, a whole number of tutors from 1 to ${MAX_TUTORS_NEEDED}, and optional notes.`,
+    } as const;
+  }
+
+  // The same bound as an allocation, and it matters more here: required hours
+  // are derived as window x tutorsNeeded, so an unbounded window would report a
+  // shortage of thousands of hours and send the bulk allocator after it.
+  if (!sessionWithinMaximumLength(startsAt, endsAt)) {
+    return { error: maximumSessionLengthMessage(startsAt, endsAt) } as const;
+  }
+
+  return {
+    value: {
+      courseId,
+      startsAt,
+      endsAt,
+      tutorsNeeded,
+      ...(body.notes === undefined ? {} : { notes: notes ?? null }),
+    },
+  } as const;
+}
+
+function parseStaffingRequirementStatusInput(body: unknown) {
+  if (!hasOnlyFields(body, ["status"])) {
+    return { error: "Provide only status." } as const;
+  }
+
+  const status = parseStaffingRequirementStatus(body.status);
+  if (!status) {
+    return {
+      error: "Enter a valid status of OPEN, CLOSED or CANCELLED.",
+    } as const;
+  }
+
+  return { value: status } as const;
+}
+
+function parseStaffingRequirementListQuery(query: unknown) {
+  const params = (query ?? {}) as { courseId?: unknown; status?: unknown };
+  const rawCourseId = firstQueryParam(params.courseId);
+  const rawStatus = firstQueryParam(params.status);
+  const courseId =
+    rawCourseId === undefined ? undefined : parsePositiveInteger(rawCourseId);
+  const status =
+    rawStatus === undefined
+      ? undefined
+      : parseStaffingRequirementStatus(rawStatus);
+
+  // A filter that cannot be understood is reported, never ignored, so a
+  // mistyped filter can never look like "no requirements exist".
+  if (
+    (rawCourseId !== undefined && !courseId) ||
+    (rawStatus !== undefined && !status)
+  ) {
+    return {
+      error:
+        "Filter by a valid course identifier and a status of OPEN, CLOSED or CANCELLED.",
+    } as const;
+  }
+
+  return {
+    value: {
+      ...(courseId ? { courseId } : {}),
+      ...(status ? { status } : {}),
+    },
+  } as const;
 }
 
 function parseIsoDateTime(value: unknown) {
@@ -957,6 +1484,12 @@ function parseAllocationCandidateQuery(query: unknown) {
     } as const;
   }
 
+  // The same bound as saving. Ranking candidates for a window that could never
+  // be saved would answer a question the organiser cannot act on.
+  if (!sessionWithinMaximumLength(startsAt, endsAt)) {
+    return { error: maximumSessionLengthMessage(startsAt, endsAt) } as const;
+  }
+
   return {
     value: {
       courseId,
@@ -967,6 +1500,68 @@ function parseAllocationCandidateQuery(query: unknown) {
       ...(excludeAllocationId ? { excludeAllocationId } : {}),
     },
   } as const;
+}
+
+/**
+ * A session length said the way a person would: "2 hours", "1 hour 30 minutes",
+ * "45 minutes". The board repeats this wording exactly, so the two never
+ * contradict each other.
+ */
+export function sessionLengthText(startsAt: Date, endsAt: Date): string {
+  const totalMinutes = Math.round(
+    (endsAt.valueOf() - startsAt.valueOf()) / 60_000,
+  );
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  const parts: string[] = [];
+
+  if (hours > 0) {
+    parts.push(`${hours} ${hours === 1 ? "hour" : "hours"}`);
+  }
+  if (minutes > 0 || hours === 0) {
+    parts.push(`${minutes} ${minutes === 1 ? "minute" : "minutes"}`);
+  }
+
+  return parts.join(" ");
+}
+
+/**
+ * A tutoring session is a slot in a day, not a term. Nothing bounded the window
+ * itself before: "end after start" plus "hours no longer than the window" let a
+ * month-long booking carrying two hours through every layer, and one reached
+ * production. Eight hours is a working day's worth of contact time.
+ *
+ * Deliberately not a rule about when the session falls. Editing a past
+ * allocation is legitimate.
+ */
+export const MAX_SESSION_HOURS = 8;
+
+function sessionWithinMaximumLength(startsAt: Date, endsAt: Date): boolean {
+  return (
+    (endsAt.valueOf() - startsAt.valueOf()) / 3_600_000 <= MAX_SESSION_HOURS
+  );
+}
+
+/**
+ * Says the limit and what was actually entered, because the usual cause is a
+ * mistyped date: "722 hours" makes a wrong month obvious in a way that "too
+ * long" does not. The board repeats this wording exactly.
+ */
+export function maximumSessionLengthMessage(
+  startsAt: Date,
+  endsAt: Date,
+): string {
+  return `A session cannot be longer than ${MAX_SESSION_HOURS} hours. This one is ${sessionLengthText(startsAt, endsAt)}. Check the start and end dates.`;
+}
+
+function hoursWithinSession(
+  requestedHours: number,
+  startsAt: Date,
+  endsAt: Date,
+): boolean {
+  return (
+    requestedHours <= (endsAt.valueOf() - startsAt.valueOf()) / 3_600_000
+  );
 }
 
 function parseAllocationWriteInput(body: unknown) {
@@ -1000,6 +1595,22 @@ function parseAllocationWriteInput(body: unknown) {
     return {
       error:
         "Enter a valid tutor, course, start/end time, minimum mark (0-100), requested hours and allocation status.",
+    } as const;
+  }
+
+  // Checked before the hours rule: a month-long window passes that one (two
+  // hours fits inside it), so the window error is both the true fault and the
+  // more useful thing to say.
+  if (!sessionWithinMaximumLength(startsAt, endsAt)) {
+    return { error: maximumSessionLengthMessage(startsAt, endsAt) } as const;
+  }
+
+  // Hours longer than the session itself would inflate the tutor's used capacity
+  // and a course's staffing shortage, which both add these hours up. Fewer hours
+  // than the window stays allowed. The database enforces the same rule.
+  if (!hoursWithinSession(requestedHours, startsAt, endsAt)) {
+    return {
+      error: `Enter hours above 0 and no more than the session length of ${sessionLengthText(startsAt, endsAt)}.`,
     } as const;
   }
 
@@ -1641,6 +2252,264 @@ export function createApp(
           allocationId.value,
         );
         response.status(204).end();
+      } catch (value) {
+        sendRouteError(response, value);
+      }
+    },
+  );
+
+  app.get(
+    "/api/reports/workload",
+    authenticate,
+    resolveProfileRole,
+    requireRole("ORGANISER"),
+    async (request, response) => {
+      const parsed = parseWorkloadReportQuery(request.query);
+      if ("error" in parsed) {
+        const result = error(
+          400,
+          "VALIDATION_ERROR",
+          parsed.error ??
+            "Choose a week starting on a Monday and a length of 1 to 52 weeks.",
+        );
+        response.status(result.status).json(result.body);
+        return;
+      }
+
+      try {
+        if (!dependencies.workloadReport) {
+          throw createRouteError(
+            503,
+            "REPORTING_UNAVAILABLE",
+            "Reporting is not configured.",
+          );
+        }
+        const report = await dependencies.workloadReport(parsed.value);
+        response.status(200).json({ data: report });
+      } catch (value) {
+        sendRouteError(response, value);
+      }
+    },
+  );
+
+  app.post(
+    "/api/allocations/bulk-preview",
+    authenticate,
+    resolveProfileRole,
+    requireRole("ORGANISER"),
+    async (request, response) => {
+      const parsed = parseBulkPreviewQuery(request.body);
+      if ("error" in parsed) {
+        const result = error(
+          400,
+          "VALIDATION_ERROR",
+          parsed.error ?? "Choose staffing requirements to preview.",
+        );
+        response.status(result.status).json(result.body);
+        return;
+      }
+
+      try {
+        if (!dependencies.previewBulkAllocations) {
+          throw bulkAllocationUnavailable();
+        }
+        // Reads only: nothing is saved until the organiser confirms.
+        const items = await dependencies.previewBulkAllocations(parsed.value);
+        response.status(200).json({ data: { items } });
+      } catch (value) {
+        sendRouteError(response, value);
+      }
+    },
+  );
+
+  app.post(
+    "/api/allocations/bulk-commit",
+    authenticate,
+    resolveProfileRole,
+    requireRole("ORGANISER"),
+    async (request, response) => {
+      const parsed = parseBulkCommitInput(request.body);
+      if ("error" in parsed) {
+        const result = error(
+          400,
+          "VALIDATION_ERROR",
+          parsed.error ?? "Send the allocations to save.",
+        );
+        response.status(result.status).json(result.body);
+        return;
+      }
+
+      try {
+        if (!dependencies.commitBulkAllocations) {
+          throw bulkAllocationUnavailable();
+        }
+        // Every item reports its own outcome, so a 200 here does not mean they
+        // all saved: the results say which did.
+        const results = await dependencies.commitBulkAllocations(
+          (request as AuthenticatedRequest).auth!.subject,
+          parsed.value,
+        );
+        response.status(200).json({ data: { results } });
+      } catch (value) {
+        sendRouteError(response, value);
+      }
+    },
+  );
+
+  app.get(
+    "/api/staffing-requirements",
+    authenticate,
+    resolveProfileRole,
+    requireRole("ORGANISER"),
+    async (request, response) => {
+      const parsed = parseStaffingRequirementListQuery(request.query);
+      if ("error" in parsed) {
+        const result = error(
+          400,
+          "VALIDATION_ERROR",
+          parsed.error ??
+            "Filter by a valid course identifier and a status of OPEN, CLOSED or CANCELLED.",
+        );
+        response.status(result.status).json(result.body);
+        return;
+      }
+
+      try {
+        if (!dependencies.listStaffingRequirements) {
+          throw staffingRequirementsUnavailable();
+        }
+        const staffingRequirements =
+          await dependencies.listStaffingRequirements(parsed.value);
+        response.status(200).json({ data: { staffingRequirements } });
+      } catch (value) {
+        sendRouteError(response, value);
+      }
+    },
+  );
+
+  app.post(
+    "/api/staffing-requirements",
+    authenticate,
+    resolveProfileRole,
+    requireRole("ORGANISER"),
+    async (request, response) => {
+      const parsed = parseStaffingRequirementInput(request.body);
+      if ("error" in parsed) {
+        const result = error(
+          400,
+          "VALIDATION_ERROR",
+          parsed.error ?? "Enter a valid staffing requirement.",
+        );
+        response.status(result.status).json(result.body);
+        return;
+      }
+
+      try {
+        if (!dependencies.createStaffingRequirement) {
+          throw staffingRequirementsUnavailable();
+        }
+        const staffingRequirement =
+          await dependencies.createStaffingRequirement(
+            (request as AuthenticatedRequest).auth!.subject,
+            parsed.value,
+          );
+        response.status(201).json({ data: { staffingRequirement } });
+      } catch (value) {
+        sendRouteError(response, value);
+      }
+    },
+  );
+
+  app.patch(
+    "/api/staffing-requirements/:requirementId",
+    authenticate,
+    resolveProfileRole,
+    requireRole("ORGANISER"),
+    async (request, response) => {
+      const requirementId = parseNumericId(
+        request.params.requirementId,
+        "Staffing requirement",
+      );
+      if ("error" in requirementId) {
+        const result = error(
+          400,
+          "VALIDATION_ERROR",
+          requirementId.error ??
+            "Staffing requirement identifier must be a positive whole number.",
+        );
+        response.status(result.status).json(result.body);
+        return;
+      }
+
+      const parsed = parseStaffingRequirementInput(request.body);
+      if ("error" in parsed) {
+        const result = error(
+          400,
+          "VALIDATION_ERROR",
+          parsed.error ?? "Enter a valid staffing requirement.",
+        );
+        response.status(result.status).json(result.body);
+        return;
+      }
+
+      try {
+        if (!dependencies.updateStaffingRequirement) {
+          throw staffingRequirementsUnavailable();
+        }
+        const staffingRequirement =
+          await dependencies.updateStaffingRequirement(
+            requirementId.value,
+            parsed.value,
+          );
+        response.status(200).json({ data: { staffingRequirement } });
+      } catch (value) {
+        sendRouteError(response, value);
+      }
+    },
+  );
+
+  app.patch(
+    "/api/staffing-requirements/:requirementId/status",
+    authenticate,
+    resolveProfileRole,
+    requireRole("ORGANISER"),
+    async (request, response) => {
+      const requirementId = parseNumericId(
+        request.params.requirementId,
+        "Staffing requirement",
+      );
+      if ("error" in requirementId) {
+        const result = error(
+          400,
+          "VALIDATION_ERROR",
+          requirementId.error ??
+            "Staffing requirement identifier must be a positive whole number.",
+        );
+        response.status(result.status).json(result.body);
+        return;
+      }
+
+      const parsed = parseStaffingRequirementStatusInput(request.body);
+      if ("error" in parsed) {
+        const result = error(
+          400,
+          "VALIDATION_ERROR",
+          parsed.error ?? "Enter a valid status of OPEN, CLOSED or CANCELLED.",
+        );
+        response.status(result.status).json(result.body);
+        return;
+      }
+
+      try {
+        if (!dependencies.setStaffingRequirementStatus) {
+          throw staffingRequirementsUnavailable();
+        }
+        const staffingRequirement =
+          await dependencies.setStaffingRequirementStatus(
+            requirementId.value,
+            parsed.value,
+          );
+        response.status(200).json({ data: { staffingRequirement } });
       } catch (value) {
         sendRouteError(response, value);
       }

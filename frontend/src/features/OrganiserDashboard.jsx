@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { useAuth0 } from '@auth0/auth0-react'
 import {
   canSelectCandidate,
@@ -9,6 +10,11 @@ import {
   removeAllocation,
   updateAllocation,
 } from '../api/organiser'
+import {
+  MAX_SESSION_HOURS,
+  maximumSessionLengthMessage,
+  sessionLengthText,
+} from '../components/shared/scheduleWeek'
 import { RuleResult } from '../components/organiser/RuleResult'
 import { ConfirmationDialog } from '../components/shared/ConfirmationDialog'
 import { EmptyState, ErrorState, LoadingState } from '../components/shared/StatusMessage'
@@ -84,6 +90,13 @@ function validateBoard(form) {
     errors.endsAt = 'Choose a valid end date and time.'
   } else if (!errors.startsAt && endsAt <= startsAt) {
     errors.endsAt = 'The end time must be later than the start time.'
+  } else if (
+    !errors.startsAt &&
+    (endsAt.valueOf() - startsAt.valueOf()) / 3_600_000 > MAX_SESSION_HOURS
+  ) {
+    // A session spanning days is almost always a mistyped date, and the hours
+    // rule below cannot catch it: two hours fits inside a month just fine.
+    errors.endsAt = maximumSessionLengthMessage(startsAt, endsAt)
   }
   if (
     !form.minimumMark.trim() ||
@@ -100,6 +113,14 @@ function validateBoard(form) {
     requestedHours > 24
   ) {
     errors.requestedHours = 'Enter requested hours above 0 and no more than 24.'
+  } else if (!errors.startsAt && !errors.endsAt && !errors.requestedHours) {
+    // Hours longer than the session itself would inflate the tutor's used
+    // capacity and a course's staffing shortage. The server and the database
+    // refuse it too; this only saves the organiser a round trip.
+    const windowHours = (endsAt.valueOf() - startsAt.valueOf()) / 3_600_000
+    if (requestedHours > windowHours) {
+      errors.requestedHours = `Enter hours above 0 and no more than the session length of ${sessionLengthText(startsAt, endsAt)}.`
+    }
   }
 
   return errors
@@ -158,6 +179,21 @@ function CandidateCard({ candidate, minimumMark, requestedHours, selected, onSel
           {selected ? 'Selected' : `Select ${candidate.fullName}`}
         </button>}
       </header>
+
+      {canSelectCandidate(candidate) && (
+        <ul
+          className="candidate-chips"
+          aria-label={`Why ${candidate.fullName} is ranked here`}
+        >
+          {/* Only factors the ranking actually used: the mark drives the band
+              and the exact-mark step, and hours used against the weekly limit is
+              the share step, said in numbers an organiser can act on. */}
+          <li className="summary-pill">Mark {candidate.mark}%</li>
+          <li className="summary-pill">
+            {candidate.usedHours} of {candidate.weeklyLimit} hours used that week
+          </li>
+        </ul>
+      )}
 
       <ul className="rule-result-list" aria-label={`Allocation checks for ${candidate.fullName}`}>
         <RuleResult
@@ -466,6 +502,9 @@ export default function OrganiserDashboard() {
             Create, recheck and maintain tutor allocations with every server rule visible.
           </p>
         </div>
+        <Link className="secondary-button" to="/organiser/reports">
+          Reports
+        </Link>
       </header>
 
       <section className="role-card" aria-labelledby="current-allocations-heading">
@@ -748,6 +787,7 @@ export default function OrganiserDashboard() {
               {eligibleCandidates.length > 0 ? (
                 <>
                   <p className="helper-text">
+                    <strong>Ranked by mark band, then who is least busy that week.</strong>{' '}
                     These tutors meet all allocation rules. Select one to assign.
                   </p>
                   <div className="candidate-grid">

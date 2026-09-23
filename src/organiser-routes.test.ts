@@ -7,6 +7,7 @@ import {
   type AllocationSummary,
   type AppDependencies,
   type ProfileSummary,
+  type StaffingRequirementSummary,
   type TimesheetDecisionSummary,
   type TutorTimeSlotWriteInput,
   type VolunteerClaimDecisionSummary,
@@ -85,8 +86,8 @@ function makeApp(
       reason: "unavailable",
     }),
     listCourses: async () => [],
-    createCourse: async (input) => ({ id: 1, ...input }),
-    updateCourse: async (id, input) => ({ id, ...input }),
+    createCourse: async (input) => ({ id: 1, ...input, hourlyRate: input.hourlyRate ?? null, budget: input.budget ?? null }),
+    updateCourse: async (id, input) => ({ id, ...input, hourlyRate: input.hourlyRate ?? null, budget: input.budget ?? null }),
     deleteCourse: async () => undefined,
     listTutors: async () => [],
     getTutorDashboard: async () => ({
@@ -190,7 +191,7 @@ function makeApp(
     }),
     listAllocationCandidates: async () => [],
     listOrganiserAllocations: async () => [],
-    listOrganiserApprovals: async () => ({ timesheets: [], volunteerClaims: [] }),
+    listOrganiserApprovals: async () => ({ timesheets: [], volunteerClaims: [], excuses: [] }),
     createAllocation: async () => allocationSummary,
     updateAllocation: async () => allocationSummary,
     removeAllocation: async () => undefined,
@@ -749,5 +750,934 @@ describe("organiser tutor weekly navigation", () => {
 
     expect(response.status).toBe(200);
     expect(listTutors).toHaveBeenCalledWith(undefined);
+  });
+});
+
+describe("staffing requirement routes", () => {
+  const summary: StaffingRequirementSummary = {
+    id: 12,
+    courseId: 3,
+    courseCode: "COMS3011",
+    courseName: "Software Design Project",
+    startsAt: "2030-09-04T14:00:00.000Z",
+    endsAt: "2030-09-04T18:00:00.000Z",
+    tutorsNeeded: 2,
+    windowHours: 4,
+    requiredHours: 8,
+    assignedHours: 5,
+    shortageHours: 3,
+    shortageTutors: 1,
+    fillState: "partially-filled",
+    status: "OPEN",
+    notes: "Two extra tutors for the lab",
+    createdById: 8,
+    createdAt: "2026-09-21T09:00:00.000Z",
+    updatedAt: "2026-09-21T09:00:00.000Z",
+  };
+
+  const validBody = {
+    courseId: 3,
+    startsAt: "2030-09-04T14:00:00.000Z",
+    endsAt: "2030-09-04T18:00:00.000Z",
+    tutorsNeeded: 2,
+    notes: "Two extra tutors for the lab",
+  };
+
+  function staffingRequests(app: Express, authenticated = false) {
+    const withAuth = <T extends request.Test>(pending: T) =>
+      authenticated
+        ? pending.set("Authorization", "Bearer valid-token")
+        : pending;
+    return [
+      withAuth(request(app).post("/api/staffing-requirements").send(validBody)),
+      withAuth(
+        request(app).patch("/api/staffing-requirements/12").send(validBody),
+      ),
+      withAuth(
+        request(app)
+          .patch("/api/staffing-requirements/12/status")
+          .send({ status: "CLOSED" }),
+      ),
+      withAuth(request(app).get("/api/staffing-requirements")),
+    ];
+  }
+
+  it("creates a requirement for the signed-in organiser", async () => {
+    const createStaffingRequirement = vi.fn().mockResolvedValue(summary);
+    const app = makeApp({ createStaffingRequirement });
+
+    const response = await request(app)
+      .post("/api/staffing-requirements")
+      .set("Authorization", "Bearer valid-token")
+      .send(validBody);
+
+    expect(response.status).toBe(201);
+    expect(response.body).toEqual({ data: { staffingRequirement: summary } });
+    expect(createStaffingRequirement).toHaveBeenCalledWith("auth0|organiser", {
+      courseId: 3,
+      startsAt: new Date(validBody.startsAt),
+      endsAt: new Date(validBody.endsAt),
+      tutorsNeeded: 2,
+      notes: "Two extra tutors for the lab",
+    });
+  });
+
+  it("creates a requirement without notes", async () => {
+    const createStaffingRequirement = vi.fn().mockResolvedValue(summary);
+    const app = makeApp({ createStaffingRequirement });
+    const withoutNotes = {
+      courseId: validBody.courseId,
+      startsAt: validBody.startsAt,
+      endsAt: validBody.endsAt,
+      tutorsNeeded: validBody.tutorsNeeded,
+    };
+
+    const response = await request(app)
+      .post("/api/staffing-requirements")
+      .set("Authorization", "Bearer valid-token")
+      .send(withoutNotes);
+
+    expect(response.status).toBe(201);
+    expect(createStaffingRequirement.mock.calls[0]![1]).not.toHaveProperty(
+      "notes",
+    );
+  });
+
+  it.each([
+    ["a missing course", { ...validBody, courseId: undefined }],
+    ["a course that is not a positive whole number", { ...validBody, courseId: 0 }],
+    ["an end before the start", { ...validBody, endsAt: "2030-09-04T13:00:00.000Z" }],
+    ["an end equal to the start", { ...validBody, endsAt: validBody.startsAt }],
+    ["zero tutors", { ...validBody, tutorsNeeded: 0 }],
+    ["negative tutors", { ...validBody, tutorsNeeded: -2 }],
+    ["more tutors than the maximum", { ...validBody, tutorsNeeded: 21 }],
+    ["a fraction of a tutor", { ...validBody, tutorsNeeded: 1.5 }],
+    ["tutors sent as text", { ...validBody, tutorsNeeded: "2" }],
+    ["client-supplied required hours", { ...validBody, requiredHours: 8 }],
+    ["a start without a time zone", { ...validBody, startsAt: "2030-09-04T14:00:00" }],
+    ["a blank note", { ...validBody, notes: "   " }],
+    ["a client-supplied status", { ...validBody, status: "CLOSED" }],
+    ["a client-supplied author", { ...validBody, createdById: 99 }],
+  ])("rejects %s and sends no request", async (_label, body) => {
+    const createStaffingRequirement = vi.fn();
+    const app = makeApp({ createStaffingRequirement });
+
+    const response = await request(app)
+      .post("/api/staffing-requirements")
+      .set("Authorization", "Bearer valid-token")
+      .send(body);
+
+    expect(response.status).toBe(400);
+    expect(response.body.error.code).toBe("VALIDATION_ERROR");
+    expect(createStaffingRequirement).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["creating", "post", "/api/staffing-requirements"],
+    ["editing", "patch", "/api/staffing-requirements/12"],
+  ])("refuses a requirement longer than a working day when %s", async (_label, method, path) => {
+    const createStaffingRequirement = vi.fn();
+    const updateStaffingRequirement = vi.fn();
+    const app = makeApp({ createStaffingRequirement, updateStaffingRequirement });
+
+    const response = await (method === "post"
+      ? request(app).post(path)
+      : request(app).patch(path))
+      .set("Authorization", "Bearer valid-token")
+      .send({
+        ...validBody,
+        startsAt: "2026-09-01T10:27:00.000Z",
+        endsAt: "2026-10-01T12:27:00.000Z",
+      });
+
+    expect(response.status).toBe(400);
+    expect(response.body.error).toEqual({
+      code: "VALIDATION_ERROR",
+      message:
+        "A session cannot be longer than 8 hours. This one is 722 hours. Check the start and end dates.",
+    });
+    // Never reaches the service: required hours are window x tutorsNeeded, so
+    // this would have been recorded as 1,444 hours short.
+    expect(createStaffingRequirement).not.toHaveBeenCalled();
+    expect(updateStaffingRequirement).not.toHaveBeenCalled();
+  });
+
+  it("accepts a requirement of exactly the maximum length", async () => {
+    const createStaffingRequirement = vi.fn().mockResolvedValue(summary);
+    const app = makeApp({ createStaffingRequirement });
+
+    const response = await request(app)
+      .post("/api/staffing-requirements")
+      .set("Authorization", "Bearer valid-token")
+      .send({
+        ...validBody,
+        startsAt: "2030-09-04T09:00:00.000Z",
+        endsAt: "2030-09-04T17:00:00.000Z",
+      });
+
+    expect(response.status).toBe(201);
+  });
+
+  it("still accepts a requirement in the past", async () => {
+    const createStaffingRequirement = vi.fn().mockResolvedValue(summary);
+    const app = makeApp({ createStaffingRequirement });
+
+    const response = await request(app)
+      .post("/api/staffing-requirements")
+      .set("Authorization", "Bearer valid-token")
+      .send({
+        ...validBody,
+        startsAt: "2020-01-06T10:00:00.000Z",
+        endsAt: "2020-01-06T12:00:00.000Z",
+      });
+
+    expect(response.status).toBe(201);
+  });
+
+  it.each([
+    ["no filters", {}, {}],
+    ["a course filter", { courseId: "3" }, { courseId: 3 }],
+    ["a status filter", { status: "OPEN" }, { status: "OPEN" }],
+    ["a lower-case status filter", { status: "closed" }, { status: "CLOSED" }],
+    [
+      "both filters",
+      { courseId: "3", status: "CANCELLED" },
+      { courseId: 3, status: "CANCELLED" },
+    ],
+  ])("lists requirements with %s", async (_label, query, expected) => {
+    const listStaffingRequirements = vi.fn().mockResolvedValue([summary]);
+    const app = makeApp({ listStaffingRequirements });
+
+    const response = await request(app)
+      .get("/api/staffing-requirements")
+      .query(query)
+      .set("Authorization", "Bearer valid-token");
+
+    expect(response.status).toBe(200);
+    expect(response.body).toEqual({ data: { staffingRequirements: [summary] } });
+    expect(listStaffingRequirements).toHaveBeenCalledWith(expected);
+  });
+
+  it.each([
+    ["an unknown status", { status: "FILLED" }],
+    ["a non-numeric course", { courseId: "abc" }],
+    ["a zero course", { courseId: "0" }],
+  ])("rejects %s in the list filters", async (_label, query) => {
+    const listStaffingRequirements = vi.fn();
+    const app = makeApp({ listStaffingRequirements });
+
+    const response = await request(app)
+      .get("/api/staffing-requirements")
+      .query(query)
+      .set("Authorization", "Bearer valid-token");
+
+    expect(response.status).toBe(400);
+    expect(response.body.error.code).toBe("VALIDATION_ERROR");
+    expect(listStaffingRequirements).not.toHaveBeenCalled();
+  });
+
+  it("updates the details of a requirement", async () => {
+    const updateStaffingRequirement = vi.fn().mockResolvedValue(summary);
+    const app = makeApp({ updateStaffingRequirement });
+
+    const response = await request(app)
+      .patch("/api/staffing-requirements/12")
+      .set("Authorization", "Bearer valid-token")
+      .send({ ...validBody, notes: null });
+
+    expect(response.status).toBe(200);
+    expect(response.body).toEqual({ data: { staffingRequirement: summary } });
+    expect(updateStaffingRequirement).toHaveBeenCalledWith(12, {
+      courseId: 3,
+      startsAt: new Date(validBody.startsAt),
+      endsAt: new Date(validBody.endsAt),
+      tutorsNeeded: 2,
+      notes: null,
+    });
+  });
+
+  it.each(["OPEN", "CLOSED", "CANCELLED"])(
+    "changes a requirement to %s",
+    async (status) => {
+      const setStaffingRequirementStatus = vi
+        .fn()
+        .mockResolvedValue({ ...summary, status });
+      const app = makeApp({ setStaffingRequirementStatus });
+
+      const response = await request(app)
+        .patch("/api/staffing-requirements/12/status")
+        .set("Authorization", "Bearer valid-token")
+        .send({ status });
+
+      expect(response.status).toBe(200);
+      expect(response.body.data.staffingRequirement.status).toBe(status);
+      expect(setStaffingRequirementStatus).toHaveBeenCalledWith(12, status);
+    },
+  );
+
+  it.each([
+    ["an unknown status", { status: "FILLED" }],
+    ["a missing status", {}],
+    ["extra fields", { status: "CLOSED", notes: "why" }],
+  ])("rejects %s on the status route", async (_label, body) => {
+    const setStaffingRequirementStatus = vi.fn();
+    const app = makeApp({ setStaffingRequirementStatus });
+
+    const response = await request(app)
+      .patch("/api/staffing-requirements/12/status")
+      .set("Authorization", "Bearer valid-token")
+      .send(body);
+
+    expect(response.status).toBe(400);
+    expect(response.body.error.code).toBe("VALIDATION_ERROR");
+    expect(setStaffingRequirementStatus).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["/api/staffing-requirements/abc", validBody],
+    ["/api/staffing-requirements/0", validBody],
+  ])("rejects a malformed identifier on %s", async (path, body) => {
+    const updateStaffingRequirement = vi.fn();
+    const app = makeApp({ updateStaffingRequirement });
+
+    const response = await request(app)
+      .patch(path)
+      .set("Authorization", "Bearer valid-token")
+      .send(body);
+
+    expect(response.status).toBe(400);
+    expect(response.body.error.code).toBe("VALIDATION_ERROR");
+    expect(updateStaffingRequirement).not.toHaveBeenCalled();
+  });
+
+  it("passes service refusals through with their public code", async () => {
+    const app = makeApp({
+      setStaffingRequirementStatus: vi
+        .fn()
+        .mockRejectedValue(
+          createRouteError(
+            409,
+            "STAFFING_REQUIREMENT_CONFLICT",
+            "This staffing requirement is already closed.",
+          ),
+        ),
+    });
+
+    const response = await request(app)
+      .patch("/api/staffing-requirements/12/status")
+      .set("Authorization", "Bearer valid-token")
+      .send({ status: "CLOSED" });
+
+    expect(response.status).toBe(409);
+    expect(response.body.error.code).toBe("STAFFING_REQUIREMENT_CONFLICT");
+  });
+
+  it("sanitizes unexpected failures on every staffing requirement route", async () => {
+    const fail = vi.fn().mockRejectedValue(new Error("Prisma private detail"));
+    const app = makeApp({
+      listStaffingRequirements: fail,
+      createStaffingRequirement: fail,
+      updateStaffingRequirement: fail,
+      setStaffingRequirementStatus: fail,
+    });
+
+    for (const pending of staffingRequests(app, true)) {
+      const response = await pending;
+      expect(response.status).toBe(500);
+      expect(response.body).toEqual({
+        error: {
+          code: "INTERNAL_ERROR",
+          message: "The request could not be completed.",
+        },
+      });
+      expect(response.text).not.toContain("Prisma private detail");
+    }
+    expect(fail).toHaveBeenCalledTimes(4);
+  });
+
+  it("requires authentication on every staffing requirement route", async () => {
+    const app = makeApp();
+
+    for (const pending of staffingRequests(app)) {
+      const response = await pending;
+      expect(response.status).toBe(401);
+      expect(response.body.error.code).toBe("AUTHENTICATION_REQUIRED");
+    }
+  });
+
+  it("rejects an authenticated tutor on every staffing requirement route", async () => {
+    const app = makeApp({}, "TUTOR");
+
+    for (const pending of staffingRequests(app, true)) {
+      const response = await pending;
+      expect(response.status).toBe(403);
+      expect(response.body.error.code).toBe("FORBIDDEN");
+    }
+  });
+
+  it("reports the feature as unavailable when it is not configured", async () => {
+    const app = makeApp();
+
+    for (const pending of staffingRequests(app, true)) {
+      const response = await pending;
+      expect(response.status).toBe(503);
+      expect(response.body.error.code).toBe("STAFFING_REQUIREMENTS_UNAVAILABLE");
+    }
+  });
+});
+
+describe("allocation hours must fit the session", () => {
+  const twoHourSession = {
+    tutorId: 7,
+    courseId: 3,
+    startsAt: "2030-09-04T14:00:00.000Z",
+    endsAt: "2030-09-04T16:00:00.000Z",
+    minimumMark: 50,
+    status: "CONFIRMED",
+  };
+
+  it.each([
+    ["creating", "post", "/api/allocations"],
+    ["editing", "patch", "/api/allocations/11"],
+  ])("refuses hours longer than the session when %s", async (_label, method, path) => {
+    const createAllocation = vi.fn();
+    const updateAllocation = vi.fn();
+    const app = makeApp({ createAllocation, updateAllocation });
+
+    const response = await (method === "post"
+      ? request(app).post(path)
+      : request(app).patch(path))
+      .set("Authorization", "Bearer valid-token")
+      .send({ ...twoHourSession, requestedHours: 20 });
+
+    expect(response.status).toBe(400);
+    expect(response.body.error).toEqual({
+      code: "VALIDATION_ERROR",
+      message: "Enter hours above 0 and no more than the session length of 2 hours.",
+    });
+    expect(createAllocation).not.toHaveBeenCalled();
+    expect(updateAllocation).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["exactly the session length", 2],
+    ["less than the session length", 0.5],
+  ])("accepts %s", async (_label, requestedHours) => {
+    const createAllocation = vi.fn().mockResolvedValue(allocationSummary);
+    const app = makeApp({ createAllocation });
+
+    const response = await request(app)
+      .post("/api/allocations")
+      .set("Authorization", "Bearer valid-token")
+      .send({ ...twoHourSession, requestedHours });
+
+    expect(response.status).toBe(201);
+    expect(createAllocation).toHaveBeenCalledWith(
+      "auth0|organiser",
+      expect.objectContaining({ requestedHours }),
+    );
+  });
+
+  it("names a fractional session length properly", async () => {
+    const app = makeApp({ createAllocation: vi.fn() });
+
+    const response = await request(app)
+      .post("/api/allocations")
+      .set("Authorization", "Bearer valid-token")
+      .send({
+        ...twoHourSession,
+        endsAt: "2030-09-04T15:30:00.000Z",
+        requestedHours: 2,
+      });
+
+    expect(response.body.error.message).toBe(
+      "Enter hours above 0 and no more than the session length of 1 hour 30 minutes.",
+    );
+  });
+
+  it.each([
+    ["creating", "post", "/api/allocations"],
+    ["editing", "patch", "/api/allocations/11"],
+  ])("refuses a session longer than a working day when %s", async (_label, method, path) => {
+    const createAllocation = vi.fn();
+    const updateAllocation = vi.fn();
+    const app = makeApp({ createAllocation, updateAllocation });
+
+    const response = await (method === "post"
+      ? request(app).post(path)
+      : request(app).patch(path))
+      .set("Authorization", "Bearer valid-token")
+      // The shape the real fault took: the start a month behind the end, with a
+      // plausible two hours that fits inside it.
+      .send({
+        ...twoHourSession,
+        startsAt: "2026-09-01T10:27:00.000Z",
+        endsAt: "2026-10-01T12:27:00.000Z",
+        requestedHours: 2,
+      });
+
+    expect(response.status).toBe(400);
+    expect(response.body.error).toEqual({
+      code: "VALIDATION_ERROR",
+      message:
+        "A session cannot be longer than 8 hours. This one is 722 hours. Check the start and end dates.",
+    });
+    expect(createAllocation).not.toHaveBeenCalled();
+    expect(updateAllocation).not.toHaveBeenCalled();
+  });
+
+  it("accepts a session of exactly the maximum length", async () => {
+    const createAllocation = vi.fn().mockResolvedValue(allocationSummary);
+    const app = makeApp({ createAllocation });
+
+    const response = await request(app)
+      .post("/api/allocations")
+      .set("Authorization", "Bearer valid-token")
+      .send({
+        ...twoHourSession,
+        startsAt: "2030-09-04T09:00:00.000Z",
+        endsAt: "2030-09-04T17:00:00.000Z",
+        requestedHours: 8,
+      });
+
+    expect(response.status).toBe(201);
+  });
+
+  it("still accepts a session in the past, because editing history is allowed", async () => {
+    const createAllocation = vi.fn().mockResolvedValue(allocationSummary);
+    const app = makeApp({ createAllocation });
+
+    const response = await request(app)
+      .post("/api/allocations")
+      .set("Authorization", "Bearer valid-token")
+      .send({
+        ...twoHourSession,
+        startsAt: "2020-01-06T10:00:00.000Z",
+        endsAt: "2020-01-06T12:00:00.000Z",
+        requestedHours: 2,
+      });
+
+    expect(response.status).toBe(201);
+  });
+
+  it("refuses to rank candidates for a window that could never be saved", async () => {
+    const listAllocationCandidates = vi.fn();
+    const app = makeApp({ listAllocationCandidates });
+
+    const response = await request(app)
+      .get("/api/allocations/candidates")
+      .query({
+        courseId: 3,
+        startsAt: "2026-09-01T10:27:00.000Z",
+        endsAt: "2026-10-01T12:27:00.000Z",
+        minimumMark: 50,
+        requestedHours: 2,
+      })
+      .set("Authorization", "Bearer valid-token");
+
+    expect(response.status).toBe(400);
+    expect(response.body.error.message).toBe(
+      "A session cannot be longer than 8 hours. This one is 722 hours. Check the start and end dates.",
+    );
+    expect(listAllocationCandidates).not.toHaveBeenCalled();
+  });
+});
+
+describe("bulk allocation routes", () => {
+  const previewItem = {
+    requirementId: 100,
+    courseId: 10,
+    courseCode: "COMS3011",
+    courseName: "Software Design Project",
+    startsAt: "2030-09-04T10:00:00.000Z",
+    endsAt: "2030-09-04T14:00:00.000Z",
+    windowHours: 4,
+    shortageHours: 8,
+    tutorsWanted: 2,
+    proposals: [
+      {
+        tutorId: 7,
+        fullName: "Sam Tutor",
+        hours: 4,
+        mark: 84,
+        markBand: 80,
+        usedHours: 2,
+        weeklyLimit: 10,
+      },
+    ],
+    unfilled: 1,
+    note: "1 of 2 places could be proposed; no further eligible tutor is free for this session.",
+    alternatives: [],
+  };
+
+  function bulkRequests(app: Express, authenticated = false) {
+    const withAuth = <T extends request.Test>(pending: T) =>
+      authenticated ? pending.set("Authorization", "Bearer valid-token") : pending;
+    return [
+      withAuth(
+        request(app)
+          .post("/api/allocations/bulk-preview")
+          .send({ requirementIds: [100], minimumMark: 65 }),
+      ),
+      withAuth(
+        request(app)
+          .post("/api/allocations/bulk-commit")
+          .send({
+            minimumMark: 65,
+            items: [{ requirementId: 100, tutorId: 7, proposedTutorId: 7 }],
+          }),
+      ),
+    ];
+  }
+
+  it("previews without saving and returns the proposals", async () => {
+    const previewBulkAllocations = vi.fn().mockResolvedValue([previewItem]);
+    const commitBulkAllocations = vi.fn();
+    const app = makeApp({ previewBulkAllocations, commitBulkAllocations });
+
+    const response = await request(app)
+      .post("/api/allocations/bulk-preview")
+      .set("Authorization", "Bearer valid-token")
+      .send({ requirementIds: [100, 101], minimumMark: 70 });
+
+    expect(response.status).toBe(200);
+    expect(response.body).toEqual({ data: { items: [previewItem] } });
+    expect(previewBulkAllocations).toHaveBeenCalledWith({
+      requirementIds: [100, 101],
+      minimumMark: 70,
+    });
+    // Preview is a read: nothing may be committed by it.
+    expect(commitBulkAllocations).not.toHaveBeenCalled();
+  });
+
+  it("defaults the minimum mark to the board's own bar", async () => {
+    const previewBulkAllocations = vi.fn().mockResolvedValue([]);
+    const app = makeApp({ previewBulkAllocations });
+
+    await request(app)
+      .post("/api/allocations/bulk-preview")
+      .set("Authorization", "Bearer valid-token")
+      .send({ requirementIds: [100] });
+
+    expect(previewBulkAllocations).toHaveBeenCalledWith({
+      requirementIds: [100],
+      minimumMark: 65,
+    });
+  });
+
+  it("asks for each requirement once, however often it is sent", async () => {
+    const previewBulkAllocations = vi.fn().mockResolvedValue([]);
+    const app = makeApp({ previewBulkAllocations });
+
+    await request(app)
+      .post("/api/allocations/bulk-preview")
+      .set("Authorization", "Bearer valid-token")
+      .send({ requirementIds: [100, 100, 101] });
+
+    expect(previewBulkAllocations.mock.calls[0]![0].requirementIds).toEqual([100, 101]);
+  });
+
+  it.each([
+    ["no requirements", { requirementIds: [] }],
+    ["a requirement that is not a positive whole number", { requirementIds: [0] }],
+    ["more than the run limit", { requirementIds: Array.from({ length: 51 }, (_, index) => index + 1) }],
+    ["a minimum mark above 100", { requirementIds: [100], minimumMark: 101 }],
+    ["an unexpected field", { requirementIds: [100], courseId: 3 }],
+  ])("refuses a preview with %s", async (_label, body) => {
+    const previewBulkAllocations = vi.fn();
+    const app = makeApp({ previewBulkAllocations });
+
+    const response = await request(app)
+      .post("/api/allocations/bulk-preview")
+      .set("Authorization", "Bearer valid-token")
+      .send(body);
+
+    expect(response.status).toBe(400);
+    expect(response.body.error.code).toBe("VALIDATION_ERROR");
+    expect(previewBulkAllocations).not.toHaveBeenCalled();
+  });
+
+  it("reports each committed item individually", async () => {
+    const results = [
+      { requirementId: 100, tutorId: 7, outcome: "saved", allocationId: 41 },
+      {
+        requirementId: 100,
+        tutorId: 9,
+        outcome: "failed",
+        code: "schedule-clash",
+        message: "The tutor has a timetable clash for this allocation.",
+      },
+    ];
+    const commitBulkAllocations = vi.fn().mockResolvedValue(results);
+    const app = makeApp({ commitBulkAllocations });
+
+    const response = await request(app)
+      .post("/api/allocations/bulk-commit")
+      .set("Authorization", "Bearer valid-token")
+      .send({
+        minimumMark: 65,
+        items: [
+          { requirementId: 100, tutorId: 7, proposedTutorId: 7 },
+          {
+            requirementId: 100,
+            tutorId: 9,
+            proposedTutorId: 8,
+            overrideReason: "Sam knows this lab.",
+          },
+        ],
+      });
+
+    expect(response.status).toBe(200);
+    expect(response.body).toEqual({ data: { results } });
+    expect(commitBulkAllocations).toHaveBeenCalledWith("auth0|organiser", {
+      minimumMark: 65,
+      items: [
+        { requirementId: 100, tutorId: 7, proposedTutorId: 7 },
+        {
+          requirementId: 100,
+          tutorId: 9,
+          proposedTutorId: 8,
+          overrideReason: "Sam knows this lab.",
+        },
+      ],
+    });
+  });
+
+  it.each([
+    ["no items", { items: [] }],
+    ["a missing proposed tutor", { items: [{ requirementId: 100, tutorId: 7 }] }],
+    [
+      "a blank override reason",
+      { items: [{ requirementId: 100, tutorId: 9, proposedTutorId: 7, overrideReason: "   " }] },
+    ],
+    [
+      "a reason when nothing was changed",
+      { items: [{ requirementId: 100, tutorId: 7, proposedTutorId: 7, overrideReason: "why" }] },
+    ],
+    [
+      "an unexpected field on an item",
+      { items: [{ requirementId: 100, tutorId: 7, proposedTutorId: 7, startsAt: "2030-09-04T10:00:00.000Z" }] },
+    ],
+  ])("refuses a commit with %s", async (_label, body) => {
+    const commitBulkAllocations = vi.fn();
+    const app = makeApp({ commitBulkAllocations });
+
+    const response = await request(app)
+      .post("/api/allocations/bulk-commit")
+      .set("Authorization", "Bearer valid-token")
+      .send({ minimumMark: 65, ...body });
+
+    expect(response.status).toBe(400);
+    expect(response.body.error.code).toBe("VALIDATION_ERROR");
+    expect(commitBulkAllocations).not.toHaveBeenCalled();
+  });
+
+  it("requires authentication on both bulk routes", async () => {
+    const app = makeApp();
+
+    for (const pending of bulkRequests(app)) {
+      const response = await pending;
+      expect(response.status).toBe(401);
+      expect(response.body.error.code).toBe("AUTHENTICATION_REQUIRED");
+    }
+  });
+
+  it("rejects an authenticated tutor on both bulk routes", async () => {
+    const app = makeApp({}, "TUTOR");
+
+    for (const pending of bulkRequests(app, true)) {
+      const response = await pending;
+      expect(response.status).toBe(403);
+      expect(response.body.error.code).toBe("FORBIDDEN");
+    }
+  });
+
+  it("reports bulk allocation as unavailable when it is not configured", async () => {
+    const app = makeApp();
+
+    for (const pending of bulkRequests(app, true)) {
+      const response = await pending;
+      expect(response.status).toBe(503);
+      expect(response.body.error.code).toBe("BULK_ALLOCATION_UNAVAILABLE");
+    }
+  });
+
+  it("sanitizes an unexpected failure on either bulk route", async () => {
+    const fail = vi.fn().mockRejectedValue(new Error("private connection detail"));
+    const app = makeApp({
+      previewBulkAllocations: fail,
+      commitBulkAllocations: fail,
+    });
+
+    for (const pending of bulkRequests(app, true)) {
+      const response = await pending;
+      expect(response.status).toBe(500);
+      expect(response.body.error.code).toBe("INTERNAL_ERROR");
+      expect(response.text).not.toContain("private connection detail");
+    }
+  });
+});
+
+describe("workload report route", () => {
+  const report = {
+    period: { weekStart: "2030-09-02T00:00:00.000Z", weekEnd: "2030-09-09T00:00:00.000Z", weeks: 1 },
+    courses: [
+      {
+        courseId: 10,
+        courseCode: "COMS3011",
+        courseName: "Software Design Project",
+        allocatedHours: 4,
+        approvedWorkedHours: 3,
+        hourlyRate: 180,
+        budget: 5000,
+        spend: 540,
+        committed: 720,
+        budgetRemaining: 4460,
+      },
+    ],
+    tutors: [
+      {
+        tutorId: 7,
+        fullName: "Sam Tutor",
+        capacityHours: 10,
+        allocatedHours: 4,
+        approvedWorkedHours: 3,
+        shareOfAllocatedHours: 1,
+      },
+    ],
+  };
+
+  it("returns the report for a whole number of weeks", async () => {
+    const workloadReport = vi.fn().mockResolvedValue(report);
+    const app = makeApp({ workloadReport });
+
+    const response = await request(app)
+      .get("/api/reports/workload")
+      .query({ weekStart: "2030-09-02", weeks: "4" })
+      .set("Authorization", "Bearer valid-token");
+
+    expect(response.status).toBe(200);
+    expect(response.body).toEqual({ data: report });
+    expect(workloadReport).toHaveBeenCalledWith({
+      weekStart: new Date("2030-09-02T00:00:00.000Z"),
+      weeks: 4,
+    });
+  });
+
+  it("reports a single week when no length is given", async () => {
+    const workloadReport = vi.fn().mockResolvedValue(report);
+    const app = makeApp({ workloadReport });
+
+    await request(app)
+      .get("/api/reports/workload")
+      .query({ weekStart: "2030-09-02" })
+      .set("Authorization", "Bearer valid-token");
+
+    expect(workloadReport).toHaveBeenCalledWith(expect.objectContaining({ weeks: 1 }));
+  });
+
+  it.each([
+    ["a day that is not a Monday", { weekStart: "2030-09-03" }],
+    ["no week at all", {}],
+    ["a malformed date", { weekStart: "not-a-date" }],
+    ["zero weeks", { weekStart: "2030-09-02", weeks: "0" }],
+    ["a fraction of a week", { weekStart: "2030-09-02", weeks: "1.5" }],
+    ["more than a year", { weekStart: "2030-09-02", weeks: "53" }],
+  ])("refuses %s", async (_label, query) => {
+    const workloadReport = vi.fn();
+    const app = makeApp({ workloadReport });
+
+    const response = await request(app)
+      .get("/api/reports/workload")
+      .query(query)
+      .set("Authorization", "Bearer valid-token");
+
+    expect(response.status).toBe(400);
+    expect(response.body.error.code).toBe("VALIDATION_ERROR");
+    expect(workloadReport).not.toHaveBeenCalled();
+  });
+
+  it("requires an organiser", async () => {
+    const unauthenticated = await request(makeApp())
+      .get("/api/reports/workload")
+      .query({ weekStart: "2030-09-02" });
+    expect(unauthenticated.status).toBe(401);
+
+    const tutor = await request(makeApp({}, "TUTOR"))
+      .get("/api/reports/workload")
+      .query({ weekStart: "2030-09-02" })
+      .set("Authorization", "Bearer valid-token");
+    expect(tutor.status).toBe(403);
+  });
+
+  it("reports reporting as unavailable when it is not configured", async () => {
+    const response = await request(makeApp())
+      .get("/api/reports/workload")
+      .query({ weekStart: "2030-09-02" })
+      .set("Authorization", "Bearer valid-token");
+
+    expect(response.status).toBe(503);
+    expect(response.body.error.code).toBe("REPORTING_UNAVAILABLE");
+  });
+});
+
+describe("course money fields", () => {
+  it.each([
+    ["a rate of zero", { hourlyRate: 0 }],
+    ["a negative rate", { hourlyRate: -10 }],
+    ["a negative budget", { budget: -1 }],
+    ["fractions of a cent", { hourlyRate: 1.234 }],
+    ["a rate sent as text", { hourlyRate: "180" }],
+  ])("refuses %s", async (_label, extra) => {
+    const createCourse = vi.fn();
+    const app = makeApp({ createCourse });
+
+    const response = await request(app)
+      .post("/api/courses")
+      .set("Authorization", "Bearer valid-token")
+      .send({ code: "PAY101", name: "Paid Course", ...extra });
+
+    expect(response.status).toBe(400);
+    expect(createCourse).not.toHaveBeenCalled();
+  });
+
+  it("accepts a rate and budget, and lets either be cleared", async () => {
+    const createCourse = vi.fn().mockResolvedValue({
+      id: 1, code: "PAY101", name: "Paid Course", hourlyRate: 180, budget: 5000,
+    });
+    const updateCourse = vi.fn().mockResolvedValue({
+      id: 1, code: "PAY101", name: "Paid Course", hourlyRate: null, budget: null,
+    });
+    const app = makeApp({ createCourse, updateCourse });
+
+    await request(app)
+      .post("/api/courses")
+      .set("Authorization", "Bearer valid-token")
+      .send({ code: "PAY101", name: "Paid Course", hourlyRate: 180, budget: 5000 });
+    expect(createCourse).toHaveBeenCalledWith({
+      code: "PAY101", name: "Paid Course", hourlyRate: 180, budget: 5000,
+    });
+
+    await request(app)
+      .patch("/api/courses/1")
+      .set("Authorization", "Bearer valid-token")
+      .send({ code: "PAY101", name: "Paid Course", hourlyRate: null, budget: null });
+    expect(updateCourse).toHaveBeenCalledWith(1, {
+      code: "PAY101", name: "Paid Course", hourlyRate: null, budget: null,
+    });
+  });
+
+  it("leaves the stored money untouched when the fields are absent", async () => {
+    const updateCourse = vi.fn().mockResolvedValue({
+      id: 1, code: "PAY101", name: "Renamed", hourlyRate: 180, budget: 5000,
+    });
+    const app = makeApp({ updateCourse });
+
+    await request(app)
+      .patch("/api/courses/1")
+      .set("Authorization", "Bearer valid-token")
+      .send({ code: "PAY101", name: "Renamed" });
+
+    expect(updateCourse).toHaveBeenCalledWith(1, { code: "PAY101", name: "Renamed" });
   });
 });

@@ -122,6 +122,8 @@ function makeApp(
       (async (input) => ({
         id: 11,
         ...input,
+        hourlyRate: input.hourlyRate ?? null,
+        budget: input.budget ?? null,
       })),
 
     deleteCourse: overrides.deleteCourse ?? (async () => undefined),
@@ -155,6 +157,8 @@ function makeApp(
           id: 1,
           code: "DEMO101",
           name: "Demo Course",
+          hourlyRate: null,
+          budget: null,
         },
       ]),
 
@@ -186,6 +190,8 @@ function makeApp(
       (async (courseId, input) => ({
         id: courseId,
         ...input,
+        hourlyRate: input.hourlyRate ?? null,
+        budget: input.budget ?? null,
       })),
 
     getTutorDashboard:
@@ -298,7 +304,7 @@ function makeApp(
     listAllocationCandidates:
       overrides.listAllocationCandidates ?? (async () => []),
     listOrganiserAllocations: async () => [],
-    listOrganiserApprovals: async () => ({ timesheets: [], volunteerClaims: [] }),
+    listOrganiserApprovals: async () => ({ timesheets: [], volunteerClaims: [], excuses: [] }),
 
     createAllocation: async (_auth0Id, input) => ({
       id: 1,

@@ -41,6 +41,15 @@ interface CandidateRow {
 
 export interface AllocationCandidate extends CandidateRow {
   reasonCodes: CandidateReasonCode[];
+  /** The tutor's mark rounded down to its band of ten: 84 becomes 80. */
+  markBand: number;
+  /**
+   * Weekly hours already used as a fraction of the tutor's limit, the second
+   * ranking step. A ranking input only - never shown to anyone. The board says
+   * "4 of 10 hours used that week", using usedHours and weeklyLimit, because a
+   * raw decimal like 0.4 means nothing to an organiser. Do not render it.
+   */
+  capacityShare: number;
 }
 
 export interface CandidateQuery {
@@ -328,6 +337,63 @@ function assertCandidateQuery(input: CandidateQuery): void {
   }
 }
 
+/**
+ * Where an eligible tutor sits in the ranking, as the four things it compares.
+ * Ineligible tutors are never ranked, so this is only built for eligible rows.
+ */
+function rankingKey(candidate: AllocationCandidate) {
+  return {
+    markBand: candidate.markBand,
+    capacityShare: candidate.capacityShare,
+    mark: candidate.mark ?? 0,
+    tutorId: candidate.tutorId,
+  };
+}
+
+/**
+ * The ranking rule, in one sentence: best mark band first, then whoever has used
+ * the smallest share of their weekly hours that week, then the exact mark, then
+ * tutor id so the order never changes between loads.
+ *
+ * Bands come first because a 91 and a 96 are both "excellent" and splitting them
+ * by decimals would hand every session to one tutor until they are full. Share
+ * rather than raw hours, because tutors have different weekly limits: four hours
+ * used means something different at a limit of five than at twenty.
+ *
+ * Every step is a number an organiser can see on the card. There is deliberately
+ * no combined score, because a score cannot be explained or argued with.
+ */
+export function compareEligibleCandidates(
+  first: AllocationCandidate,
+  second: AllocationCandidate,
+): number {
+  const left = rankingKey(first);
+  const right = rankingKey(second);
+
+  return (
+    right.markBand - left.markBand ||
+    left.capacityShare - right.capacityShare ||
+    right.mark - left.mark ||
+    left.tutorId - right.tutorId
+  );
+}
+
+/**
+ * Rank the eligible tutors and leave everyone else exactly where the query put
+ * them. Eligibility itself is decided by candidateQuerySql and is never touched
+ * here: this only changes the order the eligible ones are offered in.
+ */
+export function rankAllocationCandidates(
+  candidates: AllocationCandidate[],
+): AllocationCandidate[] {
+  const eligible = candidates
+    .filter((candidate) => candidate.isEligible)
+    .sort(compareEligibleCandidates);
+  const ineligible = candidates.filter((candidate) => !candidate.isEligible);
+
+  return [...eligible, ...ineligible];
+}
+
 export function allocationReasonCodesFor(
   check: AllocationRuleCheck,
 ): CandidateReasonCode[] {
@@ -362,7 +428,7 @@ export async function findAllocationCandidates(
     input.excludeAllocationId ?? null,
   ]);
 
-  return result.rows.map((row) => ({
+  const candidates = result.rows.map((row) => ({
     ...row,
     reasonCodes: allocationReasonCodesFor({
       mark: row.mark,
@@ -371,7 +437,15 @@ export async function findAllocationCandidates(
       remainingHours: row.remainingHours,
       requestedHours: input.requestedHours,
     }),
+    markBand: Math.floor((row.mark ?? 0) / 10) * 10,
+    // Every eligible tutor has a weekly limit above zero, because a tutor
+    // without one can never have the remaining hours a session needs. The guard
+    // keeps the arithmetic safe for the ineligible rows that are never ranked.
+    capacityShare:
+      row.weeklyLimit > 0 ? row.usedHours / row.weeklyLimit : Number.POSITIVE_INFINITY,
   }));
+
+  return rankAllocationCandidates(candidates);
 }
 
 export async function getTutorHourSummary(
@@ -401,4 +475,72 @@ export async function listOpenWork(
     toNaiveUtcText(now),
   ]);
   return result.rows;
+}
+
+export interface AssignedHoursRow {
+  requirementId: number;
+  assignedHours: number;
+}
+
+/**
+ * Confirmed tutor-hours already covering each staffing requirement.
+ *
+ * A booking counts only for the part of it that falls inside the requirement
+ * window, in proportion to how much of the booking that is: a 13:00-17:00
+ * booking of four hours contributes one hour to a 10:00-14:00 requirement.
+ * `allocatedHours` is not tied to a booking's own length anywhere in this system,
+ * so the work is treated as spread evenly across the booked window - the only
+ * assumption the stored data supports. The share can never exceed the booking.
+ *
+ * Overlap is the same half-open rule used everywhere else: touching intervals do
+ * not count, and only CONFIRMED allocations do, matching the capacity rule in
+ * {@link tutorHoursSql}. `staffing-shortage.test.ts` pins these verdicts to
+ * {@link timeRangesOverlap} so the two definitions cannot drift apart.
+ *
+ * One statement covers every requirement in the list, so listing many of them
+ * never turns into one query per row.
+ */
+export const assignedHoursForRequirementsSql = `
+SELECT sr."id" AS "requirementId",
+  COALESCE(
+    ROUND(
+      SUM(
+        a."allocatedHours"
+        * (
+            EXTRACT(EPOCH FROM (
+              LEAST(a."endsAt", sr."endsAt") - GREATEST(a."startsAt", sr."startsAt")
+            ))
+            / EXTRACT(EPOCH FROM (a."endsAt" - a."startsAt"))
+          )
+      )::numeric,
+      2
+    ),
+    0
+  )::double precision AS "assignedHours"
+FROM "StaffingRequirement" sr
+LEFT JOIN "Allocation" a
+  ON a."courseId" = sr."courseId"
+ AND a."status" = 'CONFIRMED'
+ AND a."startsAt" < sr."endsAt"
+ AND a."endsAt" > sr."startsAt"
+WHERE sr."id" = ANY($1::integer[])
+GROUP BY sr."id";
+`;
+
+export async function getAssignedHoursForRequirements(
+  client: QueryClient,
+  requirementIds: number[],
+): Promise<Map<number, number>> {
+  if (requirementIds.length === 0) {
+    return new Map();
+  }
+  if (requirementIds.some((id) => !Number.isInteger(id) || id <= 0)) {
+    throw new RangeError("requirementIds must be positive integers");
+  }
+
+  const result = await client.query<AssignedHoursRow>(
+    assignedHoursForRequirementsSql,
+    [requirementIds],
+  );
+  return new Map(result.rows.map((row) => [row.requirementId, row.assignedHours]));
 }

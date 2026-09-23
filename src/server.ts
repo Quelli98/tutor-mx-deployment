@@ -23,6 +23,9 @@ import {
   getTutorWorkloads,
 } from "./services/allocation-queries.js";
 import { createCourseService } from "./services/course-service.js";
+import { createStaffingRequirementService } from "./services/staffing-requirement-service.js";
+import { createBulkAllocationService } from "./services/bulk-allocation-service.js";
+import { createReportingService } from "./services/reporting-service.js";
 import { createExcuseWorkflowService } from "./services/excuse-workflows.js";
 import { createOrganiserService } from "./services/organiser-service.js";
 import { createStudentWorkflowService } from "./services/student-workflows.js";
@@ -100,11 +103,32 @@ function isPrismaErrorCode(error: unknown, code: string) {
   );
 }
 
-function toCourseSummary(course: { id: number; code: string; name: string }) {
+const courseSelect = {
+  id: true,
+  code: true,
+  name: true,
+  hourlyRate: true,
+  budget: true,
+} as const;
+
+function toCourseSummary(course: {
+  id: number;
+  code: string;
+  name: string;
+  hourlyRate?: unknown;
+  budget?: unknown;
+}) {
   return {
     id: course.id,
     code: course.code,
     name: course.name,
+    // Unset stays null: a course with no rate reports hours and no money.
+    hourlyRate: course.hourlyRate === null || course.hourlyRate === undefined
+      ? null
+      : Number(course.hourlyRate),
+    budget: course.budget === null || course.budget === undefined
+      ? null
+      : Number(course.budget),
   };
 }
 
@@ -225,6 +249,32 @@ const timesheetWorkflowService = createTimesheetWorkflowService(prisma);
 const excuseWorkflowService = createExcuseWorkflowService(prisma);
 const organiserService = createOrganiserService(prisma);
 const courseService = createCourseService(prisma);
+const staffingRequirementService = createStaffingRequirementService(
+  prisma,
+  queryClient,
+);
+
+// Built from a reader and a query client only. It is never handed the Prisma
+// client, so preview has no way to write; saving goes through createAllocation
+// below, which keeps its own transaction and rule checks.
+// Reads only: built with the query client, never the Prisma client, so a report
+// cannot change what it reports on.
+const reportingService = createReportingService(queryClient);
+
+const bulkAllocationService = createBulkAllocationService(
+  queryClient,
+  staffingRequirementService.listStaffingRequirements,
+  async (organiserAuth0Id, input) => {
+    const allocation = await organiserService.createAllocation(
+      organiserAuth0Id,
+      input,
+    );
+    await emitNotifications(
+      buildAllocationNotifications(allocation, { created: true }),
+    );
+    return allocation;
+  },
+);
 const publicHolidayService = createSouthAfricaPublicHolidayService();
 const notificationService = createNotificationService(
   prisma as unknown as NotificationDataClient,
@@ -296,6 +346,13 @@ const app = createApp(
       }
       return searchService.search({ id: profile.id, role }, query);
     },
+    workloadReport: reportingService.workloadReport,
+    previewBulkAllocations: bulkAllocationService.preview,
+    commitBulkAllocations: bulkAllocationService.commit,
+    listStaffingRequirements: staffingRequirementService.listStaffingRequirements,
+    createStaffingRequirement: staffingRequirementService.createStaffingRequirement,
+    updateStaffingRequirement: staffingRequirementService.updateStaffingRequirement,
+    setStaffingRequirementStatus: staffingRequirementService.setStaffingRequirementStatus,
     async onboardUser(auth0Id, role) {
       const existing = await prisma.profile.findUnique({
         where: { auth0Id },
@@ -329,7 +386,7 @@ const app = createApp(
     async listCourses() {
       const courses = await prisma.course.findMany({
         orderBy: { code: "asc" },
-        select: { id: true, code: true, name: true },
+        select: courseSelect,
       });
       return courses.map(toCourseSummary);
     },
@@ -339,8 +396,10 @@ const app = createApp(
           data: {
             code: input.code,
             name: input.name,
+            ...(input.hourlyRate === undefined ? {} : { hourlyRate: input.hourlyRate }),
+            ...(input.budget === undefined ? {} : { budget: input.budget }),
           },
-          select: { id: true, code: true, name: true },
+          select: courseSelect,
         });
         return toCourseSummary(course);
       } catch (error) {
@@ -361,8 +420,10 @@ const app = createApp(
           data: {
             code: input.code,
             name: input.name,
+            ...(input.hourlyRate === undefined ? {} : { hourlyRate: input.hourlyRate }),
+            ...(input.budget === undefined ? {} : { budget: input.budget }),
           },
-          select: { id: true, code: true, name: true },
+          select: courseSelect,
         });
         return toCourseSummary(course);
       } catch (error) {
@@ -752,6 +813,8 @@ const app = createApp(
         isEligible: candidate.isEligible,
         reasonCodes: candidate.reasonCodes,
         clashDetails: candidate.clashDetails,
+        markBand: candidate.markBand,
+        capacityShare: candidate.capacityShare,
       }));
     },
     listOrganiserAllocations: organiserService.listAllocations,

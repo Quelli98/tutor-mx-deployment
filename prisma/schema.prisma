@@ -66,6 +66,12 @@ enum NotificationType {
   EXCUSE_REVIEW_DUE
 }
 
+enum StaffingRequirementStatus {
+  OPEN
+  CLOSED
+  CANCELLED
+}
+
 model Profile {
   id                  Int              @id @default(autoincrement())
   auth0Id             String           @unique
@@ -83,6 +89,7 @@ model Profile {
   excuses             Excuse[]
   volunteerClaims     VolunteerClaim[]
   notifications       Notification[]
+  staffingRequirements StaffingRequirement[]
   createdAt           DateTime         @default(now())
   updatedAt           DateTime         @updatedAt
 }
@@ -108,9 +115,13 @@ model Course {
   id           Int            @id @default(autoincrement())
   code         String         @unique
   name         String
+  /** What one tutor-hour on this course costs. Every tutor is paid the same. */
+  hourlyRate   Decimal?       @db.Decimal(8, 2)
+  budget       Decimal?       @db.Decimal(12, 2)
   tutorMarks   TutorMark[]
   allocations  Allocation[]
   overflowWork OverflowWork[]
+  staffingRequirements StaffingRequirement[]
   createdAt    DateTime       @default(now())
   updatedAt    DateTime       @updatedAt
 }
@@ -161,6 +172,8 @@ model Allocation {
   reviewedBy     Profile?         @relation("AllocationReviewer", fields: [reviewedById], references: [id], onDelete: SetNull)
   reviewedById   Int?
   reviewedAt     DateTime?
+  /** Why an organiser chose a tutor other than the one bulk allocation proposed. */
+  overrideReason String?
   workLogs       WorkLog[]
   excuses        Excuse[]
   overflowWork   OverflowWork?
@@ -263,4 +276,22 @@ model VolunteerClaim {
   @@unique([overflowWorkId, studentId])
   @@index([overflowWorkId, status])
   @@index([studentId, status, createdAt])
+}
+
+model StaffingRequirement {
+  id            Int                       @id @default(autoincrement())
+  courseId      Int
+  startsAt      DateTime
+  endsAt        DateTime
+  tutorsNeeded  Int
+  status        StaffingRequirementStatus @default(OPEN)
+  notes         String?
+  createdById   Int?
+  course        Course                    @relation(fields: [courseId], references: [id], onDelete: Restrict)
+  createdBy     Profile?                  @relation(fields: [createdById], references: [id], onDelete: SetNull)
+  createdAt     DateTime                  @default(now())
+  updatedAt     DateTime                  @updatedAt
+
+  @@index([courseId, status, startsAt])
+  @@index([createdById])
 }
