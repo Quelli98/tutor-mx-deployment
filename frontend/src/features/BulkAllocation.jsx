@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useAuth0 } from '@auth0/auth0-react'
 import {
   commitBulkAllocations,
@@ -54,6 +54,7 @@ export default function BulkAllocation() {
 
   const [commitStatus, setCommitStatus] = useState('idle')
   const [results, setResults] = useState([])
+  const previewVersion = useRef(0)
 
   const loadRequirements = useCallback(
     async (isActive = () => true) => {
@@ -89,6 +90,10 @@ export default function BulkAllocation() {
   }, [loadRequirements])
 
   function toggleRequirement(requirementId) {
+    previewVersion.current += 1
+    setPreviewItems([])
+    setPlan({})
+    setPreviewStatus('idle')
     setSelectedIds((current) =>
       current.includes(requirementId)
         ? current.filter((id) => id !== requirementId)
@@ -103,12 +108,14 @@ export default function BulkAllocation() {
     setPreviewStatus('loading')
     setActionError('')
     setResults([])
+    const version = ++previewVersion.current
 
     try {
       const items = await previewBulkAllocations(
         { requirementIds: selectedIds, minimumMark: Number(minimumMark) },
         getAccessTokenSilently,
       )
+      if (version !== previewVersion.current) return
       setPreviewItems(items)
       // Every proposal starts included, with the proposed tutor accepted.
       setPlan(
@@ -123,6 +130,7 @@ export default function BulkAllocation() {
       )
       setPreviewStatus('success')
     } catch (err) {
+      if (version !== previewVersion.current) return
       setPreviewItems([])
       setActionError(safeErrorMessage(err, 'The preview could not be produced safely.'))
       setPreviewStatus('error')
@@ -238,6 +246,7 @@ export default function BulkAllocation() {
                     id={`bulk-requirement-${requirement.id}`}
                     type="checkbox"
                     checked={selectedIds.includes(requirement.id)}
+                    disabled={commitStatus === 'saving'}
                     onChange={() => toggleRequirement(requirement.id)}
                   />
                   <label htmlFor={`bulk-requirement-${requirement.id}`}>
@@ -262,7 +271,14 @@ export default function BulkAllocation() {
                 max="100"
                 step="any"
                 value={minimumMark}
-                onChange={(event) => setMinimumMark(event.target.value)}
+                disabled={commitStatus === 'saving'}
+                onChange={(event) => {
+                  previewVersion.current += 1
+                  setMinimumMark(event.target.value)
+                  setPreviewItems([])
+                  setPlan({})
+                  setPreviewStatus('idle')
+                }}
               />
             </div>
 
@@ -270,7 +286,7 @@ export default function BulkAllocation() {
               <button
                 className="primary-button"
                 type="submit"
-                disabled={selectedIds.length === 0 || previewStatus === 'loading'}
+                disabled={selectedIds.length === 0 || previewStatus === 'loading' || commitStatus === 'saving' || minimumMark === '' || Number(minimumMark) < 0 || Number(minimumMark) > 100}
               >
                 {previewStatus === 'loading' ? 'Previewing...' : 'Preview allocations'}
               </button>
@@ -322,6 +338,7 @@ export default function BulkAllocation() {
                             id={`bulk-include-${key}`}
                             type="checkbox"
                             checked={row.include}
+                            disabled={commitStatus === 'saving'}
                             onChange={() => updatePlan(key, { include: !row.include })}
                           />
                           <label htmlFor={`bulk-include-${key}`}>
@@ -345,7 +362,7 @@ export default function BulkAllocation() {
                           <select
                             id={`bulk-tutor-${key}`}
                             value={row.tutorId}
-                            disabled={!row.include}
+                            disabled={!row.include || commitStatus === 'saving'}
                             onChange={(event) =>
                               updatePlan(key, { tutorId: Number(event.target.value) })
                             }
@@ -355,7 +372,15 @@ export default function BulkAllocation() {
                             </option>
                             {/* Only eligible tutors are ever offered here. */}
                             {item.alternatives.map((alternative) => (
-                              <option key={alternative.tutorId} value={alternative.tutorId}>
+                              <option
+                                key={alternative.tutorId}
+                                value={alternative.tutorId}
+                                disabled={item.proposals.some((other) =>
+                                  other.tutorId !== proposal.tutorId &&
+                                  plan[planKey(item.requirementId, other.tutorId)]?.include &&
+                                  plan[planKey(item.requirementId, other.tutorId)]?.tutorId === alternative.tutorId
+                                )}
+                              >
                                 {alternative.fullName}
                               </option>
                             ))}
@@ -370,6 +395,7 @@ export default function BulkAllocation() {
                             <textarea
                               id={`bulk-reason-${key}`}
                               value={row.reason}
+                              disabled={commitStatus === 'saving'}
                               onChange={(event) =>
                                 updatePlan(key, { reason: event.target.value })
                               }

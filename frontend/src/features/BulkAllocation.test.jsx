@@ -100,6 +100,19 @@ describe('BulkAllocation', () => {
     getAccessTokenSilently.mockReset()
   })
 
+  it('discards a preview when the selected requirements change while it loads', async () => {
+    let finishPreview
+    previewBulkAllocations.mockReturnValue(new Promise((resolve) => { finishPreview = resolve }))
+    renderPage()
+    const checkbox = await screen.findByLabelText(/COMS3011/i)
+    fireEvent.click(checkbox)
+    fireEvent.click(screen.getByRole('button', { name: /preview allocations/i }))
+    fireEvent.click(checkbox)
+    finishPreview([previewItem])
+    await waitFor(() => expect(screen.queryByRole('heading', { name: /^preview$/i })).not.toBeInTheDocument())
+    expect(screen.queryByRole('button', { name: /confirm 1 allocation/i })).not.toBeInTheDocument()
+  })
+
   it('lists only open requirements that still need filling', async () => {
     renderPage()
 

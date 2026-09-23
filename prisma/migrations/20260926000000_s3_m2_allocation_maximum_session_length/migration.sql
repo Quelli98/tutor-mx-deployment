@@ -14,17 +14,16 @@
 -- Deliberately not added: a rule that a session or requirement must be in the
 -- future. Editing a past allocation is legitimate.
 
--- The one row that the constraint below would reject: the data-entry error that
--- exposed all of this, already cancelled. Nothing references it - no work log,
--- no excuse, no overflow work - so it can go. It must go first, because a CHECK
--- is validated against existing rows as it is added.
-DELETE FROM "Allocation" WHERE "id" = 4;
+-- Existing historical rows are preserved. NOT VALID enforces the bound on new
+-- and updated rows without rejecting an environment that contains older,
+-- longer sessions. Clean up historical records through an explicit reviewed
+-- data correction before validating the constraint in a later migration.
 
 ALTER TABLE "Allocation"
   ADD CONSTRAINT "Allocation_within_maximum_session_length"
   CHECK (
     EXTRACT(EPOCH FROM ("endsAt" - "startsAt")) / 3600 <= 8
-  );
+  ) NOT VALID;
 
 -- The same bound on staffing requirements, where an unbounded window is worse
 -- rather than merely wrong: required hours are derived as window x tutorsNeeded,
@@ -32,9 +31,8 @@ ALTER TABLE "Allocation"
 -- bulk allocator trying to book 722 hours per tutor - which the allocation
 -- rules above would then refuse one by one.
 --
--- No existing requirement is longer than four hours, so nothing is rejected.
 ALTER TABLE "StaffingRequirement"
   ADD CONSTRAINT "StaffingRequirement_within_maximum_session_length"
   CHECK (
     EXTRACT(EPOCH FROM ("endsAt" - "startsAt")) / 3600 <= 8
-  );
+  ) NOT VALID;
