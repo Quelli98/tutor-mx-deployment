@@ -5,6 +5,10 @@ on:
     branches:
       - main
       - "integration/**"
+  # Member branches must be checked before they can be merged into main.
+  pull_request:
+    branches:
+      - main
 
 jobs:
   backend-quality:
@@ -38,7 +42,7 @@ jobs:
         run: npm run typecheck
 
       - name: Test with backend coverage
-        run: npm run coverage:backend
+        run: npm run coverage:backend -- --reporter=verbose
 
       - name: Build
         run: npm run build:backend
