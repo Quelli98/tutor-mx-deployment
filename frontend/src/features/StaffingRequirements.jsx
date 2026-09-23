@@ -9,6 +9,10 @@ import {
   updateStaffingRequirement,
 } from '../api/organiser'
 import { EmptyState, ErrorState, LoadingState } from '../components/shared/StatusMessage'
+import {
+  MAX_SESSION_HOURS,
+  maximumSessionLengthMessage,
+} from '../components/shared/scheduleWeek'
 import { ConfirmationDialog } from '../components/shared/ConfirmationDialog'
 
 const EMPTY_FORM = { courseId: '', startsAt: '', endsAt: '', tutorsNeeded: '', notes: '' }
@@ -113,10 +117,15 @@ function formatDateTime(isoValue) {
 }
 
 /**
- * Shape checks only: every field is filled in and the tutor count is a number.
- * Every rule about the values - end after start, the tutor range, whether the
- * course exists, and the required hours those add up to - belongs to the server,
- * and its answer is shown as-is.
+ * Shape checks, plus the one value rule worth catching before a round trip.
+ * Every other rule about the values - end after start, the tutor range, whether
+ * the course exists, and the required hours those add up to - belongs to the
+ * server, and its answer is shown as-is.
+ *
+ * The exception is the maximum window length. A requirement spanning days is
+ * almost always a mistyped date, and the number it produces is wildly wrong
+ * rather than merely refused: required hours are window x tutorsNeeded. The
+ * server and the database refuse it too, in the same words.
  */
 function validateForm(form) {
   const errors = {}
@@ -132,6 +141,20 @@ function validateForm(form) {
   }
   if (!form.tutorsNeeded.trim() || !Number.isFinite(Number(form.tutorsNeeded))) {
     errors.tutorsNeeded = 'Enter how many tutors are needed.'
+  }
+
+  if (!errors.startsAt && !errors.endsAt) {
+    const startsAt = new Date(form.startsAt)
+    const endsAt = new Date(form.endsAt)
+    const isReal = !Number.isNaN(startsAt.valueOf()) && !Number.isNaN(endsAt.valueOf())
+
+    if (
+      isReal &&
+      endsAt > startsAt &&
+      (endsAt.valueOf() - startsAt.valueOf()) / 3_600_000 > MAX_SESSION_HOURS
+    ) {
+      errors.endsAt = maximumSessionLengthMessage(startsAt, endsAt)
+    }
   }
 
   return errors

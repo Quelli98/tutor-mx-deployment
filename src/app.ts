@@ -1155,6 +1155,13 @@ function parseStaffingRequirementInput(body: unknown) {
     } as const;
   }
 
+  // The same bound as an allocation, and it matters more here: required hours
+  // are derived as window x tutorsNeeded, so an unbounded window would report a
+  // shortage of thousands of hours and send the bulk allocator after it.
+  if (!sessionWithinMaximumLength(startsAt, endsAt)) {
+    return { error: maximumSessionLengthMessage(startsAt, endsAt) } as const;
+  }
+
   return {
     value: {
       courseId,
@@ -1477,6 +1484,12 @@ function parseAllocationCandidateQuery(query: unknown) {
     } as const;
   }
 
+  // The same bound as saving. Ranking candidates for a window that could never
+  // be saved would answer a question the organiser cannot act on.
+  if (!sessionWithinMaximumLength(startsAt, endsAt)) {
+    return { error: maximumSessionLengthMessage(startsAt, endsAt) } as const;
+  }
+
   return {
     value: {
       courseId,
@@ -1510,6 +1523,35 @@ export function sessionLengthText(startsAt: Date, endsAt: Date): string {
   }
 
   return parts.join(" ");
+}
+
+/**
+ * A tutoring session is a slot in a day, not a term. Nothing bounded the window
+ * itself before: "end after start" plus "hours no longer than the window" let a
+ * month-long booking carrying two hours through every layer, and one reached
+ * production. Eight hours is a working day's worth of contact time.
+ *
+ * Deliberately not a rule about when the session falls. Editing a past
+ * allocation is legitimate.
+ */
+export const MAX_SESSION_HOURS = 8;
+
+function sessionWithinMaximumLength(startsAt: Date, endsAt: Date): boolean {
+  return (
+    (endsAt.valueOf() - startsAt.valueOf()) / 3_600_000 <= MAX_SESSION_HOURS
+  );
+}
+
+/**
+ * Says the limit and what was actually entered, because the usual cause is a
+ * mistyped date: "722 hours" makes a wrong month obvious in a way that "too
+ * long" does not. The board repeats this wording exactly.
+ */
+export function maximumSessionLengthMessage(
+  startsAt: Date,
+  endsAt: Date,
+): string {
+  return `A session cannot be longer than ${MAX_SESSION_HOURS} hours. This one is ${sessionLengthText(startsAt, endsAt)}. Check the start and end dates.`;
 }
 
 function hoursWithinSession(
@@ -1554,6 +1596,13 @@ function parseAllocationWriteInput(body: unknown) {
       error:
         "Enter a valid tutor, course, start/end time, minimum mark (0-100), requested hours and allocation status.",
     } as const;
+  }
+
+  // Checked before the hours rule: a month-long window passes that one (two
+  // hours fits inside it), so the window error is both the true fault and the
+  // more useful thing to say.
+  if (!sessionWithinMaximumLength(startsAt, endsAt)) {
+    return { error: maximumSessionLengthMessage(startsAt, endsAt) } as const;
   }
 
   // Hours longer than the session itself would inflate the tutor's used capacity

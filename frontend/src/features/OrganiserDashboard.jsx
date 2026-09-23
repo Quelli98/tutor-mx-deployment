@@ -10,7 +10,11 @@ import {
   removeAllocation,
   updateAllocation,
 } from '../api/organiser'
-import { sessionLengthText } from '../components/shared/scheduleWeek'
+import {
+  MAX_SESSION_HOURS,
+  maximumSessionLengthMessage,
+  sessionLengthText,
+} from '../components/shared/scheduleWeek'
 import { RuleResult } from '../components/organiser/RuleResult'
 import { ConfirmationDialog } from '../components/shared/ConfirmationDialog'
 import { EmptyState, ErrorState, LoadingState } from '../components/shared/StatusMessage'
@@ -86,6 +90,13 @@ function validateBoard(form) {
     errors.endsAt = 'Choose a valid end date and time.'
   } else if (!errors.startsAt && endsAt <= startsAt) {
     errors.endsAt = 'The end time must be later than the start time.'
+  } else if (
+    !errors.startsAt &&
+    (endsAt.valueOf() - startsAt.valueOf()) / 3_600_000 > MAX_SESSION_HOURS
+  ) {
+    // A session spanning days is almost always a mistyped date, and the hours
+    // rule below cannot catch it: two hours fits inside a month just fine.
+    errors.endsAt = maximumSessionLengthMessage(startsAt, endsAt)
   }
   if (
     !form.minimumMark.trim() ||

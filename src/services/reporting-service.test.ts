@@ -275,15 +275,17 @@ describe("money", () => {
 
 describe("how work is spread across tutors", () => {
   it("gives each tutor's share of the period's allocated hours", async () => {
-    await allocation(1, { tutorId: TUTOR, day: "2030-09-03", hours: 3 });
-    await allocation(2, { tutorId: OTHER_TUTOR, day: "2030-09-04", hours: 9 });
+    // The helper makes the window as long as the hours, so both stay inside the
+    // maximum session length while keeping the 1:3 split the shares assert.
+    await allocation(1, { tutorId: TUTOR, day: "2030-09-03", hours: 2 });
+    await allocation(2, { tutorId: OTHER_TUTOR, day: "2030-09-04", hours: 6 });
 
     const result = await report();
     const ada = result.tutors.find((row) => row.tutorId === TUTOR)!;
     const ben = result.tutors.find((row) => row.tutorId === OTHER_TUTOR)!;
 
-    expect(ada.allocatedHours).toBe(3);
-    expect(ben.allocatedHours).toBe(9);
+    expect(ada.allocatedHours).toBe(2);
+    expect(ben.allocatedHours).toBe(6);
     expect(ada.shareOfAllocatedHours).toBe(0.25);
     expect(ben.shareOfAllocatedHours).toBe(0.75);
   });

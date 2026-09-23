@@ -873,6 +873,68 @@ describe("staffing requirement routes", () => {
   });
 
   it.each([
+    ["creating", "post", "/api/staffing-requirements"],
+    ["editing", "patch", "/api/staffing-requirements/12"],
+  ])("refuses a requirement longer than a working day when %s", async (_label, method, path) => {
+    const createStaffingRequirement = vi.fn();
+    const updateStaffingRequirement = vi.fn();
+    const app = makeApp({ createStaffingRequirement, updateStaffingRequirement });
+
+    const response = await (method === "post"
+      ? request(app).post(path)
+      : request(app).patch(path))
+      .set("Authorization", "Bearer valid-token")
+      .send({
+        ...validBody,
+        startsAt: "2026-09-01T10:27:00.000Z",
+        endsAt: "2026-10-01T12:27:00.000Z",
+      });
+
+    expect(response.status).toBe(400);
+    expect(response.body.error).toEqual({
+      code: "VALIDATION_ERROR",
+      message:
+        "A session cannot be longer than 8 hours. This one is 722 hours. Check the start and end dates.",
+    });
+    // Never reaches the service: required hours are window x tutorsNeeded, so
+    // this would have been recorded as 1,444 hours short.
+    expect(createStaffingRequirement).not.toHaveBeenCalled();
+    expect(updateStaffingRequirement).not.toHaveBeenCalled();
+  });
+
+  it("accepts a requirement of exactly the maximum length", async () => {
+    const createStaffingRequirement = vi.fn().mockResolvedValue(summary);
+    const app = makeApp({ createStaffingRequirement });
+
+    const response = await request(app)
+      .post("/api/staffing-requirements")
+      .set("Authorization", "Bearer valid-token")
+      .send({
+        ...validBody,
+        startsAt: "2030-09-04T09:00:00.000Z",
+        endsAt: "2030-09-04T17:00:00.000Z",
+      });
+
+    expect(response.status).toBe(201);
+  });
+
+  it("still accepts a requirement in the past", async () => {
+    const createStaffingRequirement = vi.fn().mockResolvedValue(summary);
+    const app = makeApp({ createStaffingRequirement });
+
+    const response = await request(app)
+      .post("/api/staffing-requirements")
+      .set("Authorization", "Bearer valid-token")
+      .send({
+        ...validBody,
+        startsAt: "2020-01-06T10:00:00.000Z",
+        endsAt: "2020-01-06T12:00:00.000Z",
+      });
+
+    expect(response.status).toBe(201);
+  });
+
+  it.each([
     ["no filters", {}, {}],
     ["a course filter", { courseId: "3" }, { courseId: 3 }],
     ["a status filter", { status: "OPEN" }, { status: "OPEN" }],
@@ -1131,6 +1193,93 @@ describe("allocation hours must fit the session", () => {
     expect(response.body.error.message).toBe(
       "Enter hours above 0 and no more than the session length of 1 hour 30 minutes.",
     );
+  });
+
+  it.each([
+    ["creating", "post", "/api/allocations"],
+    ["editing", "patch", "/api/allocations/11"],
+  ])("refuses a session longer than a working day when %s", async (_label, method, path) => {
+    const createAllocation = vi.fn();
+    const updateAllocation = vi.fn();
+    const app = makeApp({ createAllocation, updateAllocation });
+
+    const response = await (method === "post"
+      ? request(app).post(path)
+      : request(app).patch(path))
+      .set("Authorization", "Bearer valid-token")
+      // The shape the real fault took: the start a month behind the end, with a
+      // plausible two hours that fits inside it.
+      .send({
+        ...twoHourSession,
+        startsAt: "2026-09-01T10:27:00.000Z",
+        endsAt: "2026-10-01T12:27:00.000Z",
+        requestedHours: 2,
+      });
+
+    expect(response.status).toBe(400);
+    expect(response.body.error).toEqual({
+      code: "VALIDATION_ERROR",
+      message:
+        "A session cannot be longer than 8 hours. This one is 722 hours. Check the start and end dates.",
+    });
+    expect(createAllocation).not.toHaveBeenCalled();
+    expect(updateAllocation).not.toHaveBeenCalled();
+  });
+
+  it("accepts a session of exactly the maximum length", async () => {
+    const createAllocation = vi.fn().mockResolvedValue(allocationSummary);
+    const app = makeApp({ createAllocation });
+
+    const response = await request(app)
+      .post("/api/allocations")
+      .set("Authorization", "Bearer valid-token")
+      .send({
+        ...twoHourSession,
+        startsAt: "2030-09-04T09:00:00.000Z",
+        endsAt: "2030-09-04T17:00:00.000Z",
+        requestedHours: 8,
+      });
+
+    expect(response.status).toBe(201);
+  });
+
+  it("still accepts a session in the past, because editing history is allowed", async () => {
+    const createAllocation = vi.fn().mockResolvedValue(allocationSummary);
+    const app = makeApp({ createAllocation });
+
+    const response = await request(app)
+      .post("/api/allocations")
+      .set("Authorization", "Bearer valid-token")
+      .send({
+        ...twoHourSession,
+        startsAt: "2020-01-06T10:00:00.000Z",
+        endsAt: "2020-01-06T12:00:00.000Z",
+        requestedHours: 2,
+      });
+
+    expect(response.status).toBe(201);
+  });
+
+  it("refuses to rank candidates for a window that could never be saved", async () => {
+    const listAllocationCandidates = vi.fn();
+    const app = makeApp({ listAllocationCandidates });
+
+    const response = await request(app)
+      .get("/api/allocations/candidates")
+      .query({
+        courseId: 3,
+        startsAt: "2026-09-01T10:27:00.000Z",
+        endsAt: "2026-10-01T12:27:00.000Z",
+        minimumMark: 50,
+        requestedHours: 2,
+      })
+      .set("Authorization", "Bearer valid-token");
+
+    expect(response.status).toBe(400);
+    expect(response.body.error.message).toBe(
+      "A session cannot be longer than 8 hours. This one is 722 hours. Check the start and end dates.",
+    );
+    expect(listAllocationCandidates).not.toHaveBeenCalled();
   });
 });
 

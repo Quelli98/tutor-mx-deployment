@@ -98,3 +98,15 @@ export function sessionLengthText(startsAt, endsAt) {
 
   return parts.join(' ')
 }
+
+/**
+ * A tutoring session is a slot in a day, not a term. Duplicated from
+ * MAX_SESSION_HOURS in src/app.ts for the same reason as sessionLengthText, and
+ * pinned by the same agreement test. The server and the database refuse anything
+ * longer; this only saves the organiser a round trip.
+ */
+export const MAX_SESSION_HOURS = 8
+
+export function maximumSessionLengthMessage(startsAt, endsAt) {
+  return `A session cannot be longer than ${MAX_SESSION_HOURS} hours. This one is ${sessionLengthText(startsAt, endsAt)}. Check the start and end dates.`
+}

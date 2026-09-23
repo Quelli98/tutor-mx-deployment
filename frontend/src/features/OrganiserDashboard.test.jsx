@@ -591,6 +591,30 @@ describe('OrganiserDashboard session-length check', () => {
     expect(listAllocationCandidates).not.toHaveBeenCalled()
   })
 
+  it('stops a session that spans days before any request is sent', async () => {
+    // The shape the real fault took: the start a month behind the end, carrying
+    // a plausible two hours. The hours rule cannot catch it, because two hours
+    // does fit inside a month.
+    await boardWith('2026-09-01T10:27', '2026-10-01T12:27', '2')
+
+    expect(screen.getByLabelText(/session ends/i)).toHaveAccessibleDescription(
+      'A session cannot be longer than 8 hours. This one is 722 hours. Check the start and end dates.',
+    )
+    expect(listAllocationCandidates).not.toHaveBeenCalled()
+  })
+
+  it('allows a session of exactly the maximum length', async () => {
+    await boardWith('2030-09-04T09:00', '2030-09-04T17:00', '8')
+
+    expect(listAllocationCandidates).toHaveBeenCalled()
+  })
+
+  it('still allows a session in the past, because editing history is allowed', async () => {
+    await boardWith('2020-01-06T10:00', '2020-01-06T12:00', '2')
+
+    expect(listAllocationCandidates).toHaveBeenCalled()
+  })
+
   it('names a fractional session length properly', async () => {
     await boardWith('2030-09-04T14:00', '2030-09-04T15:30', '2')
 

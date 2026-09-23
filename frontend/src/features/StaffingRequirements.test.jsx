@@ -309,6 +309,61 @@ describe('StaffingRequirements', () => {
     expect(createStaffingRequirement).not.toHaveBeenCalled()
   })
 
+  it('blocks a requirement that spans days before any request is sent', async () => {
+    renderPage()
+    await screen.findByRole('table')
+
+    fillForm()
+    // The shape the real fault took: the start a month behind the end.
+    fireEvent.change(screen.getByLabelText(/^starts$/i), {
+      target: { value: '2026-09-01T10:27' },
+    })
+    fireEvent.change(screen.getByLabelText(/^ends$/i), {
+      target: { value: '2026-10-01T12:27' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: /^add requirement$/i }))
+
+    await waitFor(() =>
+      expect(screen.getByLabelText(/^ends$/i)).toHaveAccessibleDescription(
+        'A session cannot be longer than 8 hours. This one is 722 hours. Check the start and end dates.',
+      ),
+    )
+    // Required hours are window x tutorsNeeded, so this would have been
+    // recorded as 1,444 hours short.
+    expect(createStaffingRequirement).not.toHaveBeenCalled()
+  })
+
+  it('allows a requirement of exactly the maximum length', async () => {
+    renderPage()
+    await screen.findByRole('table')
+
+    fillForm()
+    fireEvent.change(screen.getByLabelText(/^starts$/i), {
+      target: { value: '2030-09-04T09:00' },
+    })
+    fireEvent.change(screen.getByLabelText(/^ends$/i), {
+      target: { value: '2030-09-04T17:00' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: /^add requirement$/i }))
+
+    await waitFor(() => expect(createStaffingRequirement).toHaveBeenCalled())
+  })
+
+  it('leaves an end before the start to the server, as before', async () => {
+    renderPage()
+    await screen.findByRole('table')
+
+    fillForm()
+    fireEvent.change(screen.getByLabelText(/^ends$/i), {
+      target: { value: '2030-09-04T13:00' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: /^add requirement$/i }))
+
+    // Only the window-length rule moved to the screen; every other value rule
+    // still belongs to the server.
+    await waitFor(() => expect(createStaffingRequirement).toHaveBeenCalled())
+  })
+
   it('shows the server refusal when it rejects the values', async () => {
     createStaffingRequirement.mockRejectedValue(
       errorWithCode(

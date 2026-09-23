@@ -227,6 +227,87 @@ describe("Basic workflow migrations", () => {
     await expect(insert("2031-03-05", "0.5")).resolves.toBeDefined();
   });
 
+  it("refuses a session window longer than the maximum session length", async () => {
+    const ids = await database.query<{ tutor_id: number; course_id: number }>(`
+      SELECT
+        (SELECT "id" FROM "Profile" WHERE "auth0Id" = 'demo|tutor-pass') AS tutor_id,
+        (SELECT "id" FROM "Course" WHERE "code" = 'DEMO101') AS course_id;
+    `);
+    const tutorId = ids.rows[0]!.tutor_id;
+    const courseId = ids.rows[0]!.course_id;
+
+    const insert = (startsAt: string, endsAt: string, hours: string) =>
+      database.query(
+        `INSERT INTO "Allocation" (
+          "tutorId", "courseId", "startsAt", "endsAt", "allocatedHours"
+        ) VALUES ($1, $2, '${startsAt}', '${endsAt}', ${hours})`,
+        [tutorId, courseId],
+      );
+
+    // The fault that reached production: a start left a month behind the end,
+    // carrying a plausible two hours. Every other rule accepted it - the end is
+    // after the start, and two hours fits inside a month - so only a bound on
+    // the window itself catches it.
+    await expect(
+      insert("2031-04-01 10:27", "2031-05-01 12:27", "2"),
+    ).rejects.toBeDefined();
+    // Spanning to the next day is refused for the same reason.
+    await expect(
+      insert("2031-04-02 20:00", "2031-04-03 08:00", "2"),
+    ).rejects.toBeDefined();
+    await expect(
+      insert("2031-04-04 10:00", "2031-04-04 18:30", "2"),
+    ).rejects.toBeDefined();
+
+    // Exactly the maximum, and ordinary slots, stay allowed.
+    await expect(
+      insert("2031-04-05 09:00", "2031-04-05 17:00", "8"),
+    ).resolves.toBeDefined();
+    await expect(
+      insert("2031-04-06 10:00", "2031-04-06 12:00", "2"),
+    ).resolves.toBeDefined();
+
+    // A session in the past is still allowed: editing history is legitimate.
+    await expect(
+      insert("2020-01-06 10:00", "2020-01-06 12:00", "2"),
+    ).resolves.toBeDefined();
+  });
+
+  it("refuses a staffing requirement window longer than the maximum", async () => {
+    const ids = await database.query<{ organiser_id: number; course_id: number }>(`
+      SELECT
+        (SELECT "id" FROM "Profile" WHERE "role" = 'ORGANISER' LIMIT 1) AS organiser_id,
+        (SELECT "id" FROM "Course" WHERE "code" = 'DEMO101') AS course_id;
+    `);
+    const organiserId = ids.rows[0]!.organiser_id;
+    const courseId = ids.rows[0]!.course_id;
+
+    const insert = (startsAt: string, endsAt: string) =>
+      database.query(
+        `INSERT INTO "StaffingRequirement" (
+          "courseId", "startsAt", "endsAt", "tutorsNeeded", "createdById", "updatedAt"
+        ) VALUES ($1, '${startsAt}', '${endsAt}', 2, $2, CURRENT_TIMESTAMP)`,
+        [courseId, organiserId],
+      );
+
+    // Required hours are derived as window x tutorsNeeded, so an unbounded
+    // window does not merely look wrong - it reports a shortage of thousands of
+    // hours and sends the bulk allocator after it.
+    await expect(
+      insert("2031-06-01 10:00", "2031-07-01 12:00"),
+    ).rejects.toBeDefined();
+    await expect(
+      insert("2031-06-02 20:00", "2031-06-03 08:00"),
+    ).rejects.toBeDefined();
+
+    await expect(
+      insert("2031-06-04 09:00", "2031-06-04 17:00"),
+    ).resolves.toBeDefined();
+    await expect(
+      insert("2020-01-06 10:00", "2020-01-06 12:00"),
+    ).resolves.toBeDefined();
+  });
+
   it("rejects orphan and duplicate volunteer claims", async () => {
     const ids = await database.query<{ work_id: number; student_id: number }>(`
       SELECT

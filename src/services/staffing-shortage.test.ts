@@ -290,7 +290,9 @@ describe("the shortage query agrees with timeRangesOverlap", () => {
   it.each([
     ["identical", "2030-09-04 10:00", "2030-09-04 14:00", true],
     ["contained", "2030-09-04 11:00", "2030-09-04 12:00", true],
-    ["containing", "2030-09-04 08:00", "2030-09-04 18:00", true],
+    // Still strictly contains the 10:00-14:00 window, but stays inside the
+    // maximum session length the database now enforces.
+    ["containing", "2030-09-04 09:00", "2030-09-04 15:00", true],
     ["overlapping the start", "2030-09-04 08:00", "2030-09-04 11:00", true],
     ["overlapping the end", "2030-09-04 13:00", "2030-09-04 16:00", true],
     ["touching the start", "2030-09-04 08:00", "2030-09-04 10:00", false],
