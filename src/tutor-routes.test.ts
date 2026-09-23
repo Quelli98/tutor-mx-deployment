@@ -591,3 +591,453 @@ describe("academic term routes", () => {
   });
 });
 
+describe("tutor timesheet correction routes", () => {
+  const history = {
+    timesheet: {
+      id: 12,
+      weekStart: "2030-09-16",
+      status: "RETURNED" as const,
+      submittedAt: "2030-09-22T18:00:00.000Z",
+      reviewedAt: "2030-09-23T08:00:00.000Z",
+      reviewReason: "Please correct Tuesday hours",
+      totalHours: 2.5,
+      editable: true,
+    },
+    workLogs: [],
+    revisions: [],
+    declarations: [],
+    disputes: [],
+    declaration: { statementVersion: "s3-m3-v1", statement: "I confirm..." },
+  };
+
+  const revision = {
+    id: 91,
+    kind: "CORRECTION" as const,
+    workLogId: 41,
+    authorProfileId: 7,
+    reason: "Please correct Tuesday hours",
+    previousHours: 2.5,
+    previousDescription: "Tuesday tutorial",
+    newHours: 1.75,
+    newDescription: "Tuesday tutorial (shortened)",
+    createdAt: "2030-09-23T09:00:00.000Z",
+  };
+
+  const workLog = {
+    id: 41,
+    allocationId: 5,
+    timesheetId: 12,
+    workDate: "2030-09-17",
+    hours: 1.75,
+    description: "Tuesday tutorial (shortened)",
+  };
+
+  const dispute = {
+    id: 71,
+    timesheetId: 12,
+    tutorId: 7,
+    reason: "The Tuesday hours are wrong.",
+    status: "OPEN" as const,
+    raisedByProfileId: 7,
+    resolvedByProfileId: null,
+    resolutionReason: null,
+    resolvedAt: null,
+    createdAt: "2030-09-24T07:00:00.000Z",
+  };
+
+  const organiserOverrides = {
+    findProfileByAuth0Id: async () => ({
+      id: 8,
+      email: "organiser@tutormx.example",
+      fullName: "Demo Organiser",
+      role: "ORGANISER" as const,
+    }),
+    verifyAccessToken: async () => ({
+      subject: "auth0|current-organiser",
+      role: "ORGANISER" as const,
+      claims: { sub: "auth0|current-organiser" },
+    }),
+  };
+
+  const correctionBody = { hours: 1.75, description: "Tuesday tutorial" };
+  const disputeBody = { reason: "The Tuesday hours are wrong." };
+  const declarationBody = { statementVersion: "s3-m3-v1" };
+
+  it("requires a Tutor token on every correction route", async () => {
+    const getTutorTimesheetHistory = vi.fn();
+    const correctTutorTimesheetWorkLog = vi.fn();
+    const declareTutorTimesheet = vi.fn();
+    const raiseTutorTimesheetDispute = vi.fn();
+    const routes = [
+      { method: "get" as const, path: "/api/tutor/timesheets/12/history", body: undefined },
+      { method: "patch" as const, path: "/api/tutor/timesheets/12/work-logs/41", body: correctionBody },
+      { method: "post" as const, path: "/api/tutor/timesheets/12/declaration", body: declarationBody },
+      { method: "post" as const, path: "/api/tutor/timesheets/12/disputes", body: disputeBody },
+    ];
+
+    for (const route of routes) {
+      const app = makeApp({
+        getTutorTimesheetHistory,
+        correctTutorTimesheetWorkLog,
+        declareTutorTimesheet,
+        raiseTutorTimesheetDispute,
+      });
+      const withoutToken = await request(app)[route.method](route.path).send(
+        route.body,
+      );
+      expect(withoutToken.status).toBe(401);
+
+      const studentApp = makeApp({
+        getTutorTimesheetHistory,
+        correctTutorTimesheetWorkLog,
+        declareTutorTimesheet,
+        raiseTutorTimesheetDispute,
+        verifyAccessToken: async () => auth("STUDENT"),
+      });
+      const wrongRole = await request(studentApp)[route.method](route.path)
+        .set("Authorization", "Bearer valid-token")
+        .send(route.body);
+      expect(wrongRole.status).toBe(403);
+    }
+
+    expect(getTutorTimesheetHistory).not.toHaveBeenCalled();
+    expect(correctTutorTimesheetWorkLog).not.toHaveBeenCalled();
+    expect(declareTutorTimesheet).not.toHaveBeenCalled();
+    expect(raiseTutorTimesheetDispute).not.toHaveBeenCalled();
+  });
+
+  it("returns the whole timeline for the tutor the token belongs to", async () => {
+    const getTutorTimesheetHistory = vi.fn().mockResolvedValue(history);
+
+    const response = await request(makeApp({ getTutorTimesheetHistory }))
+      .get("/api/tutor/timesheets/12/history")
+      .set("Authorization", "Bearer valid-token");
+
+    expect(response.status).toBe(200);
+    expect(response.body).toEqual({ data: { history } });
+    expect(getTutorTimesheetHistory).toHaveBeenCalledWith(
+      "auth0|current-tutor",
+      12,
+    );
+  });
+
+  it("rejects a malformed timesheet or work-log identifier before the service", async () => {
+    const getTutorTimesheetHistory = vi.fn();
+    const correctTutorTimesheetWorkLog = vi.fn();
+    const app = makeApp({
+      getTutorTimesheetHistory,
+      correctTutorTimesheetWorkLog,
+    });
+
+    const badTimesheet = await request(app)
+      .get("/api/tutor/timesheets/zero/history")
+      .set("Authorization", "Bearer valid-token");
+    expect(badTimesheet.status).toBe(400);
+    expect(badTimesheet.body.error.code).toBe("VALIDATION_ERROR");
+
+    const badWorkLog = await request(app)
+      .patch("/api/tutor/timesheets/12/work-logs/0")
+      .set("Authorization", "Bearer valid-token")
+      .send(correctionBody);
+    expect(badWorkLog.status).toBe(400);
+
+    expect(getTutorTimesheetHistory).not.toHaveBeenCalled();
+    expect(correctTutorTimesheetWorkLog).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    { hours: 0, description: "Tuesday tutorial" },
+    { hours: 24.5, description: "Tuesday tutorial" },
+    { hours: 1.234, description: "Tuesday tutorial" },
+    { hours: 1.75, description: "" },
+    { hours: "1.75", description: "Tuesday tutorial" },
+  ])(
+    "rejects a correction body of %o before the service",
+    async (body) => {
+      const correctTutorTimesheetWorkLog = vi.fn();
+
+      const response = await request(makeApp({ correctTutorTimesheetWorkLog }))
+        .patch("/api/tutor/timesheets/12/work-logs/41")
+        .set("Authorization", "Bearer valid-token")
+        .send(body);
+
+      expect(response.status).toBe(400);
+      expect(response.body.error.code).toBe("VALIDATION_ERROR");
+      expect(correctTutorTimesheetWorkLog).not.toHaveBeenCalled();
+    },
+  );
+
+  it("saves a correction and returns the revision that recorded it", async () => {
+    const correctTutorTimesheetWorkLog = vi
+      .fn()
+      .mockResolvedValue({ workLog, revision });
+
+    const response = await request(makeApp({ correctTutorTimesheetWorkLog }))
+      .patch("/api/tutor/timesheets/12/work-logs/41")
+      .set("Authorization", "Bearer valid-token")
+      .send(correctionBody);
+
+    expect(response.status).toBe(200);
+    expect(response.body).toEqual({ data: { workLog, revision } });
+    expect(correctTutorTimesheetWorkLog).toHaveBeenCalledWith(
+      "auth0|current-tutor",
+      12,
+      41,
+      correctionBody,
+    );
+  });
+
+  it.each(["SUBMITTED", "APPROVED"] as const)(
+    "refuses to change a %s timesheet even when the route is called directly",
+    async () => {
+      const correctTutorTimesheetWorkLog = vi.fn().mockRejectedValue(
+        createRouteError(
+          409,
+          "TIMESHEET_EDIT_LOCKED",
+          "Only a draft or returned timesheet can be changed. This one has already been submitted.",
+        ),
+      );
+
+      const response = await request(makeApp({ correctTutorTimesheetWorkLog }))
+        .patch("/api/tutor/timesheets/12/work-logs/41")
+        .set("Authorization", "Bearer valid-token")
+        .send(correctionBody);
+
+      expect(response.status).toBe(409);
+      expect(response.body.error.code).toBe("TIMESHEET_EDIT_LOCKED");
+    },
+  );
+
+  it("records a declaration and echoes the wording version", async () => {
+    const declaration = {
+      id: 61,
+      timesheetId: 12,
+      statementVersion: "s3-m3-v1",
+      declaredAt: "2030-09-23T10:00:00.000Z",
+    };
+    const declareTutorTimesheet = vi.fn().mockResolvedValue(declaration);
+
+    const response = await request(makeApp({ declareTutorTimesheet }))
+      .post("/api/tutor/timesheets/12/declaration")
+      .set("Authorization", "Bearer valid-token")
+      .send(declarationBody);
+
+    expect(response.status).toBe(201);
+    expect(response.body).toEqual({ data: { declaration } });
+    expect(declareTutorTimesheet).toHaveBeenCalledWith(
+      "auth0|current-tutor",
+      12,
+      "s3-m3-v1",
+    );
+  });
+
+  it("rejects a declaration without the wording version", async () => {
+    const declareTutorTimesheet = vi.fn();
+
+    const response = await request(makeApp({ declareTutorTimesheet }))
+      .post("/api/tutor/timesheets/12/declaration")
+      .set("Authorization", "Bearer valid-token")
+      .send({});
+
+    expect(response.status).toBe(400);
+    expect(declareTutorTimesheet).not.toHaveBeenCalled();
+  });
+
+  it("surfaces a stale declaration as its own conflict", async () => {
+    const declareTutorTimesheet = vi.fn().mockRejectedValue(
+      createRouteError(
+        409,
+        "TIMESHEET_DECLARATION_STALE",
+        "The declaration wording has changed. Reload it and read it again.",
+      ),
+    );
+
+    const response = await request(makeApp({ declareTutorTimesheet }))
+      .post("/api/tutor/timesheets/12/declaration")
+      .set("Authorization", "Bearer valid-token")
+      .send(declarationBody);
+
+    expect(response.status).toBe(409);
+    expect(response.body.error.code).toBe("TIMESHEET_DECLARATION_STALE");
+  });
+
+  it("tells the tutor to declare before the resubmission is accepted", async () => {
+    const submitTutorTimesheet = vi.fn().mockRejectedValue(
+      createRouteError(
+        409,
+        "TIMESHEET_DECLARATION_REQUIRED",
+        "Declare that this timesheet is correct before resubmitting it.",
+      ),
+    );
+
+    const response = await request(makeApp({ submitTutorTimesheet }))
+      .post("/api/tutor/timesheets/12/submit")
+      .set("Authorization", "Bearer valid-token");
+
+    expect(response.status).toBe(409);
+    expect(response.body.error.code).toBe("TIMESHEET_DECLARATION_REQUIRED");
+    expect(response.body.error.message).toContain("Declare");
+  });
+
+  it("raises a dispute for the signed-in tutor", async () => {
+    const raiseTutorTimesheetDispute = vi.fn().mockResolvedValue(dispute);
+
+    const response = await request(makeApp({ raiseTutorTimesheetDispute }))
+      .post("/api/tutor/timesheets/12/disputes")
+      .set("Authorization", "Bearer valid-token")
+      .send(disputeBody);
+
+    expect(response.status).toBe(201);
+    expect(response.body).toEqual({ data: { dispute } });
+    expect(raiseTutorTimesheetDispute).toHaveBeenCalledWith(
+      "auth0|current-tutor",
+      12,
+      disputeBody,
+    );
+  });
+
+  it("rejects a dispute without a reason", async () => {
+    const raiseTutorTimesheetDispute = vi.fn();
+
+    const response = await request(makeApp({ raiseTutorTimesheetDispute }))
+      .post("/api/tutor/timesheets/12/disputes")
+      .set("Authorization", "Bearer valid-token")
+      .send({ reason: "   " });
+
+    expect(response.status).toBe(400);
+    expect(raiseTutorTimesheetDispute).not.toHaveBeenCalled();
+  });
+
+  it("reports a second open dispute on the same sheet", async () => {
+    const raiseTutorTimesheetDispute = vi.fn().mockRejectedValue(
+      createRouteError(
+        409,
+        "TIMESHEET_DISPUTE_OPEN",
+        "This timesheet already has an open dispute waiting for an answer.",
+      ),
+    );
+
+    const response = await request(makeApp({ raiseTutorTimesheetDispute }))
+      .post("/api/tutor/timesheets/12/disputes")
+      .set("Authorization", "Bearer valid-token")
+      .send(disputeBody);
+
+    expect(response.status).toBe(409);
+    expect(response.body.error.code).toBe("TIMESHEET_DISPUTE_OPEN");
+  });
+
+  it("lets an Organiser read and answer the objection queue", async () => {
+    const listTimesheetDisputes = vi.fn().mockResolvedValue([dispute]);
+    const resolveTimesheetDispute = vi.fn().mockResolvedValue({
+      ...dispute,
+      status: "RESOLVED" as const,
+      resolvedByProfileId: 8,
+      resolutionReason: "Agreed, the hours have been corrected.",
+      resolvedAt: "2030-09-25T09:00:00.000Z",
+    });
+    const overrides = {
+      listTimesheetDisputes,
+      resolveTimesheetDispute,
+      ...organiserOverrides,
+    };
+
+    const listed = await request(makeApp(overrides))
+      .get("/api/organiser/timesheet-disputes")
+      .set("Authorization", "Bearer valid-token");
+    expect(listed.status).toBe(200);
+    expect(listed.body).toEqual({ data: { disputes: [dispute] } });
+    expect(listTimesheetDisputes).toHaveBeenCalledWith("auth0|current-organiser");
+
+    const answered = await request(makeApp(overrides))
+      .patch("/api/timesheet-disputes/71")
+      .set("Authorization", "Bearer valid-token")
+      .send({ resolutionReason: "Agreed, the hours have been corrected." });
+    expect(answered.status).toBe(200);
+    expect(answered.body.data.dispute.status).toBe("RESOLVED");
+    expect(resolveTimesheetDispute).toHaveBeenCalledWith(
+      "auth0|current-organiser",
+      71,
+      { resolutionReason: "Agreed, the hours have been corrected." },
+    );
+  });
+
+  it("keeps both dispute routes away from a Tutor", async () => {
+    const listTimesheetDisputes = vi.fn();
+    const resolveTimesheetDispute = vi.fn();
+    const app = makeApp({ listTimesheetDisputes, resolveTimesheetDispute });
+
+    const listed = await request(app)
+      .get("/api/organiser/timesheet-disputes")
+      .set("Authorization", "Bearer valid-token");
+    expect(listed.status).toBe(403);
+
+    const answered = await request(app)
+      .patch("/api/timesheet-disputes/71")
+      .set("Authorization", "Bearer valid-token")
+      .send({ resolutionReason: "No." });
+    expect(answered.status).toBe(403);
+
+    expect(listTimesheetDisputes).not.toHaveBeenCalled();
+    expect(resolveTimesheetDispute).not.toHaveBeenCalled();
+  });
+
+  it("requires a reason for answering a dispute", async () => {
+    const resolveTimesheetDispute = vi.fn();
+
+    const response = await request(
+      makeApp({ resolveTimesheetDispute, ...organiserOverrides }),
+    )
+      .patch("/api/timesheet-disputes/71")
+      .set("Authorization", "Bearer valid-token")
+      .send({});
+
+    expect(response.status).toBe(400);
+    expect(resolveTimesheetDispute).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["getTutorTimesheetHistory" as const, "get" as const, "/api/tutor/timesheets/12/history"],
+    ["correctTutorTimesheetWorkLog" as const, "patch" as const, "/api/tutor/timesheets/12/work-logs/41"],
+    ["declareTutorTimesheet" as const, "post" as const, "/api/tutor/timesheets/12/declaration"],
+    ["raiseTutorTimesheetDispute" as const, "post" as const, "/api/tutor/timesheets/12/disputes"],
+  ])(
+    "fails %s closed when the correction surface is not configured",
+    async (key, method, path) => {
+      const body =
+        key === "correctTutorTimesheetWorkLog"
+          ? correctionBody
+          : key === "declareTutorTimesheet"
+            ? declarationBody
+            : disputeBody;
+
+      const app = makeApp({ [key]: undefined });
+      const response = await request(app)[method](path)
+        .set("Authorization", "Bearer valid-token")
+        .send(body);
+
+      expect(response.status).toBe(503);
+      expect(response.body.error.code).toBe(
+        "TIMESHEET_CORRECTIONS_UNAVAILABLE",
+      );
+    },
+  );
+
+  it("fails the organiser dispute routes closed when they are not configured", async () => {
+    const listed = await request(
+      makeApp({ listTimesheetDisputes: undefined, ...organiserOverrides }),
+    )
+      .get("/api/organiser/timesheet-disputes")
+      .set("Authorization", "Bearer valid-token");
+    expect(listed.status).toBe(503);
+    expect(listed.body.error.code).toBe("TIMESHEET_DISPUTE_UNAVAILABLE");
+
+    const answered = await request(
+      makeApp({ resolveTimesheetDispute: undefined, ...organiserOverrides }),
+    )
+      .patch("/api/timesheet-disputes/71")
+      .set("Authorization", "Bearer valid-token")
+      .send({ resolutionReason: "No." });
+    expect(answered.status).toBe(503);
+    expect(answered.body.error.code).toBe("TIMESHEET_DISPUTE_UNAVAILABLE");
+  });
+});

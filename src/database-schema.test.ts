@@ -637,6 +637,14 @@ describe("Sprint 2 stability corrections", () => {
       `UPDATE "Timesheet" SET "submittedAt" = TIMESTAMP '2020-01-01 00:00:00' WHERE "id" = $1`,
       [id],
     );
+    // The seeded sheet is RETURNED, and a resubmission now needs a declaration
+    // recorded after that return. The submittedAt behaviour under test here is
+    // unchanged; this is only the precondition the state machine added.
+    await database.query(
+      `INSERT INTO "TimesheetDeclaration" ("timesheetId", "tutorId", "statementVersion")
+       SELECT "id", "tutorId", 's3-m3-v1' FROM "Timesheet" WHERE "id" = $1`,
+      [id],
+    );
     await database.query(
       `UPDATE "Timesheet" SET "status" = 'SUBMITTED' WHERE "id" = $1`,
       [id],
@@ -652,6 +660,11 @@ describe("Sprint 2 stability corrections", () => {
     // Return it, then resubmit supplying a deliberate timestamp: it must win.
     await database.query(
       `UPDATE "Timesheet" SET "status" = 'RETURNED', "reviewReason" = 'again' WHERE "id" = $1`,
+      [id],
+    );
+    await database.query(
+      `INSERT INTO "TimesheetDeclaration" ("timesheetId", "tutorId", "statementVersion")
+       SELECT "id", "tutorId", 's3-m3-v1' FROM "Timesheet" WHERE "id" = $1`,
       [id],
     );
     await database.query(

@@ -1,14 +1,23 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import TimesheetSection from './TimesheetSection'
 
 const mockFetchTimesheetStatus = vi.fn()
 const mockSubmitTimesheet = vi.fn()
+const mockFetchTimesheetHistory = vi.fn()
+const mockDeclareTimesheet = vi.fn()
 const tokenGetter = vi.fn()
 
 vi.mock('../api/timesheet', () => ({
   fetchTimesheetStatus: (...args) => mockFetchTimesheetStatus(...args),
   submitTimesheet: (...args) => mockSubmitTimesheet(...args),
+}))
+
+vi.mock('../api/timesheetCorrections', () => ({
+  fetchTimesheetHistory: (...args) => mockFetchTimesheetHistory(...args),
+  declareTimesheet: (...args) => mockDeclareTimesheet(...args),
+  correctTimesheetWorkLog: vi.fn(),
+  raiseTimesheetDispute: vi.fn(),
 }))
 
 const STORAGE_KEY = 'tutormx.tutorTimesheets'
@@ -42,6 +51,50 @@ const approvedSummary = {
   status: 'APPROVED',
   submittedAt: '2030-09-06T12:00:00.000Z',
   reviewedAt: '2030-09-09T08:30:00.000Z',
+}
+
+const emptyHistory = {
+  timesheet: { ...draftSummary, editable: false },
+  workLogs: [],
+  revisions: [],
+  declarations: [],
+  disputes: [],
+  declaration: {
+    statementVersion: 's3-m3-v1',
+    statement: 'I confirm the hours and descriptions on this timesheet are complete and accurate.',
+  },
+}
+
+function returnedHistory(overrides = {}) {
+  return {
+    ...emptyHistory,
+    timesheet: { ...returnedSummary, editable: true },
+    workLogs: [
+      {
+        id: 1,
+        timesheetId: 12,
+        allocationId: 1,
+        workDate: '2030-09-02',
+        hours: 2,
+        description: 'Monday tutorial',
+      },
+    ],
+    revisions: [
+      {
+        id: 5,
+        kind: 'RETURN',
+        workLogId: null,
+        authorProfileId: 8,
+        reason: 'Please correct Tuesday hours',
+        previousHours: null,
+        previousDescription: null,
+        newHours: null,
+        newDescription: null,
+        createdAt: '2030-09-09T08:30:05.000Z',
+      },
+    ],
+    ...overrides,
+  }
 }
 
 const entryA = {
@@ -90,7 +143,12 @@ describe('TimesheetSection', () => {
     window.sessionStorage.clear()
     mockFetchTimesheetStatus.mockReset()
     mockSubmitTimesheet.mockReset()
+    mockFetchTimesheetHistory.mockReset()
+    mockDeclareTimesheet.mockReset()
     tokenGetter.mockReset()
+    // A week that has left the draft state has its timeline read, so the read
+    // has to answer even in the tests that do not care about it.
+    mockFetchTimesheetHistory.mockResolvedValue(emptyHistory)
   })
 
   it('shows guidance when no work logs or stored timesheets exist', () => {
@@ -170,19 +228,79 @@ describe('TimesheetSection', () => {
     expect(screen.getByRole('button', { name: /submit for approval/i })).toBeInTheDocument()
   })
 
-  it('restores a returned week from storage and resubmits it', async () => {
+  it('restores a returned week from storage and shows its timeline', async () => {
     storeTimesheets([returnedSummary])
     mockFetchTimesheetStatus.mockResolvedValue(returnedSummary)
-    mockSubmitTimesheet.mockResolvedValueOnce(submittedSummary)
+    mockFetchTimesheetHistory.mockResolvedValue(returnedHistory())
     render(<TimesheetSection savedLogs={[]} tokenOrGetter={tokenGetter} />)
 
     expect(screen.getByText(/organiser note: please correct tuesday hours/i)).toBeInTheDocument()
+    // The status line repeats the words of the timeline, so the timeline is
+    // read where it stands, from the panel that owns it.
+    const timelineHeading = await screen.findByRole('heading', {
+      name: /return and correction timeline/i,
+    })
+    expect(mockFetchTimesheetHistory).toHaveBeenCalledWith(12, tokenGetter)
+    const timeline = within(timelineHeading.closest('.timesheet-history'))
+    expect(timeline.getByText('Returned by the organiser')).toBeInTheDocument()
+    expect(timeline.getByText(/note: please correct tuesday hours/i)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /resubmit for approval/i })).toBeInTheDocument()
+  })
 
+  it('refuses a resubmission until the declaration is acknowledged', async () => {
+    storeTimesheets([returnedSummary])
+    mockFetchTimesheetStatus.mockResolvedValue(returnedSummary)
+    mockFetchTimesheetHistory.mockResolvedValue(returnedHistory())
+    render(<TimesheetSection savedLogs={[]} tokenOrGetter={tokenGetter} />)
+
+    await screen.findByRole('checkbox', { name: /i acknowledge this declaration/i })
     fireEvent.click(screen.getByRole('button', { name: /resubmit for approval/i }))
 
+    // The organiser note is an alert as well, so the refusal is picked out by
+    // its own words and then checked for the announcement it should make.
+    const refusal = await screen.findByText(/acknowledge the declaration for this week/i)
+    expect(refusal).toHaveAttribute('role', 'alert')
+    expect(mockDeclareTimesheet).not.toHaveBeenCalled()
+    expect(mockSubmitTimesheet).not.toHaveBeenCalled()
+  })
+
+  it('records the acknowledgement and then resubmits the returned week', async () => {
+    storeTimesheets([returnedSummary])
+    mockFetchTimesheetStatus.mockResolvedValue(returnedSummary)
+    mockFetchTimesheetHistory.mockResolvedValue(returnedHistory())
+    mockDeclareTimesheet.mockResolvedValue({
+      id: 3,
+      timesheetId: 12,
+      statementVersion: 's3-m3-v1',
+      declaredAt: '2030-09-10T09:05:00.000Z',
+    })
+    mockSubmitTimesheet.mockResolvedValueOnce(submittedSummary)
+    render(<TimesheetSection savedLogs={[]} tokenOrGetter={tokenGetter} />)
+
+    fireEvent.click(
+      await screen.findByRole('checkbox', { name: /i acknowledge this declaration/i }),
+    )
+    fireEvent.click(screen.getByRole('button', { name: /resubmit for approval/i }))
+
+    await waitFor(() => {
+      expect(mockDeclareTimesheet).toHaveBeenCalledWith(12, 's3-m3-v1', tokenGetter)
+    })
+    // The acknowledgement is recorded before the sheet is sent, never after.
+    expect(mockDeclareTimesheet.mock.invocationCallOrder[0]).toBeLessThan(
+      mockSubmitTimesheet.mock.invocationCallOrder[0],
+    )
     expect(mockSubmitTimesheet).toHaveBeenCalledWith(12, tokenGetter)
     expect(await screen.findByText(/waiting for the organiser decision/i)).toBeInTheDocument()
-    expect(screen.queryByText(/organiser note:/i)).not.toBeInTheDocument()
+  })
+
+  it('keeps the resubmission button busy while the timeline is still loading', async () => {
+    storeTimesheets([returnedSummary])
+    mockFetchTimesheetStatus.mockResolvedValue(returnedSummary)
+    mockFetchTimesheetHistory.mockImplementationOnce(() => new Promise(() => {}))
+    render(<TimesheetSection savedLogs={[]} tokenOrGetter={tokenGetter} />)
+
+    expect(await screen.findByText(/loading the correction timeline/i)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /resubmit for approval/i })).toBeDisabled()
   })
 
   it('refreshes the organiser decision when the tutor checks a submitted week', async () => {

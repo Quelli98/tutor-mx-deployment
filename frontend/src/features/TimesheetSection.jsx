@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { fetchTimesheetStatus, submitTimesheet } from '../api/timesheet'
+import { fetchTimesheetHistory, declareTimesheet } from '../api/timesheetCorrections'
+import TimesheetCorrectionPanel from './TimesheetCorrectionPanel'
 
 const STORAGE_KEY = 'tutormx.tutorTimesheets'
 
@@ -32,12 +34,21 @@ function persistTimesheets(statuses, storageKey) {
   }
 }
 
+const DECLARATION_REQUIRED_MESSAGE =
+  'Acknowledge the declaration for this week before resubmitting it.'
+
 function submitErrorMessage(error) {
   if (error?.code === 'TIMESHEET_SUBMISSION_CONFLICT') {
     return 'This week has already been sent for review.'
   }
   if (error?.code === 'TIMESHEET_HOURS_INVALID') {
     return 'The logged hours are missing or exceed the weekly hour limit. Add or correct entries and try again.'
+  }
+  if (
+    error?.code === 'TIMESHEET_DECLARATION_REQUIRED' ||
+    error?.code === 'TIMESHEET_DECLARATION_STALE'
+  ) {
+    return 'The declaration no longer covers your corrections. Acknowledge it again before resubmitting.'
   }
   return 'The timesheet could not be submitted. Try again.'
 }
@@ -77,7 +88,13 @@ export default function TimesheetSection({ savedLogs = [], tokenOrGetter, storag
   const [statuses, setStatuses] = useState(() => loadStoredTimesheets(storageKey))
   const [busy, setBusy] = useState({})
   const [messages, setMessages] = useState({})
+  // The timeline of a week is a second, larger read, so it is only taken for a
+  // sheet that has left the draft state.
+  const [histories, setHistories] = useState({})
+  const [historyBusy, setHistoryBusy] = useState({})
+  const [declared, setDeclared] = useState({})
   const knownIdsRef = useRef([])
+  const loadedHistoryKeysRef = useRef(new Set())
   const refreshInFlightRef = useRef(false)
 
   const cards = useMemo(() => {
@@ -124,6 +141,47 @@ export default function TimesheetSection({ savedLogs = [], tokenOrGetter, storag
       }
     },
     [tokenOrGetter],
+  )
+
+  // Declared above its first use because loadHistory depends on it, and held
+  // stable so that loadHistory does not change on every render.
+  const setHistoryBusyFor = useCallback((timesheetId, value) => {
+    setHistoryBusy((current) => {
+      const next = { ...current }
+      if (value === undefined) {
+        delete next[timesheetId]
+      } else {
+        next[timesheetId] = value
+      }
+      return next
+    })
+  }, [])
+
+  /**
+   * The timeline of one week, read on demand. A week the server no longer knows
+   * is dropped quietly, exactly like a stale status.
+   */
+  const loadHistory = useCallback(
+    async (timesheetId) => {
+      setHistoryBusyFor(timesheetId, true)
+      try {
+        const history = await fetchTimesheetHistory(timesheetId, tokenOrGetter)
+        setHistories((current) => ({ ...current, [timesheetId]: history }))
+        return history
+      } catch (error) {
+        if (error?.code === 'TIMESHEET_NOT_FOUND') {
+          setHistories((current) => {
+            const next = { ...current }
+            delete next[timesheetId]
+            return next
+          })
+        }
+        return null
+      } finally {
+        setHistoryBusyFor(timesheetId, undefined)
+      }
+    },
+    [setHistoryBusyFor, tokenOrGetter],
   )
 
   const refreshAllStatuses = useCallback(async () => {
@@ -176,12 +234,37 @@ export default function TimesheetSection({ savedLogs = [], tokenOrGetter, storag
     })
   }
 
+  function setDeclaredFor(timesheetId, value) {
+    setDeclared((current) => ({ ...current, [timesheetId]: value }))
+  }
+
   async function handleSubmit(timesheetId) {
+    const isResubmission = statuses[timesheetId]?.status === 'RETURNED'
+    const history = isResubmission ? histories[timesheetId] : null
+
+    // A resubmission states that the corrected figures are right, so it needs
+    // the acknowledgement that says so. The server enforces the same rule.
+    if (isResubmission && !declared[timesheetId]) {
+      setMessageFor(timesheetId, DECLARATION_REQUIRED_MESSAGE)
+      return
+    }
+    if (isResubmission && !history) {
+      setMessageFor(
+        timesheetId,
+        'The declaration for this week could not be loaded. Reload the page and try again.',
+      )
+      return
+    }
+
     setBusyFor(timesheetId, 'submitting')
     setMessageFor(timesheetId, undefined)
     try {
+      if (history) {
+        await declareTimesheet(timesheetId, history.declaration.statementVersion, tokenOrGetter)
+      }
       const summary = await submitTimesheet(timesheetId, tokenOrGetter)
       setStatuses((current) => ({ ...current, [timesheetId]: summary }))
+      setDeclaredFor(timesheetId, false)
     } catch (error) {
       if (error?.code === 'TIMESHEET_SUBMISSION_CONFLICT') {
         // Another tab may have submitted already; resync with the server.
@@ -203,6 +286,19 @@ export default function TimesheetSection({ savedLogs = [], tokenOrGetter, storag
     setBusyFor(timesheetId, undefined)
   }
 
+  // The key carries the status so a status change refetches the timeline once,
+  // while a plain re-render does not refetch it at all.
+  useEffect(() => {
+    for (const card of cards) {
+      const status = card.summary?.status
+      if (!status || status === 'DRAFT') continue
+      const key = `${card.id}:${status}`
+      if (loadedHistoryKeysRef.current.has(key)) continue
+      loadedHistoryKeysRef.current.add(key)
+      loadHistory(card.id)
+    }
+  }, [cards, loadHistory])
+
   return (
     <section className="draft-list" aria-labelledby="timesheet-heading">
       <h3 id="timesheet-heading">Weekly timesheets</h3>
@@ -211,7 +307,9 @@ export default function TimesheetSection({ savedLogs = [], tokenOrGetter, storag
       ) : (
         <ul>
           {cards.map((card) => {
-            const isBusy = Boolean(busy[card.id])
+            const isBusy = Boolean(busy[card.id] || historyBusy[card.id])
+            const isReturned = card.summary?.status === 'RETURNED'
+            const history = histories[card.id] ?? null
             const canSubmit =
               !card.summary ||
               card.summary.status === 'DRAFT' ||
@@ -242,6 +340,27 @@ export default function TimesheetSection({ savedLogs = [], tokenOrGetter, storag
                 )}
                 {messages[card.id] && (
                   <p className="status-note danger" role="alert">{messages[card.id]}</p>
+                )}
+                {(isReturned ||
+                  (history &&
+                    (history.revisions.length > 0 ||
+                      history.declarations.length > 0 ||
+                      history.disputes.length > 0))) && (
+                  <TimesheetCorrectionPanel
+                    timesheetId={card.id}
+                    history={history}
+                    loading={Boolean(historyBusy[card.id])}
+                    tokenOrGetter={tokenOrGetter}
+                    declared={Boolean(declared[card.id])}
+                    onDeclaredChange={(value) => setDeclaredFor(card.id, value)}
+                    onCorrected={() => {
+                      // The correction is newer than any acknowledgement, so the
+                      // tutor declares the corrected figures again.
+                      setDeclaredFor(card.id, false)
+                      loadHistory(card.id)
+                    }}
+                    onDisputeChanged={() => loadHistory(card.id)}
+                  />
                 )}
                 <div className="timesheet-actions">
                   {canSubmit && (

@@ -21,6 +21,8 @@ export const NOTIFICATION_TYPES = [
   "TIMESHEET_RESUBMIT_DUE",
   "VOLUNTEER_CLAIM_DUE",
   "EXCUSE_REVIEW_DUE",
+  "TIMESHEET_DISPUTED",
+  "TIMESHEET_DISPUTE_RESOLVED",
 ] as const;
 
 export type NotificationType = (typeof NOTIFICATION_TYPES)[number];
@@ -60,6 +62,8 @@ export const NOTIFICATION_TYPE_ROLES: Record<NotificationType, TutorRole[]> = {
   TIMESHEET_RESUBMIT_DUE: ["TUTOR"],
   VOLUNTEER_CLAIM_DUE: ["ORGANISER"],
   EXCUSE_REVIEW_DUE: ["ORGANISER"],
+  TIMESHEET_DISPUTED: ["ORGANISER"],
+  TIMESHEET_DISPUTE_RESOLVED: ["TUTOR"],
 };
 
 export interface DueReminderThresholds {
@@ -249,6 +253,60 @@ export function buildExcuseDecisionNotifications(
       targetType: "excuse",
       targetId: excuse.id,
       stateDiscriminator: excuse.status,
+    }),
+  ];
+}
+
+/** An objection raised by the tutor, or an organiser's answer to one. */
+export interface TimesheetDisputeResult {
+  id: number;
+  timesheetId: number;
+  tutorId: number;
+  status: "OPEN" | "RESOLVED";
+  resolutionReason: string | null;
+}
+
+/**
+ * A challenged decision notifies organisers that a response is due.
+ * Organiser-facing copy is deliberately generic and carries no tutor identity.
+ * The dispute id is part of the discriminator because the same timesheet can be
+ * disputed again once a first dispute is resolved, and that second objection
+ * must not be swallowed by the de-duplication key.
+ */
+export function buildTimesheetDisputedNotifications(
+  dispute: TimesheetDisputeResult,
+  organiserProfileIds: number[],
+): NotificationEvent[] {
+  return organiserProfileIds.map((organiserProfileId) =>
+    toNotificationEvent({
+      recipientProfileId: organiserProfileId,
+      type: "TIMESHEET_DISPUTED",
+      title: "Timesheet decision disputed",
+      body: "A timesheet decision has been disputed and needs an organiser response.",
+      linkPath: "/organiser",
+      targetType: "timesheet",
+      targetId: dispute.timesheetId,
+      stateDiscriminator: `dispute:${dispute.id}`,
+    }),
+  );
+}
+
+/** The answer goes back to the tutor who raised the objection. */
+export function buildTimesheetDisputeResolvedNotifications(
+  dispute: TimesheetDisputeResult,
+): NotificationEvent[] {
+  return [
+    toNotificationEvent({
+      recipientProfileId: dispute.tutorId,
+      type: "TIMESHEET_DISPUTE_RESOLVED",
+      title: "Your dispute was answered",
+      body: dispute.resolutionReason
+        ? `An organiser answered your dispute: ${dispute.resolutionReason}`
+        : "An organiser answered your dispute.",
+      linkPath: "/tutor/forms",
+      targetType: "timesheet",
+      targetId: dispute.timesheetId,
+      stateDiscriminator: `dispute:${dispute.id}:RESOLVED`,
     }),
   ];
 }

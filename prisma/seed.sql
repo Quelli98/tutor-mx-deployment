@@ -12,6 +12,27 @@ OR "overflowWorkId" IN (
 );
 DELETE FROM "Excuse"
 WHERE "tutorId" IN (SELECT "id" FROM "Profile" WHERE "auth0Id" LIKE 'demo|%');
+-- Correction history, declarations and disputes reference work logs, timesheets
+-- and profiles with Restrict keys, so they have to go first or a re-run of this
+-- seed fails on the rows a demo walkthrough created.
+DELETE FROM "TimesheetRevision"
+WHERE "timesheetId" IN (
+  SELECT "id" FROM "Timesheet"
+  WHERE "tutorId" IN (SELECT "id" FROM "Profile" WHERE "auth0Id" LIKE 'demo|%')
+)
+OR "authorProfileId" IN (SELECT "id" FROM "Profile" WHERE "auth0Id" LIKE 'demo|%');
+DELETE FROM "TimesheetDeclaration"
+WHERE "timesheetId" IN (
+  SELECT "id" FROM "Timesheet"
+  WHERE "tutorId" IN (SELECT "id" FROM "Profile" WHERE "auth0Id" LIKE 'demo|%')
+);
+DELETE FROM "TimesheetDispute"
+WHERE "timesheetId" IN (
+  SELECT "id" FROM "Timesheet"
+  WHERE "tutorId" IN (SELECT "id" FROM "Profile" WHERE "auth0Id" LIKE 'demo|%')
+)
+OR "raisedByProfileId" IN (SELECT "id" FROM "Profile" WHERE "auth0Id" LIKE 'demo|%')
+OR "resolvedByProfileId" IN (SELECT "id" FROM "Profile" WHERE "auth0Id" LIKE 'demo|%');
 DELETE FROM "WorkLog"
 WHERE "tutorId" IN (SELECT "id" FROM "Profile" WHERE "auth0Id" LIKE 'demo|%');
 DELETE FROM "Timesheet"
@@ -210,7 +231,14 @@ UPDATE "Timesheet" SET "status" = 'SUBMITTED'
 WHERE "tutorId" = (SELECT "id" FROM "Profile" WHERE "auth0Id" = 'demo|tutor-pass')
   AND "weekStart" = DATE '2030-09-16';
 
-UPDATE "Timesheet" SET "status" = 'RETURNED', "reviewReason" = 'Please correct Tuesday hours'
+-- A returned timesheet must name the review that produced it: the database
+-- enforces it, and the tutor's resubmission is declared against that moment, so
+-- the fixture has to carry a real review time rather than only a reason.
+UPDATE "Timesheet"
+  SET "status" = 'RETURNED',
+      "reviewReason" = 'Please correct Tuesday hours',
+      "reviewedById" = (SELECT "id" FROM "Profile" WHERE "auth0Id" = 'demo|organiser'),
+      "reviewedAt" = CURRENT_TIMESTAMP - INTERVAL '2 days'
 WHERE "tutorId" = (SELECT "id" FROM "Profile" WHERE "auth0Id" = 'demo|tutor-pass')
   AND "weekStart" = DATE '2030-09-16';
 

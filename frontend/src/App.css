@@ -2370,6 +2370,24 @@ textarea:focus {
 .import-row-errors li + li { margin-top: 4px; }
 .visually-hidden { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap; border: 0; }
 
+/* Returned-timesheet timeline (S3-M3-2): the order of events is the whole point,
+   so the list is numbered and each event carries the moment it happened under
+   the text it belongs to. The left border colour repeats what the status badges
+   already say, without adding a second legend. */
+.timesheet-history { display: flex; flex-direction: column; gap: 10px; margin: 8px 0 4px; padding: 14px; border: 1px solid var(--border); border-radius: 14px; background: var(--surface-muted); }
+.timesheet-history h4 { margin: 0; font-size: 0.92rem; }
+.timesheet-timeline { display: flex; flex-direction: column; gap: 8px; margin: 0; padding-left: 22px; }
+.timeline-event { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 6px; padding-left: 8px; border-left: 3px solid var(--accent); font-size: 0.86rem; line-height: 1.45; }
+.timeline-return { border-left-color: var(--danger); }
+.timeline-correction { border-left-color: var(--warning); }
+.timeline-declaration { border-left-color: var(--success); }
+.timeline-dispute, .timeline-resolution { border-left-color: #7a3fbf; }
+.timeline-moment { color: var(--text); font-size: 0.78rem; }
+.declaration-block { display: grid; gap: 6px; padding: 12px; border: 1px solid rgba(15, 138, 89, 0.18); border-radius: 12px; background: var(--success-soft); }
+.declaration-block p { margin: 0; line-height: 1.5; }
+.declaration-check { display: flex; align-items: flex-start; gap: 8px; }
+.declaration-check input { margin: 3px 0 0; }
+
 @media (max-width: 640px) {
   .tutor-workload-card { padding: 14px; }
   .tutor-detail-grid > section { padding: 12px; }
