@@ -5,6 +5,8 @@ import {
   decideTimesheet,
   decideVolunteerClaim,
   listOrganiserApprovals,
+  listTimesheetDisputes,
+  resolveTimesheetDispute,
 } from '../api/organiser'
 import { EmptyState, ErrorState, LoadingState } from '../components/shared/StatusMessage'
 
@@ -39,7 +41,7 @@ function approvalError(error) {
 export default function OrganiserApprovals() {
   const { getAccessTokenSilently } = useAuth0()
   const [status, setStatus] = useState('loading')
-  const [queues, setQueues] = useState({ timesheets: [], volunteerClaims: [], excuses: [] })
+  const [queues, setQueues] = useState({ timesheets: [], volunteerClaims: [], excuses: [], disputes: [] })
   const [error, setError] = useState('')
   const [message, setMessage] = useState('')
   const [pendingKey, setPendingKey] = useState('')
@@ -51,8 +53,11 @@ export default function OrganiserApprovals() {
       if (!silent) setStatus('loading')
       if (!silent) setError('')
       try {
-        const result = await listOrganiserApprovals(getAccessTokenSilently)
-        setQueues(result)
+        const [approvals, disputes] = await Promise.all([
+          listOrganiserApprovals(getAccessTokenSilently),
+          listTimesheetDisputes(getAccessTokenSilently),
+        ])
+        setQueues({ ...approvals, disputes })
         setStatus('success')
       } catch (loadError) {
         setError(approvalError(loadError))
@@ -135,7 +140,43 @@ export default function OrganiserApprovals() {
     }
   }
 
-  const totalPending = queues.timesheets.length + queues.volunteerClaims.length
+  async function submitDisputeResolution({ id, decision, tutorName }) {
+    const key = `dispute-${id}`
+    const reason = reasons[key]?.trim() ?? ''
+    if (!reason) {
+      setReasonErrors((current) => ({
+        ...current,
+        [key]: 'A resolution reason is required.',
+      }))
+      return
+    }
+
+    setPendingKey(`${key}-${decision}`)
+    setMessage('')
+    setError('')
+    try {
+      await resolveTimesheetDispute(
+        { disputeId: id, decision, resolutionReason: reason },
+        getAccessTokenSilently,
+      )
+      await loadApprovals({ silent: true })
+      setMessage(
+        decision === 'OVERTURN'
+          ? `${tutorName}'s timesheet has been reinstated.`
+          : `${tutorName}'s dispute has been upheld.`,
+      )
+      setReasons((current) => ({ ...current, [key]: '' }))
+    } catch (decisionError) {
+      setError(approvalError(decisionError))
+      if (decisionError?.code === 'TIMESHEET_DISPUTE_DECISION_CONFLICT') {
+        await loadApprovals({ silent: true })
+      }
+    } finally {
+      setPendingKey('')
+    }
+  }
+
+  const totalPending = queues.timesheets.length + queues.volunteerClaims.length + queues.excuses.length + queues.disputes.length
 
   return (
     <main id="main-content" className="dashboard-shell organiser-approvals">
@@ -395,6 +436,80 @@ export default function OrganiserApprovals() {
                             onClick={() => submitDecision({ type: 'excuse', id: excuse.id, decision: 'APPROVE', personName: excuse.tutorName })}
                           >
                             {pendingKey === `${key}-APPROVE` ? 'Approving...' : 'Approve excuse'}
+                          </button>
+                        </div>
+                      </div>
+                    </article>
+                  )
+                })}
+              </div>
+            )}
+          </section>
+
+          <section className="role-card" aria-labelledby="dispute-approvals-heading">
+            <div className="section-heading-row">
+              <div>
+                <p className="section-kicker">Timesheet objections</p>
+                <h2 id="dispute-approvals-heading">Disputes</h2>
+              </div>
+              <span className="count-badge">{queues.disputes.length}</span>
+            </div>
+
+            {queues.disputes.length === 0 ? (
+              <EmptyState
+                title="No disputes waiting"
+                message="Tutor disputes over timesheet decisions will appear here."
+              />
+            ) : (
+              <div className="approval-list">
+                {queues.disputes.map((dispute) => {
+                  const key = `dispute-${dispute.id}`
+                  const busy = pendingKey.startsWith(`${key}-`)
+                  return (
+                    <article className="approval-card" key={dispute.id}>
+                      <div className="approval-card-header">
+                        <div>
+                          <h3>{dispute.tutorName}</h3>
+                          <p>{dispute.tutorEmail}</p>
+                        </div>
+                        <span className="status-badge status-pending">Disputed</span>
+                      </div>
+                      <dl className="approval-facts">
+                        <div><dt>Week starting</dt><dd>{formatDate(dispute.weekStart)}</dd></div>
+                        <div><dt>Raised</dt><dd>{formatDateTime(dispute.createdAt)}</dd></div>
+                      </dl>
+                      <p className="approval-reason"><strong>Reason:</strong> {dispute.reason}</p>
+                      <div className="approval-decision">
+                        <div className="field-group">
+                          <label htmlFor={`${key}-reason`}>Resolution reason</label>
+                          <textarea
+                            id={`${key}-reason`}
+                            rows="2"
+                            value={reasons[key] ?? ''}
+                            onChange={(event) => updateReason(key, event.target.value)}
+                            disabled={busy}
+                            aria-invalid={Boolean(reasonErrors[key])}
+                            aria-describedby={reasonErrors[key] ? `${key}-reason-error` : undefined}
+                            placeholder="Required: explain your decision"
+                          />
+                          {reasonErrors[key] && <p id={`${key}-reason-error`} className="error-text">{reasonErrors[key]}</p>}
+                        </div>
+                        <div className="approval-actions">
+                          <button
+                            type="button"
+                            className="secondary-button"
+                            disabled={busy}
+                            onClick={() => submitDisputeResolution({ id: dispute.id, decision: 'OVERTURN', tutorName: dispute.tutorName })}
+                          >
+                            {pendingKey === `${key}-OVERTURN` ? 'Reinstating...' : 'Reinstate timesheet'}
+                          </button>
+                          <button
+                            type="button"
+                            className="primary-button"
+                            disabled={busy}
+                            onClick={() => submitDisputeResolution({ id: dispute.id, decision: 'UPHOLD', tutorName: dispute.tutorName })}
+                          >
+                            {pendingKey === `${key}-UPHOLD` ? 'Upholding...' : 'Uphold decision'}
                           </button>
                         </div>
                       </div>

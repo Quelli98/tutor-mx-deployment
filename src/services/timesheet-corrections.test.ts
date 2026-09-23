@@ -296,9 +296,9 @@ describe("timesheet editability rule", () => {
     },
   );
 
-  it("only lets something that has been submitted be disputed", () => {
+  it("only lets a decided timesheet be disputed", () => {
     expect(canRaiseDispute("DRAFT")).toBe(false);
-    expect(canRaiseDispute("SUBMITTED")).toBe(true);
+    expect(canRaiseDispute("SUBMITTED")).toBe(false);
     expect(canRaiseDispute("RETURNED")).toBe(true);
     expect(canRaiseDispute("APPROVED")).toBe(true);
   });

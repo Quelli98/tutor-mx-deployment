@@ -665,6 +665,35 @@ export async function getWorkloadReport(input, tokenOrGetter) {
   return report
 }
 
+export async function downloadPayrollExport(input, tokenOrGetter) {
+  const query = new URLSearchParams({
+    weekStart: input.weekStart,
+    weeks: String(input.weeks),
+  })
+  const token = typeof tokenOrGetter === 'function' ? await tokenOrGetter() : tokenOrGetter
+  const response = await fetch(`/api/reports/payroll-export?${query.toString()}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  })
+  if (!response.ok) {
+    const errorBody = await response.json().catch(() => null)
+    const error = new Error(errorBody?.error?.message || 'The payroll export could not be downloaded.')
+    error.code = errorBody?.error?.code
+    throw error
+  }
+  const blob = await response.blob()
+  const disposition = response.headers.get('Content-Disposition') || ''
+  const filenameMatch = disposition.match(/filename="?(.+?)"?(?:;|$)/)
+  const filename = filenameMatch ? filenameMatch[1] : 'payroll-export.csv'
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = filename
+  document.body.appendChild(link)
+  link.click()
+  document.body.removeChild(link)
+  URL.revokeObjectURL(url)
+}
+
 export async function decideExcuse(input, tokenOrGetter) {
   const body = await fetchWithBearerToken(
     `/api/excuses/${input.excuseId}/decision`,
@@ -683,4 +712,32 @@ export async function decideExcuse(input, tokenOrGetter) {
     throw new Error('The excuse response did not match the agreed contract.')
   }
   return excuse
+}
+
+export async function listTimesheetDisputes(tokenOrGetter) {
+  const body = await fetchWithBearerToken('/api/timesheet-disputes', {}, tokenOrGetter)
+  const disputes = body?.data?.disputes
+  if (!Array.isArray(disputes)) {
+    throw new Error('The disputes response did not match the agreed contract.')
+  }
+  return disputes
+}
+
+export async function resolveTimesheetDispute(input, tokenOrGetter) {
+  const body = await fetchWithBearerToken(
+    `/api/timesheet-disputes/${input.disputeId}`,
+    {
+      method: 'PATCH',
+      body: JSON.stringify({
+        decision: input.decision,
+        resolutionReason: input.resolutionReason,
+      }),
+    },
+    tokenOrGetter,
+  )
+  const dispute = body?.data?.dispute
+  if (!dispute || !Number.isInteger(dispute.id)) {
+    throw new Error('The dispute resolution did not match the agreed contract.')
+  }
+  return dispute
 }

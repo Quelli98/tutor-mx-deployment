@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useAuth0 } from '@auth0/auth0-react'
-import { getWorkloadReport } from '../api/organiser'
+import { downloadPayrollExport, getWorkloadReport } from '../api/organiser'
 import { EmptyState, ErrorState, LoadingState } from '../components/shared/StatusMessage'
 import { addDays, localMonday, weekRangeLabel } from '../components/shared/scheduleWeek'
 
@@ -86,6 +86,8 @@ export default function OrganiserReports() {
   const [errorMessage, setErrorMessage] = useState('')
   const [selectedMonday, setSelectedMonday] = useState(() => localMonday(new Date()))
   const [weeks, setWeeks] = useState(4)
+  const [payrollBusy, setPayrollBusy] = useState(false)
+  const [payrollError, setPayrollError] = useState('')
 
   const weekStartIso = toIsoDate(selectedMonday)
   const isCurrentWeek = localMonday(new Date()).valueOf() === selectedMonday.valueOf()
@@ -130,6 +132,18 @@ export default function OrganiserReports() {
       active = false
     }
   }, [loadReport])
+
+  async function handlePayrollDownload() {
+    setPayrollBusy(true)
+    setPayrollError('')
+    try {
+      await downloadPayrollExport({ weekStart: weekStartIso, weeks }, getAccessTokenSilently)
+    } catch (error) {
+      setPayrollError(error?.message || 'The payroll file could not be downloaded.')
+    } finally {
+      setPayrollBusy(false)
+    }
+  }
 
   const courses = report?.courses ?? []
   const tutors = report?.tutors ?? []
@@ -321,6 +335,27 @@ export default function OrganiserReports() {
             Capacity is worked out at today&apos;s weekly limits. Past periods are measured with
             the limit a tutor has now, not the one they had then.
           </p>
+        </section>
+      )}
+
+      {status === 'success' && (
+        <section className="role-card" aria-labelledby="payroll-export-heading">
+          <h2 id="payroll-export-heading">Payroll export</h2>
+          <p className="helper-text">
+            Download a CSV of approved worked hours for the same period. Rows with an open dispute
+            are held back until the dispute is resolved.
+          </p>
+          <div className="button-row">
+            <button
+              className="primary-button"
+              type="button"
+              disabled={payrollBusy}
+              onClick={handlePayrollDownload}
+            >
+              {payrollBusy ? 'Preparing file...' : 'Download payroll CSV'}
+            </button>
+          </div>
+          {payrollError && <p className="status-note danger" role="alert">{payrollError}</p>}
         </section>
       )}
 

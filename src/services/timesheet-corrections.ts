@@ -56,9 +56,9 @@ export function decideTimesheetEdit(
   return { allowed: false, requiresDeclaration: false };
 }
 
-/** Nothing can be objected to before it has been submitted. */
+/** Only a decided timesheet can be disputed: DRAFT has not been submitted, and SUBMITTED is still waiting for a decision. */
 export function canRaiseDispute(status: TimesheetWorkflowStatus): boolean {
-  return status !== "DRAFT";
+  return status === "RETURNED" || status === "APPROVED";
 }
 
 export interface TimesheetRevisionSummary {

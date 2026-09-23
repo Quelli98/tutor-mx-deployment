@@ -6,6 +6,8 @@ const listOrganiserApprovals = vi.fn()
 const decideTimesheet = vi.fn()
 const decideVolunteerClaim = vi.fn()
 const decideExcuse = vi.fn()
+const listTimesheetDisputes = vi.fn()
+const resolveTimesheetDispute = vi.fn()
 const getAccessTokenSilently = vi.fn()
 
 vi.mock('../api/organiser', () => ({
@@ -13,6 +15,8 @@ vi.mock('../api/organiser', () => ({
   decideTimesheet: (...args) => decideTimesheet(...args),
   decideVolunteerClaim: (...args) => decideVolunteerClaim(...args),
   decideExcuse: (...args) => decideExcuse(...args),
+  listTimesheetDisputes: (...args) => listTimesheetDisputes(...args),
+  resolveTimesheetDispute: (...args) => resolveTimesheetDispute(...args),
 }))
 
 vi.mock('@auth0/auth0-react', () => ({
@@ -75,6 +79,7 @@ describe('OrganiserApprovals', () => {
     listOrganiserApprovals.mockReset()
     decideTimesheet.mockReset()
     decideVolunteerClaim.mockReset()
+    listTimesheetDisputes.mockReset().mockResolvedValue([])
     getAccessTokenSilently.mockReset()
   })
 
@@ -171,6 +176,7 @@ describe('OrganiserApprovals excuse queue', () => {
     decideTimesheet.mockReset()
     decideVolunteerClaim.mockReset()
     decideExcuse.mockReset().mockResolvedValue({ id: 71, status: 'APPROVED' })
+    listTimesheetDisputes.mockReset().mockResolvedValue([])
     getAccessTokenSilently.mockReset()
   })
 
