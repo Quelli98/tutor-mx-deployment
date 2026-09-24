@@ -93,6 +93,17 @@ async function setTimesheetStatus(
       UPDATE "Timesheet" SET "status" = 'APPROVED', "reviewedById" = ${ORGANISER}, "reviewedAt" = now()
       WHERE "id" = ${id};
     `);
+    // Snapshot the course rate onto every work log in this timesheet, matching
+    // what the production approval path does.
+    await sql(`
+      UPDATE "WorkLog" w
+      SET "approvedHourlyRate" = c."hourlyRate"
+      FROM "Allocation" a, "Course" c
+      WHERE a."id" = w."allocationId"
+        AND c."id" = a."courseId"
+        AND w."timesheetId" = ${id}
+        AND w."approvedHourlyRate" IS NULL;
+    `);
   }
 }
 
@@ -271,6 +282,87 @@ describe("money", () => {
     await setTimesheetStatus(1, "APPROVED");
 
     expect((await courseRow()).budgetRemaining).toBe(-440);
+  });
+});
+
+describe("approved rate snapshot", () => {
+  it("stores the rate on work logs when a timesheet is approved", async () => {
+    await allocation(1, { day: "2030-09-03", hours: 4 });
+    await timesheet(1, { weekStart: "2030-09-02" });
+    await workLog(1, { allocationId: 1, timesheetId: 1, day: "2030-09-03", hours: 3 });
+
+    // Before approval, the snapshot is null.
+    const beforeApproval = await database.query<{ approvedHourlyRate: number | null }>(
+      `SELECT "approvedHourlyRate" FROM "WorkLog" WHERE "id" = 1`,
+    );
+    expect(beforeApproval.rows[0]!.approvedHourlyRate).toBeNull();
+
+    await setTimesheetStatus(1, "APPROVED");
+
+    // After approval, the snapshot matches the course rate at that moment.
+    const afterApproval = await database.query<{ approvedHourlyRate: string | null }>(
+      `SELECT "approvedHourlyRate" FROM "WorkLog" WHERE "id" = 1`,
+    );
+    expect(Number(afterApproval.rows[0]!.approvedHourlyRate)).toBe(180);
+  });
+
+  it("does not change historical spend when the course rate is later adjusted", async () => {
+    await allocation(1, { day: "2030-09-03", hours: 4 });
+    await timesheet(1, { weekStart: "2030-09-02" });
+    await workLog(1, { allocationId: 1, timesheetId: 1, day: "2030-09-03", hours: 3 });
+    await setTimesheetStatus(1, "APPROVED");
+
+    // Spend at the original rate: 3 hours * 180 = 540.
+    expect((await courseRow()).spend).toBe(540);
+
+    // Change the course rate.
+    await sql(`UPDATE "Course" SET "hourlyRate" = 250.00 WHERE "id" = ${COURSE}`);
+
+    // Historical spend is unchanged because it was snapshotted at approval time.
+    expect((await courseRow()).spend).toBe(540);
+    // Committed uses the new rate, since that work has not been approved yet.
+    expect((await courseRow()).committed).toBe(1000);
+  });
+
+  it("uses the new rate for work approved after the rate change", async () => {
+    // First approval at the original rate.
+    await allocation(1, { day: "2030-09-03", hours: 4 });
+    await timesheet(1, { weekStart: "2030-09-02" });
+    await workLog(1, { allocationId: 1, timesheetId: 1, day: "2030-09-03", hours: 2 });
+    await setTimesheetStatus(1, "APPROVED");
+
+    // Change the rate.
+    await sql(`UPDATE "Course" SET "hourlyRate" = 250.00 WHERE "id" = ${COURSE}`);
+
+    // Second approval at the new rate, using a different tutor to avoid the
+    // unique constraint on tutorId+weekStart.
+    await allocation(2, { tutorId: OTHER_TUTOR, day: "2030-09-04", hours: 4 });
+    await timesheet(2, { tutorId: OTHER_TUTOR, weekStart: "2030-09-02" });
+    await workLog(2, { tutorId: OTHER_TUTOR, allocationId: 2, timesheetId: 2, day: "2030-09-04", hours: 3 });
+    await setTimesheetStatus(2, "APPROVED");
+
+    // Total spend: (2 * 180) + (3 * 250) = 360 + 750 = 1110.
+    expect((await courseRow()).spend).toBe(1110);
+  });
+
+  it("reconciles payroll totals with the workload report using snapshot rates", async () => {
+    await allocation(1, { day: "2030-09-03", hours: 4 });
+    await timesheet(1, { weekStart: "2030-09-02" });
+    await workLog(1, { allocationId: 1, timesheetId: 1, day: "2030-09-03", hours: 3 });
+    await setTimesheetStatus(1, "APPROVED");
+
+    // Change the rate after approval.
+    await sql(`UPDATE "Course" SET "hourlyRate" = 300.00 WHERE "id" = ${COURSE}`);
+
+    const workload = await report();
+    const payroll = await service.payrollExport({ weekStart: WEEK_START, weeks: 1 });
+
+    // The workload report spend is based on the snapshot, not the current rate.
+    const course = workload.courses.find((row) => row.courseId === COURSE)!;
+    expect(course.spend).toBe(540); // 3 * 180, not 3 * 300
+
+    // Payroll hours match the workload report.
+    expect(payroll.totals.approvedHours).toBe(course.approvedWorkedHours);
   });
 });
 

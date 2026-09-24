@@ -49,7 +49,14 @@ SELECT c."id" AS "courseId", c."code" AS "courseCode", c."name" AS "courseName",
     JOIN "Timesheet" t ON t."id" = w."timesheetId"
     WHERE wa."courseId" = c."id" AND t."status" = 'APPROVED'
       AND w."workDate" >= $1::date AND w."workDate" < $2::date
-  ), 0)::double precision AS "approvedWorkedHours"
+  ), 0)::double precision AS "approvedWorkedHours",
+  (
+    SELECT SUM(w."hours" * w."approvedHourlyRate") FROM "WorkLog" w
+    JOIN "Allocation" wa ON wa."id" = w."allocationId"
+    JOIN "Timesheet" t ON t."id" = w."timesheetId"
+    WHERE wa."courseId" = c."id" AND t."status" = 'APPROVED'
+      AND w."workDate" >= $1::date AND w."workDate" < $2::date
+  )::double precision AS "approvedSpend"
 FROM "Course" c
 ORDER BY c."code" ASC;
 `;
@@ -115,6 +122,7 @@ interface CourseRow {
   budget: number | null;
   allocatedHours: number;
   approvedWorkedHours: number;
+  approvedSpend: number | null;
 }
 
 interface TutorRow {
@@ -182,10 +190,12 @@ export function createReportingService(queryClient: QueryClient) {
       ]);
 
       const courses: CourseReportRow[] = courseResult.rows.map((row) => {
-        // Spend is what is owed: hours done and signed off. Committed is what is
+        // Spend is what is owed: hours done and signed off, priced at the rate
+        // that was in force when they were approved. Committed is what is
         // booked but not yet worked, kept separate so neither is mistaken for
-        // the other.
-        const spend = money(row.approvedWorkedHours, row.hourlyRate);
+        // the other, and still read at the current rate since that work has
+        // not been approved yet.
+        const spend = row.approvedSpend === null ? null : round(row.approvedSpend);
         const committed = money(row.allocatedHours, row.hourlyRate);
 
         return {

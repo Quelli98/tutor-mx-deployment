@@ -53,6 +53,7 @@ function createHarness() {
       findUnique: vi.fn(),
     },
     $queryRawUnsafe: vi.fn(),
+    $executeRaw: vi.fn().mockResolvedValue(0),
     allocation: {
       create: vi.fn(),
       findMany: vi.fn(),

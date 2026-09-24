@@ -10,7 +10,7 @@ import {
   type VolunteerClaimDecisionInput,
   type VolunteerClaimDecisionSummary,
 } from "../app.js";
-import type { Prisma, PrismaClient } from "../generated/prisma/client.js";
+import { Prisma, type PrismaClient } from "../generated/prisma/client.js";
 import {
   findAllocationCandidates,
   type CandidateReasonCode,
@@ -598,6 +598,20 @@ export function createOrganiserService(client: PrismaClient) {
                 "TIMESHEET_DECISION_CONFLICT",
                 "The timesheet changed before this decision could be applied.",
               );
+            }
+
+            // Snapshot the course rate onto every work log in this timesheet so
+            // historical spend stays reproducible even if the rate changes later.
+            if (status === "APPROVED") {
+              await transaction.$executeRaw(Prisma.sql`
+                UPDATE "WorkLog" w
+                SET "approvedHourlyRate" = c."hourlyRate"
+                FROM "Allocation" a, "Course" c
+                WHERE a."id" = w."allocationId"
+                  AND c."id" = a."courseId"
+                  AND w."timesheetId" = ${timesheetId}
+                  AND w."approvedHourlyRate" IS NULL
+              `);
             }
 
             const decided = await transaction.timesheet.findUnique({

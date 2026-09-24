@@ -307,19 +307,23 @@ model TimesheetDispute {
 }
 
 model WorkLog {
-  id           Int        @id @default(autoincrement())
-  tutorId      Int
-  allocationId Int
-  timesheetId  Int?
-  workDate     DateTime   @db.Date
-  hours        Decimal    @db.Decimal(5, 2)
-  description  String
-  tutor        Profile    @relation(fields: [tutorId], references: [id], onDelete: Restrict)
-  allocation   Allocation @relation(fields: [allocationId, tutorId], references: [id, tutorId], onDelete: Restrict)
-  timesheet    Timesheet? @relation(fields: [timesheetId, tutorId], references: [id, tutorId], onDelete: Restrict)
-  revisions    TimesheetRevision[]
-  createdAt    DateTime   @default(now())
-  updatedAt    DateTime   @updatedAt
+  id                 Int        @id @default(autoincrement())
+  tutorId            Int
+  allocationId       Int
+  timesheetId        Int?
+  workDate           DateTime   @db.Date
+  hours              Decimal    @db.Decimal(5, 2)
+  description        String
+  /// Snapshot of the course hourly rate at the moment the timesheet was approved.
+  /// Null until approval; once set it never changes, so historical spend stays
+  /// reproducible even if the course rate is later adjusted.
+  approvedHourlyRate Decimal?   @db.Decimal(8, 2)
+  tutor              Profile    @relation(fields: [tutorId], references: [id], onDelete: Restrict)
+  allocation         Allocation @relation(fields: [allocationId, tutorId], references: [id, tutorId], onDelete: Restrict)
+  timesheet          Timesheet? @relation(fields: [timesheetId, tutorId], references: [id, tutorId], onDelete: Restrict)
+  revisions          TimesheetRevision[]
+  createdAt          DateTime   @default(now())
+  updatedAt          DateTime   @updatedAt
 
   @@unique([tutorId, allocationId, workDate])
   @@index([tutorId, workDate])
