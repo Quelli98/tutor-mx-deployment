@@ -381,6 +381,61 @@ export interface StaffingRequirementListQuery {
   status?: StaffingRequirementStatus;
 }
 
+/**
+ * The lifecycle state of an overflow item. OPEN is the only state the student
+ * read shows; the organiser screen can move an item to CLOSED explicitly.
+ */
+export type OverflowWorkStatus = "OPEN" | "FILLED" | "CLOSED" | "CANCELLED";
+
+/**
+ * Overflow work as the organiser screen reads it. Claim counts are carried so
+ * the screen can show what is waiting on a decision without a second call.
+ */
+export interface OrganiserOverflowWorkSummary {
+  id: number;
+  courseId: number;
+  courseCode: string;
+  courseName: string;
+  startsAt: string;
+  endsAt: string;
+  hours: number;
+  windowHours: number;
+  status: OverflowWorkStatus;
+  closesAt: string | null;
+  /** The staffing requirement this item was converted from, when it was. */
+  sourceRequirementId: number | null;
+  pendingClaims: number;
+  acceptedClaims: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface OrganiserOverflowWorkCreateInput {
+  courseId: number;
+  startsAt: Date;
+  endsAt: Date;
+  hours: number;
+  closesAt: Date | null;
+  sourceRequirementId: number | null;
+}
+
+export interface OrganiserOverflowWorkUpdateInput {
+  courseId: number;
+  startsAt: Date;
+  endsAt: Date;
+  hours: number;
+  closesAt: Date | null;
+  /**
+   * The updatedAt the organiser was shown. The write only matches that
+   * version, so a save from a second session is refused as stale.
+   */
+  expectedUpdatedAt: Date;
+}
+
+export interface OrganiserOverflowWorkCloseInput {
+  expectedUpdatedAt: Date;
+}
+
 export interface OrganiserAllocationSummary extends AllocationSummary {
   tutorName: string;
   tutorEmail: string;
@@ -764,6 +819,19 @@ export interface AppDependencies {
     requirementId: number,
     status: StaffingRequirementStatus,
   ) => Promise<StaffingRequirementSummary>;
+  /** Overflow work the organiser screen posts, edits and closes. */
+  listOrganiserOverflowWork?: () => Promise<OrganiserOverflowWorkSummary[]>;
+  createOrganiserOverflowWork?: (
+    input: OrganiserOverflowWorkCreateInput,
+  ) => Promise<OrganiserOverflowWorkSummary>;
+  updateOrganiserOverflowWork?: (
+    overflowWorkId: number,
+    input: OrganiserOverflowWorkUpdateInput,
+  ) => Promise<OrganiserOverflowWorkSummary>;
+  closeOrganiserOverflowWork?: (
+    overflowWorkId: number,
+    input: OrganiserOverflowWorkCloseInput,
+  ) => Promise<OrganiserOverflowWorkSummary>;
   /** Academic terms bound how far an imported recurring schedule entry repeats. */
   listAcademicTerms?: () => Promise<AcademicTermSummary[]>;
   createAcademicTerm?: (
@@ -1214,6 +1282,14 @@ function staffingRequirementsUnavailable() {
   );
 }
 
+function overflowWorkUnavailable() {
+  return createRouteError(
+    503,
+    "OVERFLOW_WORK_UNAVAILABLE",
+    "Organiser overflow work is not configured.",
+  );
+}
+
 function parseStaffingRequirementStatus(value: unknown) {
   const normalized =
     typeof value === "string" ? value.trim().toUpperCase() : null;
@@ -1330,6 +1406,166 @@ function parseStaffingRequirementListQuery(query: unknown) {
       ...(status ? { status } : {}),
     },
   } as const;
+}
+
+const OVERFLOW_WORK_CORE_FIELDS = [
+  "courseId",
+  "startsAt",
+  "endsAt",
+  "hours",
+  "closesAt",
+] as const;
+
+/** What every overflow write has in common, before create/update differences. */
+interface OverflowWorkState {
+  courseId: number;
+  startsAt: Date;
+  endsAt: Date;
+  hours: number;
+  closesAt: Date | null;
+}
+
+/**
+ * Overflow hours are what a Student ends up claiming, so they follow the same
+ * rules as saving an allocation: a positive number with at most two decimals.
+ * The window is capped by the same session maximum.
+ */
+function parseOverflowHours(value: unknown) {
+  if (
+    typeof value !== "number" ||
+    !Number.isFinite(value) ||
+    value <= 0 ||
+    value > 24 ||
+    !hasAtMostTwoDecimalPlaces(value)
+  ) {
+    return null;
+  }
+  return value;
+}
+
+function readOverflowWorkFields(
+  body: Record<string, unknown>,
+): { error: string } | { value: OverflowWorkState } {
+  const courseId = parseJsonPositiveInteger(body.courseId);
+  const startsAt = parseIsoDateTime(body.startsAt);
+  const endsAt = parseIsoDateTime(body.endsAt);
+  const hours = parseOverflowHours(body.hours);
+  // An absent deadline means "open until the work starts". An empty string is
+  // the form's way of saying the same thing.
+  const hasClosesAt =
+    body.closesAt !== undefined &&
+    body.closesAt !== null &&
+    body.closesAt !== "";
+  const closesAt = hasClosesAt ? parseIsoDateTime(body.closesAt) : null;
+
+  if (!courseId) {
+    return {
+      error: "Select the course the overflow work belongs to.",
+    } as const;
+  }
+  if (!startsAt || !endsAt || endsAt <= startsAt) {
+    return {
+      error: "Provide a start time, and an end time later than the start.",
+    } as const;
+  }
+  if (!sessionWithinMaximumLength(startsAt, endsAt)) {
+    return { error: maximumSessionLengthMessage(startsAt, endsAt) } as const;
+  }
+  if (hours === null || !hoursWithinSession(hours, startsAt, endsAt)) {
+    return {
+      error: `Enter hours above 0 and no more than the session length of ${sessionLengthText(startsAt, endsAt)}.`,
+    } as const;
+  }
+  // The database check constraint says the same thing: a deadline can only
+  // close the window early, never after the work has started.
+  if (hasClosesAt && (!closesAt || closesAt > startsAt)) {
+    return {
+      error:
+        "The claim deadline must be a valid time at or before the work starts.",
+    } as const;
+  }
+
+  return { value: { courseId, startsAt, endsAt, hours, closesAt } } as const;
+}
+
+function parseOverflowWorkCreateInput(
+  body: unknown,
+): { error: string } | { value: OrganiserOverflowWorkCreateInput } {
+  if (
+    !hasOnlyFields(body, [...OVERFLOW_WORK_CORE_FIELDS, "sourceRequirementId"])
+  ) {
+    return {
+      error:
+        "Provide only course, start and end time, hours, an optional claim deadline and an optional source requirement.",
+    } as const;
+  }
+  const fields = readOverflowWorkFields(body);
+  if ("error" in fields) {
+    return { error: fields.error } as const;
+  }
+  if (
+    body.sourceRequirementId !== undefined &&
+    body.sourceRequirementId !== null &&
+    body.sourceRequirementId !== ""
+  ) {
+    const sourceRequirementId = parseJsonPositiveInteger(
+      body.sourceRequirementId,
+    );
+    if (!sourceRequirementId) {
+      return {
+        error: "sourceRequirementId must be a positive whole number.",
+      } as const;
+    }
+    return { value: { ...fields.value, sourceRequirementId } } as const;
+  }
+
+  // Posted by hand, with no staffing requirement behind it.
+  return { value: { ...fields.value, sourceRequirementId: null } } as const;
+}
+
+function parseOverflowWorkUpdateInput(
+  body: unknown,
+): { error: string } | { value: OrganiserOverflowWorkUpdateInput } {
+  if (
+    !hasOnlyFields(body, [...OVERFLOW_WORK_CORE_FIELDS, "expectedUpdatedAt"])
+  ) {
+    return {
+      error:
+        "Provide only course, start and end time, hours, an optional claim deadline and the expected version.",
+    } as const;
+  }
+  const expectedUpdatedAt = parseIsoDateTime(body.expectedUpdatedAt);
+  if (!expectedUpdatedAt) {
+    return {
+      error:
+        "expectedUpdatedAt must be the updatedAt you were shown when you started editing.",
+    } as const;
+  }
+  const fields = readOverflowWorkFields(body);
+  if ("error" in fields) {
+    return { error: fields.error } as const;
+  }
+
+  return { value: { ...fields.value, expectedUpdatedAt } } as const;
+}
+
+function parseOverflowWorkCloseInput(
+  body: unknown,
+): { error: string } | { value: OrganiserOverflowWorkCloseInput } {
+  if (!hasOnlyFields(body, ["expectedUpdatedAt"])) {
+    return {
+      error:
+        "Provide only expectedUpdatedAt: the updatedAt you were shown when you started closing.",
+    } as const;
+  }
+  const expectedUpdatedAt = parseIsoDateTime(body.expectedUpdatedAt);
+  if (!expectedUpdatedAt) {
+    return {
+      error:
+        "expectedUpdatedAt must be the updatedAt you were shown when you started closing.",
+    } as const;
+  }
+  return { value: { expectedUpdatedAt } } as const;
 }
 
 function parseIsoDateTime(value: unknown) {
@@ -2847,6 +3083,155 @@ export function createApp(
           parsed.value,
         );
         response.status(200).json({ data: { volunteerClaim } });
+      } catch (value) {
+        sendRouteError(response, value);
+      }
+    },
+  );
+
+  /**
+   * The organiser screen that posts, edits and closes overflow work. Students
+   * already read open rows through the volunteer feed; this is the only place
+   * that writes them, so a shortage can become a real opportunity without
+   * touching the database by hand.
+   */
+  app.get(
+    "/api/organiser/overflow-work",
+    authenticate,
+    resolveProfileRole,
+    requireRole("ORGANISER"),
+    async (_request, response) => {
+      try {
+        if (!dependencies.listOrganiserOverflowWork) {
+          throw overflowWorkUnavailable();
+        }
+        const overflowWork = await dependencies.listOrganiserOverflowWork();
+        response.status(200).json({ data: { overflowWork } });
+      } catch (value) {
+        sendRouteError(response, value);
+      }
+    },
+  );
+
+  app.post(
+    "/api/organiser/overflow-work",
+    authenticate,
+    resolveProfileRole,
+    requireRole("ORGANISER"),
+    async (request, response) => {
+      const parsed = parseOverflowWorkCreateInput(request.body);
+      if ("error" in parsed) {
+        const result = error(
+          400,
+          "VALIDATION_ERROR",
+          parsed.error ?? "Enter valid overflow work.",
+        );
+        response.status(result.status).json(result.body);
+        return;
+      }
+
+      try {
+        if (!dependencies.createOrganiserOverflowWork) {
+          throw overflowWorkUnavailable();
+        }
+        const overflowWork = await dependencies.createOrganiserOverflowWork(
+          parsed.value,
+        );
+        response.status(201).json({ data: { overflowWork } });
+      } catch (value) {
+        sendRouteError(response, value);
+      }
+    },
+  );
+
+  app.patch(
+    "/api/organiser/overflow-work/:overflowWorkId",
+    authenticate,
+    resolveProfileRole,
+    requireRole("ORGANISER"),
+    async (request, response) => {
+      const overflowWorkId = parseNumericId(
+        request.params.overflowWorkId,
+        "Overflow work",
+      );
+      if ("error" in overflowWorkId) {
+        const result = error(
+          400,
+          "VALIDATION_ERROR",
+          overflowWorkId.error ??
+            "Overflow work identifier must be a positive whole number.",
+        );
+        response.status(result.status).json(result.body);
+        return;
+      }
+
+      const parsed = parseOverflowWorkUpdateInput(request.body);
+      if ("error" in parsed) {
+        const result = error(
+          400,
+          "VALIDATION_ERROR",
+          parsed.error ?? "Enter valid overflow work changes.",
+        );
+        response.status(result.status).json(result.body);
+        return;
+      }
+
+      try {
+        if (!dependencies.updateOrganiserOverflowWork) {
+          throw overflowWorkUnavailable();
+        }
+        const overflowWork = await dependencies.updateOrganiserOverflowWork(
+          overflowWorkId.value,
+          parsed.value,
+        );
+        response.status(200).json({ data: { overflowWork } });
+      } catch (value) {
+        sendRouteError(response, value);
+      }
+    },
+  );
+
+  app.patch(
+    "/api/organiser/overflow-work/:overflowWorkId/close",
+    authenticate,
+    resolveProfileRole,
+    requireRole("ORGANISER"),
+    async (request, response) => {
+      const overflowWorkId = parseNumericId(
+        request.params.overflowWorkId,
+        "Overflow work",
+      );
+      if ("error" in overflowWorkId) {
+        const result = error(
+          400,
+          "VALIDATION_ERROR",
+          overflowWorkId.error ??
+            "Overflow work identifier must be a positive whole number.",
+        );
+        response.status(result.status).json(result.body);
+        return;
+      }
+
+      const parsed = parseOverflowWorkCloseInput(request.body);
+      if ("error" in parsed) {
+        const result = error(
+          400,
+          "VALIDATION_ERROR",
+          parsed.error ?? "Enter the version of the overflow work being closed.",
+        );
+        response.status(result.status).json(result.body);
+        return;
+      }
+
+      try {
+        if (!dependencies.closeOrganiserOverflowWork) {
+          throw overflowWorkUnavailable();
+        }
+        const overflowWork = await dependencies.closeOrganiserOverflowWork(
+          overflowWorkId.value,
+          parsed.value,
+        );
+        response.status(200).json({ data: { overflowWork } });
       } catch (value) {
         sendRouteError(response, value);
       }

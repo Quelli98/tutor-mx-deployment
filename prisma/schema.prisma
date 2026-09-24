@@ -348,19 +348,21 @@ model Excuse {
 }
 
 model OverflowWork {
-  id                 Int                @id @default(autoincrement())
-  courseId           Int
-  sourceAllocationId Int?               @unique
-  startsAt           DateTime
-  endsAt             DateTime
-  hours              Decimal            @db.Decimal(5, 2)
-  status             OverflowWorkStatus @default(OPEN)
-  closesAt           DateTime?
-  course             Course             @relation(fields: [courseId], references: [id], onDelete: Restrict)
-  sourceAllocation   Allocation?         @relation(fields: [sourceAllocationId], references: [id], onDelete: Restrict)
-  volunteerClaims    VolunteerClaim[]
-  createdAt          DateTime            @default(now())
-  updatedAt          DateTime            @updatedAt
+  id                  Int                   @id @default(autoincrement())
+  courseId            Int
+  sourceAllocationId  Int?                  @unique
+  sourceRequirementId Int?                  @unique
+  startsAt            DateTime
+  endsAt              DateTime
+  hours               Decimal               @db.Decimal(5, 2)
+  status              OverflowWorkStatus    @default(OPEN)
+  closesAt            DateTime?
+  course              Course                @relation(fields: [courseId], references: [id], onDelete: Restrict)
+  sourceAllocation    Allocation?           @relation(fields: [sourceAllocationId], references: [id], onDelete: Restrict)
+  sourceRequirement   StaffingRequirement?  @relation(fields: [sourceRequirementId], references: [id], onDelete: Restrict)
+  volunteerClaims     VolunteerClaim[]
+  createdAt           DateTime              @default(now())
+  updatedAt           DateTime              @updatedAt
 
   @@index([status, startsAt, closesAt])
   @@index([courseId, status, startsAt])
@@ -393,6 +395,7 @@ model StaffingRequirement {
   createdById   Int?
   course        Course                    @relation(fields: [courseId], references: [id], onDelete: Restrict)
   createdBy     Profile?                  @relation(fields: [createdById], references: [id], onDelete: SetNull)
+  overflowWork  OverflowWork?
   createdAt     DateTime                  @default(now())
   updatedAt     DateTime                  @updatedAt
 

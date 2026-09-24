@@ -24,6 +24,7 @@ import {
 } from "./services/allocation-queries.js";
 import { createCourseService } from "./services/course-service.js";
 import { createStaffingRequirementService } from "./services/staffing-requirement-service.js";
+import { createOrganiserOverflowWorkService } from "./services/organiser-overflow-service.js";
 import { createBulkAllocationService } from "./services/bulk-allocation-service.js";
 import { createReportingService } from "./services/reporting-service.js";
 import { payrollFilename, toPayrollCsv } from "./services/payroll-export.js";
@@ -263,6 +264,13 @@ const staffingRequirementService = createStaffingRequirementService(
   prisma,
   queryClient,
 );
+// Overflow work: posted by hand, or converted from an unmet staffing
+// requirement. It writes only OverflowWork, never an allocation, so absorbing
+// a shortage here cannot reassign anybody's work.
+const organiserOverflowService = createOrganiserOverflowWorkService(
+  prisma,
+  queryClient,
+);
 
 // Built from a reader and a query client only. It is never handed the Prisma
 // client, so preview has no way to write; saving goes through createAllocation
@@ -412,6 +420,10 @@ const app = createApp(
     createStaffingRequirement: staffingRequirementService.createStaffingRequirement,
     updateStaffingRequirement: staffingRequirementService.updateStaffingRequirement,
     setStaffingRequirementStatus: staffingRequirementService.setStaffingRequirementStatus,
+    listOrganiserOverflowWork: organiserOverflowService.listOverflowWork,
+    createOrganiserOverflowWork: organiserOverflowService.createOverflowWork,
+    updateOrganiserOverflowWork: organiserOverflowService.updateOverflowWork,
+    closeOrganiserOverflowWork: organiserOverflowService.closeOverflowWork,
     listAcademicTerms: academicTermService.list,
     createAcademicTerm: academicTermService.create,
     previewTutorTimetableImport: timetableImportService.preview,
