@@ -702,7 +702,7 @@ export interface AppDependencies {
   removeAllocation: (
     auth0Id: string,
     allocationId: number,
-  ) => Promise<void>;
+  ) => Promise<AllocationSummary | null>;
   decideTimesheet: (
     auth0Id: string,
     timesheetId: number,
@@ -731,6 +731,10 @@ export interface AppDependencies {
     auth0Id: string,
     notificationId: number,
   ) => Promise<{ id: number; readAt: string }>;
+  getNotification?: (
+    auth0Id: string,
+    notificationId: number,
+  ) => Promise<{ linkPath: string; targetType: string; targetId: number | null } | null>;
   markAllNotificationsRead?: (auth0Id: string) => Promise<{ updated: number }>;
   runDueReminders?: () => Promise<{ generated: number }>;
   search?: (auth0Id: string, query: ResolvedSearchQuery) => Promise<SearchResponse>;
@@ -3936,6 +3940,34 @@ export function createApp(
         if (!dependencies.countUnreadNotifications) throw createRouteError(503, "NOTIFICATIONS_UNAVAILABLE", "Notifications are not configured.");
         const unreadCount = await dependencies.countUnreadNotifications(auth.subject);
         response.status(200).json({ data: { unreadCount } });
+      } catch (value) {
+        sendRouteError(response, value);
+      }
+    },
+  );
+
+  app.get(
+    "/api/notifications/:id",
+    authenticate,
+    resolveProfileRole,
+    requireTutorMxRole,
+    async (request, response) => {
+      const notificationId = parseNumericId(request.params.id, "Notification");
+      if ("error" in notificationId) {
+        const result = error(400, "VALIDATION_ERROR", notificationId.error ?? "Notification identifier must be a positive whole number.");
+        response.status(result.status).json(result.body);
+        return;
+      }
+      const auth = (request as AuthenticatedRequest).auth!;
+      try {
+        if (!dependencies.getNotification) throw createRouteError(503, "NOTIFICATIONS_UNAVAILABLE", "Notifications are not configured.");
+        const notification = await dependencies.getNotification(auth.subject, notificationId.value);
+        if (!notification) {
+          const result = error(404, "NOTIFICATION_NOT_FOUND", "The requested notification could not be found.");
+          response.status(result.status).json(result.body);
+          return;
+        }
+        response.status(200).json({ data: notification });
       } catch (value) {
         sendRouteError(response, value);
       }

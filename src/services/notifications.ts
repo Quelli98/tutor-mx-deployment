@@ -11,6 +11,7 @@ import type { TutorRole } from "../auth/contract.js";
 export const NOTIFICATION_TYPES = [
   "ALLOCATION_CREATED",
   "ALLOCATION_CHANGED",
+  "ALLOCATION_CANCELLED",
   "TIMESHEET_SUBMITTED",
   "TIMESHEET_RETURNED",
   "TIMESHEET_APPROVED",
@@ -52,6 +53,7 @@ export interface NotificationEvent extends NotificationDraft {
 export const NOTIFICATION_TYPE_ROLES: Record<NotificationType, TutorRole[]> = {
   ALLOCATION_CREATED: ["TUTOR"],
   ALLOCATION_CHANGED: ["TUTOR"],
+  ALLOCATION_CANCELLED: ["TUTOR"],
   TIMESHEET_SUBMITTED: ["ORGANISER"],
   TIMESHEET_RETURNED: ["TUTOR"],
   TIMESHEET_APPROVED: ["TUTOR"],
@@ -147,6 +149,28 @@ export function buildAllocationNotifications(
       targetType: "allocation",
       targetId: allocation.id,
       stateDiscriminator: allocation.status,
+    }),
+  ];
+}
+
+/**
+ * A cancelled allocation notifies the tutor that their assignment was removed.
+ * The state discriminator is always CANCELLED so retries of the same removal
+ * are de-duplicated.
+ */
+export function buildAllocationCancelledNotifications(
+  allocation: AllocationResult,
+): NotificationEvent[] {
+  return [
+    toNotificationEvent({
+      recipientProfileId: allocation.tutorId,
+      type: "ALLOCATION_CANCELLED",
+      title: "Assignment removed",
+      body: "An allocation has been cancelled.",
+      linkPath: "/tutor",
+      targetType: "allocation",
+      targetId: allocation.id,
+      stateDiscriminator: "CANCELLED",
     }),
   ];
 }

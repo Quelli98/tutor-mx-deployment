@@ -132,7 +132,7 @@ describe("result mappers", () => {
         category: "course",
         label: "COMS3011A",
         sublabel: "Software Design",
-        linkPath: "/organiser/courses",
+        linkPath: "/organiser/courses/1",
       },
     );
   });
@@ -147,7 +147,7 @@ describe("result mappers", () => {
       category: "person",
       label: "Ada Tutor",
       sublabel: "TUTOR",
-      linkPath: "/organiser/tutors",
+      linkPath: "/organiser/tutors/5",
     });
     expect(JSON.stringify(result)).not.toMatch(/@/u);
   });
@@ -178,7 +178,7 @@ describe("result mappers", () => {
       category: "volunteer",
       label: "COMS3011A volunteer work",
       sublabel: "Software Design - PENDING",
-      linkPath: "/student",
+      linkPath: "/student/volunteer/8",
     });
   });
 });

@@ -38,6 +38,7 @@ import {
   type NotificationDataClient,
 } from "./services/notification-service.js";
 import {
+  buildAllocationCancelledNotifications,
   buildAllocationNotifications,
   buildExcuseDecisionNotifications,
   buildExcuseSubmittedNotifications,
@@ -577,10 +578,10 @@ const app = createApp(
         weekStart,
       );
       const countTimeSlots = (prisma.timeSlot as typeof prisma.timeSlot & {
-        count?: (args: { where: { tutorId: number } }) => Promise<number>;
+        count?: (args: { where: { tutorId: number; recurrence: { not: null } } }) => Promise<number>;
       }).count;
       const hasSchedule = countTimeSlots
-        ? (await countTimeSlots.call(prisma.timeSlot, { where: { tutorId: profile.id } })) > 0
+        ? (await countTimeSlots.call(prisma.timeSlot, { where: { tutorId: profile.id, recurrence: { not: null } } })) > 0
         : undefined;
 
       // A newly self-onboarded tutor can exist before an organiser has configured
@@ -824,6 +825,9 @@ const app = createApp(
     async markNotificationRead(auth0Id, notificationId) {
       return notificationService.markRead(await findTutorProfileIdForAnyRole(auth0Id), notificationId);
     },
+    async getNotification(auth0Id, notificationId) {
+      return notificationService.getNotification(await findTutorProfileIdForAnyRole(auth0Id), notificationId);
+    },
     async markAllNotificationsRead(auth0Id) {
       return notificationService.markAllRead(await findTutorProfileIdForAnyRole(auth0Id));
     },
@@ -925,7 +929,13 @@ const app = createApp(
       await emitNotifications(buildAllocationNotifications(result, { created: false }));
       return result;
     },
-    removeAllocation: organiserService.removeAllocation,
+    async removeAllocation(auth0Id, allocationId) {
+      const result = await organiserService.removeAllocation(auth0Id, allocationId);
+      if (result) {
+        await emitNotifications(buildAllocationCancelledNotifications(result));
+      }
+      return result;
+    },
     async decideTimesheet(auth0Id, timesheetId, input) {
       const result = await organiserService.decideTimesheet(auth0Id, timesheetId, input);
       if (result.status === "RETURNED") {

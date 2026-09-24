@@ -70,6 +70,10 @@ export interface NotificationDataClient {
     count(args: {
       where: { recipientProfileId: number; readAt?: null };
     }): Promise<number>;
+    findUnique(args: {
+      where: { id: number };
+      select: { recipientProfileId: true; type: true; linkPath: true; targetType: true; targetId: true };
+    }): Promise<{ recipientProfileId: number; type: string; linkPath: string; targetType: string; targetId: number | null } | null>;
     updateMany(args: {
       where: { id?: number; recipientProfileId: number; readAt?: null };
       data: { readAt: Date };
@@ -145,6 +149,10 @@ export interface NotificationService {
     recipientProfileId: number,
     notificationId: number,
   ): Promise<{ id: number; readAt: string }>;
+  getNotification(
+    recipientProfileId: number,
+    notificationId: number,
+  ): Promise<{ linkPath: string; targetType: string; targetId: number | null } | null>;
   markAllRead(recipientProfileId: number): Promise<{ updated: number }>;
   runDueReminders(
     now: Date,
@@ -212,14 +220,30 @@ export function createNotificationService(
     },
 
     async markRead(recipientProfileId, notificationId) {
+      const notification = await client.notification.findUnique({
+        where: { id: notificationId },
+        select: { recipientProfileId: true, type: true, linkPath: true, targetType: true, targetId: true },
+      });
+      if (!notification) {
+        throw createRouteError(
+          404,
+          "NOTIFICATION_NOT_FOUND",
+          "The requested notification could not be found.",
+        );
+      }
+      if (notification.recipientProfileId !== recipientProfileId) {
+        throw createRouteError(
+          404,
+          "NOTIFICATION_NOT_FOUND",
+          "The requested notification could not be found.",
+        );
+      }
       const readAt = new Date();
       const result = await client.notification.updateMany({
         where: { id: notificationId, recipientProfileId, readAt: null },
         data: { readAt },
       });
       if (result.count === 0) {
-        // Either the notification does not exist or it belongs to someone else.
-        // Return 404 so ownership of another user's row is never confirmed.
         throw createRouteError(
           404,
           "NOTIFICATION_NOT_FOUND",
@@ -227,6 +251,21 @@ export function createNotificationService(
         );
       }
       return { id: notificationId, readAt: readAt.toISOString() };
+    },
+
+    async getNotification(recipientProfileId, notificationId) {
+      const notification = await client.notification.findUnique({
+        where: { id: notificationId },
+        select: { recipientProfileId: true, type: true, linkPath: true, targetType: true, targetId: true },
+      });
+      if (!notification || notification.recipientProfileId !== recipientProfileId) {
+        return null;
+      }
+      return {
+        linkPath: notification.linkPath,
+        targetType: notification.targetType,
+        targetId: notification.targetId,
+      };
     },
 
     async markAllRead(recipientProfileId) {

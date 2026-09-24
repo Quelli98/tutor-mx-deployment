@@ -326,7 +326,7 @@ function makeApp(
       status: input.status ?? "PROPOSED",
     }),
 
-    removeAllocation: async () => undefined,
+    removeAllocation: async () => null,
 
     decideTimesheet: async (_auth0Id, id, input) => ({
       id,

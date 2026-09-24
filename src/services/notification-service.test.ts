@@ -83,6 +83,17 @@ function createFakeClient(seed: {
             args.where.readAt === null ? row.readAt === null : true,
           ).length;
       },
+      async findUnique(args) {
+        const row = rows.find((row) => row.id === args.where.id);
+        if (!row) return null;
+        return {
+          recipientProfileId: row.recipientProfileId,
+          type: row.type,
+          linkPath: row.linkPath,
+          targetType: row.targetType,
+          targetId: row.targetId,
+        };
+      },
       async updateMany(args) {
         let count = 0;
         for (const row of rows) {

@@ -247,12 +247,12 @@ export function NotificationBell() {
                 >
                   <button
                     type="button"
-                    className="notification-item-open"
+                    className="notification-item-button"
                     onClick={() => handleOpenNotification(notification)}
                   >
                     <span className="notification-item-title">{notification.title}</span>
                     <span className="notification-item-body">{notification.body}</span>
-                    <span className="notification-item-when">
+                    <span className="notification-time">
                       {formatWhen(notification.createdAt)}
                     </span>
                   </button>

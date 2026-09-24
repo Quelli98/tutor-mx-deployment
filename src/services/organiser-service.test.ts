@@ -674,7 +674,15 @@ describe("organiser allocation service", () => {
 
     await expect(
       harness.service.removeAllocation("auth0|organiser", 11),
-    ).resolves.toBeUndefined();
+    ).resolves.toEqual({
+      id: 11,
+      tutorId: 7,
+      courseId: 9,
+      status: "CANCELLED",
+      startsAt: startsAt.toISOString(),
+      endsAt: endsAt.toISOString(),
+      allocatedHours: 2,
+    });
     expect(harness.transaction.$queryRawUnsafe).not.toHaveBeenCalled();
     expect(harness.transaction.allocation.updateMany).toHaveBeenCalledWith({
       where: { id: 11, status: "CONFIRMED" },
@@ -689,7 +697,15 @@ describe("organiser allocation service", () => {
 
     await expect(
       harness.service.removeAllocation("auth0|organiser", 11),
-    ).resolves.toBeUndefined();
+    ).resolves.toEqual({
+      id: 11,
+      tutorId: 7,
+      courseId: 9,
+      status: "CANCELLED",
+      startsAt: startsAt.toISOString(),
+      endsAt: endsAt.toISOString(),
+      allocatedHours: 2,
+    });
     expect(harness.transaction.allocation.updateMany).toHaveBeenCalledTimes(1);
   });
 

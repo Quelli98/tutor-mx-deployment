@@ -496,9 +496,9 @@ export function createOrganiserService(client: PrismaClient) {
     async removeAllocation(
       organiserAuth0Id: string,
       allocationId: number,
-    ): Promise<void> {
+    ): Promise<AllocationSummary | null> {
       try {
-        await client.$transaction(
+        return await client.$transaction(
           async (transaction) => {
             const current = await transaction.allocation.findUnique({
               where: { id: allocationId },
@@ -533,11 +533,22 @@ export function createOrganiserService(client: PrismaClient) {
                 "The allocation changed before it could be removed.",
               );
             }
+
+            return {
+              id: current.id,
+              tutorId: current.tutorId,
+              courseId: current.courseId,
+              status: "CANCELLED" as const,
+              startsAt: current.startsAt.toISOString(),
+              endsAt: current.endsAt.toISOString(),
+              allocatedHours: Number(current.allocatedHours),
+            };
           },
           { isolationLevel: "Serializable" },
         );
       } catch (value) {
         mapAllocationFailure(value);
+        return null;
       }
     },
 

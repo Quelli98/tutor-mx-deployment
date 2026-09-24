@@ -309,7 +309,7 @@ function smokeApp(overrides: SmokeOverrides = {}): Express {
       allocatedHours: input.requestedHours,
       status: input.status ?? "PROPOSED",
     }),
-    removeAllocation: async () => undefined,
+    removeAllocation: async () => null,
     decideTimesheet: async (
       _auth0Id,
       timesheetId,

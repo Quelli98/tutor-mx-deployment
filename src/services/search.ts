@@ -137,17 +137,19 @@ export function clampSearchPageSize(raw: unknown): number {
 export function linkPathFor(
   category: SearchCategory,
   role: SearchRole,
+  id?: number,
 ): string {
   if (category === "course") {
-    if (role === "ORGANISER") return "/organiser/courses";
-    if (role === "TUTOR") return "/tutor";
-    return "/student";
+    if (role === "ORGANISER") return id ? `/organiser/courses/${id}` : "/organiser/courses";
+    if (role === "TUTOR") return id ? `/tutor/courses/${id}` : "/tutor";
+    return id ? `/student/courses/${id}` : "/student";
   }
-  if (category === "person") return "/organiser/tutors";
+  if (category === "person") return id ? `/organiser/tutors/${id}` : "/organiser/tutors";
   if (category === "timesheet") {
-    return role === "ORGANISER" ? "/organiser" : "/tutor/forms";
+    if (role === "ORGANISER") return id ? `/organiser/timesheets/${id}` : "/organiser";
+    return id ? `/tutor/forms/timesheets/${id}` : "/tutor/forms";
   }
-  return "/student";
+  return id ? `/student/volunteer/${id}` : "/student";
 }
 
 export interface CourseRow {
@@ -185,7 +187,7 @@ export function toCourseResult(
     category: "course",
     label: row.code,
     sublabel: row.name,
-    linkPath: linkPathFor("course", role),
+    linkPath: linkPathFor("course", role, row.id),
   };
 }
 
@@ -200,7 +202,7 @@ export function toPersonResult(
     // Role is not private detail; a name plus role is what an organiser may
     // already see. No email or other contact detail is exposed here.
     sublabel: row.role,
-    linkPath: linkPathFor("person", role),
+    linkPath: linkPathFor("person", role, row.id),
   };
 }
 
@@ -217,7 +219,7 @@ export function toTimesheetResult(
         ? `${row.tutorName} - week of ${week}`
         : `Timesheet week of ${week}`,
     sublabel: row.status,
-    linkPath: linkPathFor("timesheet", role),
+    linkPath: linkPathFor("timesheet", role, row.id),
   };
 }
 
@@ -230,7 +232,7 @@ export function toVolunteerResult(
     category: "volunteer",
     label: `${row.courseCode} volunteer work`,
     sublabel: `${row.courseName} - ${row.status}`,
-    linkPath: linkPathFor("volunteer", role),
+    linkPath: linkPathFor("volunteer", role, row.id),
   };
 }
 

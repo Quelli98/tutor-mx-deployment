@@ -194,7 +194,7 @@ function makeApp(
     listOrganiserApprovals: async () => ({ timesheets: [], volunteerClaims: [], excuses: [] }),
     createAllocation: async () => allocationSummary,
     updateAllocation: async () => allocationSummary,
-    removeAllocation: async () => undefined,
+    removeAllocation: async () => null,
     decideTimesheet: async () => timesheetSummary,
     decideVolunteerClaim: async () => volunteerClaimSummary,
     upsertTutorMark: async (_tutorId, input) => ({
@@ -406,7 +406,7 @@ describe("allocation mutation routes", () => {
   it("validates and delegates create, update and remove operations", async () => {
     const createAllocation = vi.fn().mockResolvedValue(allocationSummary);
     const updateAllocation = vi.fn().mockResolvedValue(allocationSummary);
-    const removeAllocation = vi.fn().mockResolvedValue(undefined);
+    const removeAllocation = vi.fn().mockResolvedValue(null);
     const app = makeApp({
       createAllocation,
       updateAllocation,
