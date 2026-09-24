@@ -267,10 +267,7 @@ const staffingRequirementService = createStaffingRequirementService(
 // Overflow work: posted by hand, or converted from an unmet staffing
 // requirement. It writes only OverflowWork, never an allocation, so absorbing
 // a shortage here cannot reassign anybody's work.
-const organiserOverflowService = createOrganiserOverflowWorkService(
-  prisma,
-  queryClient,
-);
+const organiserOverflowService = createOrganiserOverflowWorkService(prisma);
 
 // Built from a reader and a query client only. It is never handed the Prisma
 // client, so preview has no way to write; saving goes through createAllocation

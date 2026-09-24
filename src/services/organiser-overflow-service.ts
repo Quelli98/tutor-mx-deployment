@@ -7,10 +7,7 @@ import {
   type OverflowWorkStatus,
 } from "../app.js";
 import { type PrismaClient } from "../generated/prisma/client.js";
-import {
-  getAssignedHoursForRequirements,
-  type QueryClient,
-} from "./allocation-queries.js";
+import { getAssignedHoursForRequirements } from "./allocation-queries.js";
 import {
   requiredHoursFor,
   windowHoursFor,
@@ -112,7 +109,6 @@ function isUniqueViolation(value: unknown): boolean {
 
 export function createOrganiserOverflowWorkService(
   client: PrismaClient,
-  queryClient: QueryClient,
 ): OrganiserOverflowWorkService {
   return {
     /**
@@ -192,9 +188,16 @@ export function createOrganiserOverflowWorkService(
               // The shortage is the same read-time figure the staffing board
               // shows: required tutor-hours minus the confirmed hours that
               // overlap the window. Nothing is assigned by converting.
+              // Use the transaction connection to prevent race conditions.
+              const transactionQueryClient = {
+                async query<Row>(sql: string, parameters: unknown[] = []) {
+                  const rows = await transaction.$queryRawUnsafe<Row[]>(sql, ...parameters);
+                  return { rows };
+                },
+              };
               const assignedHours =
                 (
-                  await getAssignedHoursForRequirements(queryClient, [
+                  await getAssignedHoursForRequirements(transactionQueryClient, [
                     requirement.id,
                   ])
                 ).get(requirement.id) ?? 0;
@@ -303,6 +306,74 @@ export function createOrganiserOverflowWorkService(
               "COURSE_NOT_FOUND",
               "The requested course could not be found.",
             );
+          }
+
+          // When the work was converted from a requirement, the link is permanent
+          // and the edited values must still match the requirement's current state.
+          if (current.sourceRequirementId !== null) {
+            const requirement =
+              await transaction.staffingRequirement.findUnique({
+                where: { id: current.sourceRequirementId },
+                select: {
+                  id: true,
+                  courseId: true,
+                  startsAt: true,
+                  endsAt: true,
+                  tutorsNeeded: true,
+                  status: true,
+                },
+              });
+            if (!requirement) {
+              throw createRouteError(
+                409,
+                "OVERFLOW_SOURCE_GONE",
+                "The staffing requirement this work was converted from no longer exists.",
+              );
+            }
+            if (
+              requirement.courseId !== input.courseId ||
+              requirement.startsAt.valueOf() !== input.startsAt.valueOf() ||
+              requirement.endsAt.valueOf() !== input.endsAt.valueOf()
+            ) {
+              throw createRouteError(
+                409,
+                "OVERFLOW_SOURCE_MISMATCH",
+                "Overflow work converted from a requirement must keep its course and time window.",
+              );
+            }
+
+            const transactionQueryClient = {
+              async query<Row>(sql: string, parameters: unknown[] = []) {
+                const rows = await transaction.$queryRawUnsafe<Row[]>(
+                  sql,
+                  ...parameters,
+                );
+                return { rows };
+              },
+            };
+            const assignedHours =
+              (
+                await getAssignedHoursForRequirements(transactionQueryClient, [
+                  requirement.id,
+                ])
+              ).get(requirement.id) ?? 0;
+            const shortageHours = roundHours(
+              Math.max(
+                0,
+                requiredHoursFor(
+                  requirement.startsAt,
+                  requirement.endsAt,
+                  requirement.tutorsNeeded,
+                ) - assignedHours,
+              ),
+            );
+            if (input.hours > shortageHours + HOURS_TOLERANCE) {
+              throw createRouteError(
+                409,
+                "OVERFLOW_SOURCE_HOURS",
+                `Only ${shortageHours} hours of that staffing requirement are still unfilled.`,
+              );
+            }
           }
 
           const changed = await transaction.overflowWork.updateMany({

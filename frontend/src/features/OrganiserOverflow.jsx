@@ -97,7 +97,7 @@ function claimSummary(work) {
  * session maximum, hours no longer than the session, and a deadline at or
  * before the start.
  */
-function validateForm(form) {
+function validateForm(form, sourceRequirementId) {
   const errors = {}
 
   if (!form.courseId) {
@@ -123,7 +123,9 @@ function validateForm(form) {
 
       if (windowHours > MAX_SESSION_HOURS) {
         errors.endsAt = maximumSessionLengthMessage(startsAt, endsAt)
-      } else if (!errors.hours && Number(form.hours) > windowHours) {
+      } else if (!errors.hours && !sourceRequirementId && Number(form.hours) > windowHours) {
+        // When converting from a requirement, hours can exceed the window (e.g., 8 tutor-hours in a 4-hour window with 2 tutors).
+        // The backend validates against the actual shortage, so we skip this check here.
         errors.hours = `Enter hours above 0 and no more than the session length of ${sessionLengthText(startsAt, endsAt)}.`
       }
 
@@ -295,15 +297,13 @@ export default function OrganiserOverflow() {
   }
 
   function sendToOverflow(requirement) {
-    const hours = Math.min(requirement.shortageHours, requirement.windowHours)
-
     setEditingOverflowWork(null)
     setSourceRequirementId(requirement.id)
     setForm({
       courseId: String(requirement.courseId),
       startsAt: dateTimeLocalValue(requirement.startsAt),
       endsAt: dateTimeLocalValue(requirement.endsAt),
-      hours: String(Math.round(hours * 100) / 100),
+      hours: String(Math.round(requirement.shortageHours * 100) / 100),
       closesAt: '',
     })
     setFieldErrors({})
@@ -315,7 +315,7 @@ export default function OrganiserOverflow() {
   async function handleSubmit(event) {
     event.preventDefault()
 
-    const errors = validateForm(form)
+    const errors = validateForm(form, sourceRequirementId)
     setFieldErrors(errors)
     setFormError('')
     setSuccessMessage('')

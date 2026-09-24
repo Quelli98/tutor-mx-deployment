@@ -320,8 +320,9 @@ describe('OrganiserOverflow', () => {
     expect(
       screen.getByRole('button', { name: /^edit COMS3009 on .*$/i }),
     ).toBeDisabled()
-    // Filled work can still be closed, but not while a claim is waiting.
-    expect(screen.getByRole('button', { name: /^close COMS3011 on .*$/i })).toBeEnabled()
+    // Filled work is a terminal state and cannot be closed, so no close button is shown.
+    expect(screen.queryByRole('button', { name: /^close COMS3011 on .*$/i })).not.toBeInTheDocument()
+    // Open work with pending claims also cannot be closed yet.
     expect(
       screen.getByRole('button', { name: /^close COMS3009 on .*$/i }),
     ).toBeDisabled()

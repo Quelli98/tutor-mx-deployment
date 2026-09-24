@@ -1,6 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { PrismaClient } from "../generated/prisma/client.js";
-import type { QueryClient } from "./allocation-queries.js";
 import { createOrganiserOverflowWorkService } from "./organiser-overflow-service.js";
 
 const START = new Date("2030-09-04T14:00:00.000Z");
@@ -70,6 +69,11 @@ function createHarness(options: HarnessOptions = {}) {
       create: vi.fn().mockResolvedValue(row()),
       updateMany: vi.fn().mockResolvedValue({ count: updateCount }),
     },
+    $queryRawUnsafe: vi.fn(async (_sql: string, requirementIds?: number[]) =>
+      (requirementIds ?? []).map((requirementId) => ({
+        requirementId,
+        assignedHours,
+      }))),
   };
 
   const client = {
@@ -97,7 +101,6 @@ function createHarness(options: HarnessOptions = {}) {
     queryClient,
     service: createOrganiserOverflowWorkService(
       client as unknown as PrismaClient,
-      queryClient as unknown as QueryClient,
     ),
   };
 }
@@ -233,9 +236,9 @@ describe("organiser overflow work service", () => {
           data: expect.objectContaining({ sourceRequirementId: 12 }),
         }),
       );
-      const [sql, parameters] = harness.queryClient.query.mock.calls[0];
+      const [sql, requirementIds] = harness.transaction.$queryRawUnsafe.mock.calls[0];
       expect(String(sql)).toContain("requirementId");
-      expect(parameters?.[0]).toEqual([12]);
+      expect(requirementIds).toEqual([12]);
     });
 
     it("reports a requirement that does not exist", async () => {
@@ -471,6 +474,55 @@ describe("organiser overflow work service", () => {
         harness.service.updateOverflowWork(4, updateInput),
       ).rejects.toMatchObject({ status: 404, code: "COURSE_NOT_FOUND" });
       expect(harness.transaction.overflowWork.updateMany).not.toHaveBeenCalled();
+    });
+
+    it("revalidates the source requirement link on edit", async () => {
+      harness = createHarness({
+        overflowWork: row({ sourceRequirementId: 12 }),
+      });
+
+      await expect(
+        harness.service.updateOverflowWork(4, {
+          ...updateInput,
+          courseId: 9,
+        }),
+      ).rejects.toMatchObject({
+        status: 409,
+        code: "OVERFLOW_SOURCE_MISMATCH",
+      });
+      expect(harness.transaction.overflowWork.updateMany).not.toHaveBeenCalled();
+    });
+
+    it("refuses edited hours that exceed the current shortage", async () => {
+      harness = createHarness({
+        overflowWork: row({ sourceRequirementId: 12 }),
+        assignedHours: 5,
+      });
+
+      await expect(
+        harness.service.updateOverflowWork(4, {
+          ...updateInput,
+          hours: 4,
+        }),
+      ).rejects.toMatchObject({
+        status: 409,
+        code: "OVERFLOW_SOURCE_HOURS",
+        message: "Only 3 hours of that staffing requirement are still unfilled.",
+      });
+    });
+
+    it("allows edits that stay within the current shortage", async () => {
+      harness = createHarness({
+        overflowWork: row({ sourceRequirementId: 12 }),
+        assignedHours: 5,
+      });
+
+      await expect(
+        harness.service.updateOverflowWork(4, {
+          ...updateInput,
+          hours: 3,
+        }),
+      ).resolves.toMatchObject({ id: 4 });
     });
   });
 
