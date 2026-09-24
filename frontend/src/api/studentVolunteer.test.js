@@ -1,5 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { getVolunteerRequests, volunteerForWork } from './studentVolunteer'
+import {
+  getVolunteerRequests,
+  volunteerForWork,
+  withdrawVolunteerRequest,
+} from './studentVolunteer'
 import { fetchWithBearerToken } from './client'
 
 vi.mock('./client', () => ({
@@ -69,5 +73,59 @@ describe('student volunteer API', () => {
     fetchWithBearerToken.mockResolvedValue(body)
 
     await expect(action(vi.fn())).rejects.toThrow(/agreed contract/i)
+  })
+
+  it('withdraws the signed-in student request through the existing PATCH route', async () => {
+    const request = {
+      id: 21,
+      overflowWorkId: 4,
+      status: 'WITHDRAWN',
+      reviewReason: null,
+      createdAt: '2030-09-01T08:00:00.000Z',
+      updatedAt: '2030-09-02T09:30:00.000Z',
+    }
+    fetchWithBearerToken.mockResolvedValue({
+      data: { volunteerRequest: request },
+    })
+
+    await expect(withdrawVolunteerRequest(21, vi.fn())).resolves.toEqual(request)
+    expect(fetchWithBearerToken).toHaveBeenCalledWith(
+      '/api/student/volunteer-requests/21/withdraw',
+      { method: 'PATCH' },
+      expect.any(Function),
+    )
+  })
+
+  it.each([
+    [{ data: {} }],
+    [{ data: { volunteerRequest: { id: 21, overflowWorkId: 4 } } }],
+    [
+      {
+        data: {
+          volunteerRequest: {
+            id: 21,
+            overflowWorkId: 4,
+            status: 'PENDING',
+          },
+        },
+      },
+    ],
+    [
+      {
+        data: {
+          volunteerRequest: {
+            id: 99,
+            overflowWorkId: 4,
+            status: 'WITHDRAWN',
+          },
+        },
+      },
+    ],
+  ])('rejects an invalid withdrawal response %#', async (body) => {
+    fetchWithBearerToken.mockResolvedValue(body)
+
+    await expect(withdrawVolunteerRequest(21, vi.fn())).rejects.toThrow(
+      /agreed contract/i,
+    )
   })
 })

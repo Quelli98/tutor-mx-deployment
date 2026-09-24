@@ -70,11 +70,24 @@ const rejectedRequest = {
   reviewReason: 'Another student was selected.',
 }
 
+const withdrawnRequest = {
+  id: 24,
+  overflowWorkId: 7,
+  courseCode: 'DEMO303',
+  courseName: 'Third Course',
+  startsAt: '2026-08-25T13:00:00.000Z',
+  endsAt: '2026-08-25T15:00:00.000Z',
+  hours: 2,
+  status: 'WITHDRAWN',
+  reviewReason: null,
+}
+
 function renderPage(
   loadWorkItems,
   claimWork,
   loadRequests = vi.fn().mockResolvedValue([]),
   loadHolidays = vi.fn().mockResolvedValue({ source: 'external', holidays: [], retrievedAt: null }),
+  withdrawRequest,
 ) {
   render(
     <MemoryRouter>
@@ -83,6 +96,7 @@ function renderPage(
         claimWork={claimWork}
         loadRequests={loadRequests}
         loadHolidays={loadHolidays}
+        withdrawRequest={withdrawRequest}
       />
     </MemoryRouter>,
   )
@@ -533,5 +547,293 @@ describe('StudentOverflow', () => {
       await screen.findByRole('heading', { name: 'Volunteer request successful' }),
     ).toBeInTheDocument()
     expect(claimWork).toHaveBeenCalledTimes(1)
+  })
+
+  it('offers a withdraw action only for pending requests', async () => {
+    const loadRequests = vi
+      .fn()
+      .mockResolvedValue([
+        pendingRequest,
+        approvedRequest,
+        rejectedRequest,
+        withdrawnRequest,
+      ])
+
+    renderPage(vi.fn().mockResolvedValue([openWork]), undefined, loadRequests)
+
+    await screen.findByText('Pending')
+
+    const withdrawButtons = screen.getAllByRole('button', { name: 'Withdraw' })
+    expect(withdrawButtons).toHaveLength(1)
+
+    const pendingCard = withdrawButtons[0].closest('article')
+    expect(within(pendingCard).getByText('DEMO101')).toBeInTheDocument()
+
+    expect(screen.getByText('Approved')).toBeInTheDocument()
+    expect(screen.getByText('Rejected')).toBeInTheDocument()
+    expect(screen.getByText('Withdrawn')).toBeInTheDocument()
+  })
+
+  it('withdraws the pending request after confirmation and refreshes the server state', async () => {
+    const user = userEvent.setup()
+    const loadRequests = vi
+      .fn()
+      .mockResolvedValueOnce([pendingRequest])
+      .mockResolvedValue([withdrawnRequest])
+    const withdrawRequest = vi.fn().mockResolvedValue({
+      id: 21,
+      overflowWorkId: 4,
+      status: 'WITHDRAWN',
+      reviewReason: null,
+      createdAt: '2026-08-01T08:00:00.000Z',
+      updatedAt: '2026-08-01T09:00:00.000Z',
+    })
+
+    renderPage(
+      vi.fn().mockResolvedValue([openWork]),
+      undefined,
+      loadRequests,
+      undefined,
+      withdrawRequest,
+    )
+
+    await screen.findByText('Pending')
+
+    await user.click(screen.getByRole('button', { name: 'Withdraw' }))
+
+    const dialog = screen.getByRole('dialog')
+    expect(
+      within(dialog).getByRole('heading', { name: 'Confirm withdrawal' }),
+    ).toBeInTheDocument()
+    expect(
+      within(dialog).getByText(/are you sure you want to withdraw/i),
+    ).toBeInTheDocument()
+    expect(within(dialog).getByText(/DEMO101 — Demo Course/i)).toBeInTheDocument()
+    expect(within(dialog).getByText('2 hours')).toBeInTheDocument()
+
+    await user.click(within(dialog).getByRole('button', { name: 'Withdraw' }))
+
+    await waitFor(() => {
+      expect(withdrawRequest).toHaveBeenCalledTimes(1)
+    })
+    expect(withdrawRequest).toHaveBeenCalledWith(21)
+
+    expect(
+      await screen.findByRole('heading', { name: 'Volunteer request withdrawn' }),
+    ).toBeInTheDocument()
+    expect(
+      await screen.findByText(/your volunteer request for demo101 has been withdrawn/i),
+    ).toBeInTheDocument()
+
+    expect(await screen.findByText('Withdrawn')).toBeInTheDocument()
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: 'Withdraw' }),
+    ).not.toBeInTheDocument()
+    expect(loadRequests).toHaveBeenCalledTimes(2)
+  })
+
+  it('leaves the pending request untouched when the withdrawal is cancelled', async () => {
+    const user = userEvent.setup()
+    const loadRequests = vi.fn().mockResolvedValue([pendingRequest])
+    const withdrawRequest = vi.fn()
+
+    renderPage(
+      vi.fn().mockResolvedValue([openWork]),
+      undefined,
+      loadRequests,
+      undefined,
+      withdrawRequest,
+    )
+
+    await screen.findByText('Pending')
+
+    await user.click(screen.getByRole('button', { name: 'Withdraw' }))
+    await user.click(
+      within(screen.getByRole('dialog')).getByRole('button', { name: 'Cancel' }),
+    )
+
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    expect(withdrawRequest).not.toHaveBeenCalled()
+    expect(screen.getByText('Pending')).toBeInTheDocument()
+    expect(loadRequests).toHaveBeenCalledTimes(1)
+  })
+
+  it('prevents duplicate withdrawal requests while one is in flight', async () => {
+    const user = userEvent.setup()
+    const loadRequests = vi
+      .fn()
+      .mockResolvedValueOnce([pendingRequest])
+      .mockResolvedValue([withdrawnRequest])
+
+    let resolveWithdraw
+    const withdrawPromise = new Promise((resolve) => {
+      resolveWithdraw = resolve
+    })
+    const withdrawRequest = vi.fn().mockReturnValue(withdrawPromise)
+
+    renderPage(
+      vi.fn().mockResolvedValue([openWork]),
+      undefined,
+      loadRequests,
+      undefined,
+      withdrawRequest,
+    )
+
+    await screen.findByText('Pending')
+
+    await user.click(screen.getByRole('button', { name: 'Withdraw' }))
+
+    const dialog = screen.getByRole('dialog')
+    await user.click(within(dialog).getByRole('button', { name: 'Withdraw' }))
+
+    const inFlightButton = within(dialog).getByRole('button', {
+      name: 'Confirming...',
+    })
+    expect(inFlightButton).toBeDisabled()
+
+    await user.click(inFlightButton)
+
+    expect(withdrawRequest).toHaveBeenCalledTimes(1)
+
+    resolveWithdraw({
+      id: 21,
+      overflowWorkId: 4,
+      status: 'WITHDRAWN',
+      reviewReason: null,
+      updatedAt: '2026-08-01T09:00:00.000Z',
+    })
+
+    expect(
+      await screen.findByRole('heading', { name: 'Volunteer request withdrawn' }),
+    ).toBeInTheDocument()
+    expect(loadRequests).toHaveBeenCalledTimes(2)
+  })
+
+  it('refreshes and explains when the server reports a stale withdrawal conflict', async () => {
+    const user = userEvent.setup()
+    const error = new Error('The volunteer request conflicts with the current work or request state.')
+    error.code = 'VOLUNTEER_REQUEST_CONFLICT'
+    error.status = 409
+
+    const loadRequests = vi
+      .fn()
+      .mockResolvedValueOnce([pendingRequest])
+      .mockResolvedValue([approvedRequest])
+
+    renderPage(
+      vi.fn().mockResolvedValue([openWork]),
+      undefined,
+      loadRequests,
+      undefined,
+      vi.fn().mockRejectedValue(error),
+    )
+
+    await screen.findByText('Pending')
+
+    await user.click(screen.getByRole('button', { name: 'Withdraw' }))
+    await user.click(
+      within(screen.getByRole('dialog')).getByRole('button', { name: 'Withdraw' }),
+    )
+
+    expect(
+      await screen.findByRole('heading', { name: 'Withdrawal unsuccessful' }),
+    ).toBeInTheDocument()
+    expect(screen.getByText(/changed on the server/i)).toBeInTheDocument()
+
+    expect(await screen.findByText('Approved')).toBeInTheDocument()
+    expect(screen.queryByText('Pending')).not.toBeInTheDocument()
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: 'Withdraw' }),
+    ).not.toBeInTheDocument()
+    expect(loadRequests).toHaveBeenCalledTimes(2)
+  })
+
+  it('refreshes and explains when the request no longer exists', async () => {
+    const user = userEvent.setup()
+    const error = new Error('The volunteer request could not be found.')
+    error.code = 'VOLUNTEER_REQUEST_NOT_FOUND'
+    error.status = 404
+
+    const loadRequests = vi
+      .fn()
+      .mockResolvedValueOnce([pendingRequest])
+      .mockResolvedValue([])
+
+    renderPage(
+      vi.fn().mockResolvedValue([openWork]),
+      undefined,
+      loadRequests,
+      undefined,
+      vi.fn().mockRejectedValue(error),
+    )
+
+    await screen.findByText('Pending')
+
+    await user.click(screen.getByRole('button', { name: 'Withdraw' }))
+    await user.click(
+      within(screen.getByRole('dialog')).getByRole('button', { name: 'Withdraw' }),
+    )
+
+    expect(
+      await screen.findByRole('heading', { name: 'Withdrawal unsuccessful' }),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByText(/no longer available to withdraw/i),
+    ).toBeInTheDocument()
+
+    expect(
+      await screen.findByText(/have not submitted any volunteer requests yet/i),
+    ).toBeInTheDocument()
+    expect(loadRequests).toHaveBeenCalledTimes(2)
+  })
+
+  it('shows a safe error and allows retrying when the withdrawal fails unexpectedly', async () => {
+    const user = userEvent.setup()
+    const loadRequests = vi
+      .fn()
+      .mockResolvedValueOnce([pendingRequest])
+      .mockResolvedValue([withdrawnRequest])
+    const withdrawRequest = vi
+      .fn()
+      .mockRejectedValueOnce(new Error('Database connection failed'))
+      .mockResolvedValueOnce({
+        id: 21,
+        overflowWorkId: 4,
+        status: 'WITHDRAWN',
+        reviewReason: null,
+        updatedAt: '2026-08-01T09:00:00.000Z',
+      })
+
+    renderPage(
+      vi.fn().mockResolvedValue([openWork]),
+      undefined,
+      loadRequests,
+      undefined,
+      withdrawRequest,
+    )
+
+    await screen.findByText('Pending')
+
+    await user.click(screen.getByRole('button', { name: 'Withdraw' }))
+    await user.click(
+      within(screen.getByRole('dialog')).getByRole('button', { name: 'Withdraw' }),
+    )
+
+    expect(
+      await screen.findByRole('heading', { name: 'Withdrawal unsuccessful' }),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByText(/could not withdraw this request/i),
+    ).toBeInTheDocument()
+    expect(screen.queryByText(/database connection failed/i)).not.toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Retry' }))
+
+    expect(
+      await screen.findByRole('heading', { name: 'Volunteer request withdrawn' }),
+    ).toBeInTheDocument()
+    expect(withdrawRequest).toHaveBeenCalledTimes(2)
   })
 })
