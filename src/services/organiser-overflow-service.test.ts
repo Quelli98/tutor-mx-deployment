@@ -491,14 +491,17 @@ describe("organiser overflow work service", () => {
       expect(summary.status).toBe("CLOSED");
     });
 
-    it("closes filled work, which still had open places", async () => {
+    it("refuses to close filled work (terminal state)", async () => {
       harness.transaction.overflowWork.findUnique
-        .mockResolvedValueOnce(row({ status: "FILLED" }))
-        .mockResolvedValueOnce(row({ status: "CLOSED" }));
+        .mockResolvedValueOnce(row({ status: "FILLED" }));
 
       await expect(
         harness.service.closeOverflowWork(4, { expectedUpdatedAt: VERSION }),
-      ).resolves.toMatchObject({ status: "CLOSED" });
+      ).rejects.toMatchObject({
+        status: 409,
+        code: "OVERFLOW_WORK_CONFLICT",
+        message: "This overflow work has an accepted student and cannot be closed.",
+      });
     });
 
     it.each(["CLOSED", "CANCELLED"])(

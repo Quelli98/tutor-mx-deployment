@@ -342,10 +342,10 @@ export function createOrganiserOverflowWorkService(
     },
 
     /**
-     * Closing is the explicit end state: an OPEN or FILLED item becomes CLOSED
-     * and drops out of the student open-work read. Pending claims are refused
-     * first, so no student is left holding a claim whose approval could never
-     * succeed.
+     * Closing is the explicit end state: an OPEN item becomes CLOSED and drops
+     * out of the student open-work read. Pending claims are refused first, so
+     * no student is left holding a claim whose approval could never succeed.
+     * FILLED is terminal: once a student is accepted, the work cannot be closed.
      */
     async closeOverflowWork(overflowWorkId, input) {
       return client.$transaction(
@@ -361,11 +361,13 @@ export function createOrganiserOverflowWorkService(
               "The requested overflow work could not be found.",
             );
           }
-          if (current.status !== "OPEN" && current.status !== "FILLED") {
+          if (current.status !== "OPEN") {
             throw createRouteError(
               409,
               "OVERFLOW_WORK_CONFLICT",
-              "This overflow work is already closed.",
+              current.status === "FILLED"
+                ? "This overflow work has an accepted student and cannot be closed."
+                : "This overflow work is already closed.",
             );
           }
 

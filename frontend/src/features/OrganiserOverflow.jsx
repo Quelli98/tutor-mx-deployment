@@ -703,7 +703,7 @@ export default function OrganiserOverflow() {
                 {overflowWork.map((work) => {
                   const name = `${work.courseCode} on ${formatDateTime(work.startsAt)}`
                   const isEditable = work.status === 'OPEN'
-                  const canClose = work.status === 'OPEN' || work.status === 'FILLED'
+                  const canClose = work.status === 'OPEN'
 
                   return (
                     <tr key={work.id}>
