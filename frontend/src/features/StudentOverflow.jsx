@@ -380,7 +380,7 @@ export function StudentOverflow({ loadWorkItems, claimWork, loadRequests, loadHo
             const withdrawn = await resolvedWithdrawRequest(withdrawTarget.id)
 
             // Show the server-confirmed withdrawal straight away, then refresh
-            // the persisted requests so stale local state cannot survive.
+            // both work items and requests so stale local state cannot survive.
             setRequests((currentRequests) =>
                 currentRequests.map((request) =>
                     request.id === withdrawn.id
@@ -397,25 +397,39 @@ export function StudentOverflow({ loadWorkItems, claimWork, loadRequests, loadHo
             setWithdrawMessage(
                 `Your volunteer request for ${withdrawTarget.courseCode} has been withdrawn.`,
             )
-            await loadRequestsList()
+            // Refresh both lists; if either fails, keep the server-confirmed outcome
+            // but do not claim the refresh succeeded.
+            try {
+                await Promise.all([loadWork(), loadRequestsList()])
+            } catch {
+                // Refresh failed but withdrawal succeeded; outcome message is already shown
+            }
         } catch (error) {
             if (error?.code === 'VOLUNTEER_REQUEST_CONFLICT') {
                 setWithdrawStatus('error')
                 setWithdrawMessage(
-                    'This request changed on the server, for example an organiser already approved or rejected it. The latest requests have been loaded.',
+                    'This request changed on the server, for example an organiser already approved or rejected it. The latest lists have been loaded.',
                 )
                 setWithdrawTarget(null)
-                await loadRequestsList()
+                try {
+                    await Promise.all([loadWork(), loadRequestsList()])
+                } catch {
+                    // Refresh failed; error message is already shown
+                }
                 return
             }
 
             if (error?.code === 'VOLUNTEER_REQUEST_NOT_FOUND') {
                 setWithdrawStatus('error')
                 setWithdrawMessage(
-                    'This request is no longer available to withdraw. The latest requests have been loaded.',
+                    'This request is no longer available to withdraw. The latest lists have been loaded.',
                 )
                 setWithdrawTarget(null)
-                await loadRequestsList()
+                try {
+                    await Promise.all([loadWork(), loadRequestsList()])
+                } catch {
+                    // Refresh failed; error message is already shown
+                }
                 return
             }
 
