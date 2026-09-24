@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { getStudentOverflowWork } from '../api/studentOverflow'
 import { EmptyState, ErrorState, LoadingState, SuccessState } from '../components/shared/StatusMessage'
-import { getVolunteerRequests, volunteerForWork } from '../api/studentVolunteer'
+import { getVolunteerRequests, volunteerForWork, withdrawVolunteerRequest } from '../api/studentVolunteer'
 import { getPublicHolidays } from '../api/publicHolidays'
 import { ConfirmationDialog } from '../components/shared/ConfirmationDialog'
 import { useApiToken } from '../api/client'
@@ -82,7 +82,7 @@ function WorkCard({ work, onVolunteer }) {
     )
 }
 
-function RequestCard({ request }) {
+function RequestCard({ request, onWithdraw }) {
     return (
         <article className="work-card">
             <div className="work-card-header">
@@ -116,11 +116,15 @@ function RequestCard({ request }) {
                     </div>
                 ) : null}
             </dl>
+
+            {request.status === 'PENDING' ? (
+                <button type="button" className="secondary-button" onClick={() => onWithdraw(request)}>Withdraw</button>
+            ) : null}
         </article>
     )
 }
 
-export function StudentOverflow({ loadWorkItems, claimWork, loadRequests, loadHolidays }) {
+export function StudentOverflow({ loadWorkItems, claimWork, loadRequests, loadHolidays, withdrawRequest }) {
     const tokenOrGetter = useApiToken()
 
     const defaultLoadWorkItems = useCallback(
@@ -143,10 +147,16 @@ export function StudentOverflow({ loadWorkItems, claimWork, loadRequests, loadHo
         [tokenOrGetter],
     )
 
+    const defaultWithdrawRequest = useCallback(
+        (requestId) => withdrawVolunteerRequest(requestId, tokenOrGetter),
+        [tokenOrGetter],
+    )
+
     const resolvedLoadWorkItems = loadWorkItems ?? defaultLoadWorkItems
     const resolvedClaimWork = claimWork ?? defaultClaimWork
     const resolvedLoadRequests = loadRequests ?? defaultLoadRequests
     const resolvedLoadHolidays = loadHolidays ?? defaultLoadHolidays
+    const resolvedWithdrawRequest = withdrawRequest ?? defaultWithdrawRequest
 
     const [workItems, setWorkItems] = useState([])
     const [status, setStatus] = useState('loading')
@@ -158,6 +168,10 @@ export function StudentOverflow({ loadWorkItems, claimWork, loadRequests, loadHo
     const [selectedWork, setSelectedWork] = useState(null)
     const [claimStatus, setClaimStatus] = useState('idle')
     const [claimMessage, setClaimMessage] = useState('')
+
+    const [withdrawTarget, setWithdrawTarget] = useState(null)
+    const [withdrawStatus, setWithdrawStatus] = useState('idle')
+    const [withdrawMessage, setWithdrawMessage] = useState('')
 
     const [holidays, setHolidays] = useState([])
     const [holidaysStatus, setHolidaysStatus] = useState('idle')
@@ -308,6 +322,84 @@ export function StudentOverflow({ loadWorkItems, claimWork, loadRequests, loadHo
         }
     }
 
+    const handleWithdraw = (request) => {
+        if (request.status !== 'PENDING' || withdrawStatus === 'pending') {
+            return
+        }
+
+        setWithdrawTarget(request)
+        setWithdrawStatus('idle')
+        setWithdrawMessage('')
+    }
+
+    const handleCancelWithdraw = () => {
+        if (withdrawStatus === 'pending') {
+            return
+        }
+
+        setWithdrawTarget(null)
+        setWithdrawStatus('idle')
+        setWithdrawMessage('')
+    }
+
+    const handleConfirmWithdraw = async () => {
+        if (!withdrawTarget || withdrawStatus === 'pending') {
+            return
+        }
+
+        setWithdrawStatus('pending')
+        setWithdrawMessage('')
+
+        try {
+            const withdrawn = await resolvedWithdrawRequest(withdrawTarget.id)
+
+            // Show the server-confirmed withdrawal straight away, then refresh
+            // the persisted requests so stale local state cannot survive.
+            setRequests((currentRequests) =>
+                currentRequests.map((request) =>
+                    request.id === withdrawn.id
+                        ? {
+                              ...request,
+                              status: withdrawn.status,
+                              reviewReason: withdrawn.reviewReason,
+                              updatedAt: withdrawn.updatedAt,
+                          }
+                        : request,
+                ),
+            )
+            setWithdrawStatus('success')
+            setWithdrawMessage(
+                `Your volunteer request for ${withdrawTarget.courseCode} has been withdrawn.`,
+            )
+            await loadRequestsList()
+        } catch (error) {
+            if (error?.code === 'VOLUNTEER_REQUEST_CONFLICT') {
+                setWithdrawStatus('error')
+                setWithdrawMessage(
+                    'This request changed on the server, for example an organiser already approved or rejected it. The latest requests have been loaded.',
+                )
+                setWithdrawTarget(null)
+                await loadRequestsList()
+                return
+            }
+
+            if (error?.code === 'VOLUNTEER_REQUEST_NOT_FOUND') {
+                setWithdrawStatus('error')
+                setWithdrawMessage(
+                    'This request is no longer available to withdraw. The latest requests have been loaded.',
+                )
+                setWithdrawTarget(null)
+                await loadRequestsList()
+                return
+            }
+
+            setWithdrawStatus('error')
+            setWithdrawMessage(
+                'We could not withdraw this request. Please try again.',
+            )
+        }
+    }
+
     const hasClosedWork = workItems.some((work) => work.status !== 'OPEN')
     const visibleHolidays = upcomingHolidays(holidays)
 
@@ -376,7 +468,7 @@ export function StudentOverflow({ loadWorkItems, claimWork, loadRequests, loadHo
                 {requestsStatus === 'success' && requests.length > 0 && (
                     <div className="work-list">
                         {requests.map((request) => (
-                            <RequestCard key={request.id} request={request} />))}
+                            <RequestCard key={request.id} request={request} onWithdraw={handleWithdraw} />))}
                     </div>
                 )}
 
@@ -395,6 +487,18 @@ export function StudentOverflow({ loadWorkItems, claimWork, loadRequests, loadHo
                     </div>
                 )}
             </section>
+
+            {withdrawStatus === 'success' && (
+                <SuccessState title="Volunteer request withdrawn" message={withdrawMessage} />
+            )}
+
+            {withdrawStatus === 'error' && (
+                <ErrorState
+                    title="Withdrawal unsuccessful"
+                    message={withdrawMessage}
+                    onRetry={withdrawTarget ? handleConfirmWithdraw : undefined}
+                />
+            )}
 
             {status === 'success' && (
                 <section className="public-holidays-section" aria-label="Upcoming public holidays">
@@ -478,6 +582,37 @@ export function StudentOverflow({ loadWorkItems, claimWork, loadRequests, loadHo
                     <div>
                         <dt>Expected hours</dt>
                         <dd>{selectedWork.hours} hours</dd>
+                    </div>
+                </dl>
+
+                </ConfirmationDialog>
+            )}
+
+            {withdrawTarget && withdrawStatus !== 'success' && (
+                <ConfirmationDialog
+                    open
+                    title="Confirm withdrawal"
+                    confirmLabel="Withdraw"
+                    onConfirm={handleConfirmWithdraw}
+                    onCancel={handleCancelWithdraw}
+                    isPending={withdrawStatus === 'pending'}
+                >
+                <p> Are you sure you want to withdraw this volunteer request? </p>
+
+                <dl className="confirmation-details">
+                    <div>
+                        <dt>Course</dt>
+                        <dd> {withdrawTarget.courseCode} —{' '} {withdrawTarget.courseName} </dd>
+                    </div>
+
+                    <div>
+                        <dt>Date and time</dt>
+                        <dd> {formatDateTime(withdrawTarget.startsAt)} –{' '} {formatDateTime(withdrawTarget.endsAt)} </dd>
+                    </div>
+
+                    <div>
+                        <dt>Expected hours</dt>
+                        <dd>{withdrawTarget.hours} hours</dd>
                     </div>
                 </dl>
 
