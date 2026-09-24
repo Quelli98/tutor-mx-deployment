@@ -36,3 +36,23 @@ export async function volunteerForWork(overflowWorkId, tokenOrGetter) {
 
   return volunteerRequest
 }
+
+export async function withdrawVolunteerRequest(requestId, tokenOrGetter) {
+  const body = await fetchWithBearerToken(
+    `/api/student/volunteer-requests/${requestId}/withdraw`,
+    { method: 'PATCH' },
+    tokenOrGetter,
+  )
+  const volunteerRequest = body?.data?.volunteerRequest
+
+  if (
+    !volunteerRequest ||
+    volunteerRequest.id !== requestId ||
+    !Number.isInteger(volunteerRequest.overflowWorkId) ||
+    volunteerRequest.status !== 'WITHDRAWN'
+  ) {
+    throw new Error('The volunteer-request response did not match the agreed contract.')
+  }
+
+  return volunteerRequest
+}
