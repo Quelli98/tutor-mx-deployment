@@ -823,7 +823,7 @@ export interface AppDependencies {
   listOrganiserOverflowWork?: () => Promise<OrganiserOverflowWorkSummary[]>;
   createOrganiserOverflowWork?: (
     input: OrganiserOverflowWorkCreateInput,
-  ) => Promise<OrganiserOverflowWorkSummary>;
+  ) => Promise<OrganiserOverflowWorkSummary[]>;
   updateOrganiserOverflowWork?: (
     overflowWorkId: number,
     input: OrganiserOverflowWorkUpdateInput,

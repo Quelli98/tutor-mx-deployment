@@ -351,7 +351,8 @@ model OverflowWork {
   id                  Int                   @id @default(autoincrement())
   courseId            Int
   sourceAllocationId  Int?                  @unique
-  sourceRequirementId Int?                  @unique
+  sourceRequirementId Int?
+  slotIndex           Int?
   startsAt            DateTime
   endsAt              DateTime
   hours               Decimal               @db.Decimal(5, 2)
@@ -364,8 +365,10 @@ model OverflowWork {
   createdAt           DateTime              @default(now())
   updatedAt           DateTime              @updatedAt
 
+  @@unique([sourceRequirementId, slotIndex])
   @@index([status, startsAt, closesAt])
   @@index([courseId, status, startsAt])
+  @@index([sourceRequirementId, status])
 }
 
 model VolunteerClaim {
@@ -395,7 +398,7 @@ model StaffingRequirement {
   createdById   Int?
   course        Course                    @relation(fields: [courseId], references: [id], onDelete: Restrict)
   createdBy     Profile?                  @relation(fields: [createdById], references: [id], onDelete: SetNull)
-  overflowWork  OverflowWork?
+  overflowWork  OverflowWork[]
   createdAt     DateTime                  @default(now())
   updatedAt     DateTime                  @updatedAt
 

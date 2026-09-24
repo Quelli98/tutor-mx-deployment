@@ -36,6 +36,14 @@ function overflowWorkFrom(body) {
   return overflowWork
 }
 
+function overflowWorkArrayFrom(body) {
+  const overflowWork = body?.data?.overflowWork
+  if (!Array.isArray(overflowWork) || !overflowWork.every(isOverflowWork)) {
+    throw new Error('The overflow work response did not match the agreed contract.')
+  }
+  return overflowWork
+}
+
 function overflowWorkBody(input, extra = {}) {
   return JSON.stringify({
     courseId: input.courseId,
@@ -71,7 +79,7 @@ export async function createOrganiserOverflowWork(input, tokenOrGetter) {
     },
     tokenOrGetter,
   )
-  return overflowWorkFrom(body)
+  return overflowWorkArrayFrom(body)
 }
 
 export async function updateOrganiserOverflowWork(input, tokenOrGetter) {

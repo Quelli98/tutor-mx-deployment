@@ -17,6 +17,7 @@ function row(overrides: Record<string, unknown> = {}) {
     status: "OPEN",
     closesAt: null,
     sourceRequirementId: null,
+    slotIndex: null,
     createdAt: new Date("2026-09-20T09:00:00.000Z"),
     updatedAt: VERSION,
     course: { code: "COMS3011", name: "Software Design Project" },
@@ -64,9 +65,22 @@ function createHarness(options: HarnessOptions = {}) {
       findUnique: vi.fn().mockResolvedValue(requirement),
     },
     overflowWork: {
-      findMany: vi.fn().mockResolvedValue([overflowWork]),
+      findMany: vi.fn().mockImplementation((args?: { where?: unknown }) => {
+        // When checking for existing items during create, return empty array
+        if (args?.where) {
+          return Promise.resolve([]);
+        }
+        // When listing all items, return the mock row
+        return Promise.resolve([overflowWork]);
+      }),
       findUnique: vi.fn().mockResolvedValue(overflowWork),
-      create: vi.fn().mockResolvedValue(row()),
+      create: vi.fn().mockImplementation((args: { data: Record<string, unknown> }) =>
+        Promise.resolve(row({
+          sourceRequirementId: args.data.sourceRequirementId ?? null,
+          slotIndex: args.data.slotIndex ?? null,
+          hours: args.data.hours ?? 4,
+        }))
+      ),
       updateMany: vi.fn().mockResolvedValue({ count: updateCount }),
     },
     $queryRawUnsafe: vi.fn(async (_sql: string, requirementIds?: number[]) =>
@@ -190,7 +204,7 @@ describe("organiser overflow work service", () => {
 
   describe("posting by hand", () => {
     it("creates the item without a source requirement", async () => {
-      const summary = await harness.service.createOverflowWork(createInput);
+      const summaries = await harness.service.createOverflowWork(createInput);
 
       expect(harness.transaction.overflowWork.create).toHaveBeenCalledWith({
         data: {
@@ -200,13 +214,15 @@ describe("organiser overflow work service", () => {
           hours: 4,
           closesAt: null,
           sourceRequirementId: null,
+          slotIndex: undefined,
         },
         include: {
           course: { select: { code: true, name: true } },
           volunteerClaims: { select: { status: true } },
         },
       });
-      expect(summary.sourceRequirementId).toBeNull();
+      expect(summaries).toHaveLength(1);
+      expect(summaries[0].sourceRequirementId).toBeNull();
       expect(harness.client.$transaction).toHaveBeenCalledWith(
         expect.any(Function),
         { isolationLevel: "Serializable" },
@@ -322,32 +338,34 @@ describe("organiser overflow work service", () => {
       expect(harness.transaction.overflowWork.create).not.toHaveBeenCalled();
     });
 
-    it("refuses more hours than are still unfilled", async () => {
-      harness = createHarness({ assignedHours: 5 });
+    it("creates multiple items for multi-tutor shortages, each no larger than the window", async () => {
+      // 2 tutors needed, 4-hour window, 0 assigned = 8 tutor-hours shortage
+      // Should create 2 items, each with 4 hours (one per tutor slot)
+      harness = createHarness({ assignedHours: 0 });
 
-      await expect(
-        harness.service.createOverflowWork({
-          ...createInput,
-          hours: 4,
-          sourceRequirementId: 12,
-        }),
-      ).rejects.toMatchObject({
-        status: 409,
-        code: "OVERFLOW_SOURCE_HOURS",
-        message: "Only 3 hours of that staffing requirement are still unfilled.",
+      const summaries = await harness.service.createOverflowWork({
+        ...createInput,
+        sourceRequirementId: 12,
       });
+
+      expect(summaries).toHaveLength(2);
+      expect(summaries[0]).toMatchObject({ hours: 4, sourceRequirementId: 12 });
+      expect(summaries[1]).toMatchObject({ hours: 4, sourceRequirementId: 12 });
+      expect(harness.transaction.overflowWork.create).toHaveBeenCalledTimes(2);
     });
 
-    it("allows an exact conversion of the remaining shortage", async () => {
+    it("creates a partial final item when the shortage is not a multiple of the window", async () => {
+      // 2 tutors needed, 4-hour window, 5 assigned = 8-5 = 3 tutor-hours shortage
+      // Should create 1 item with 3 hours (partial slot)
       harness = createHarness({ assignedHours: 5 });
 
-      await expect(
-        harness.service.createOverflowWork({
-          ...createInput,
-          hours: 3,
-          sourceRequirementId: 12,
-        }),
-      ).resolves.toMatchObject({ id: 4 });
+      const summaries = await harness.service.createOverflowWork({
+        ...createInput,
+        sourceRequirementId: 12,
+      });
+
+      expect(summaries).toHaveLength(1);
+      expect(summaries[0]).toMatchObject({ hours: 3, sourceRequirementId: 12 });
     });
 
     it("maps the unique index violation to an already-sent conflict", async () => {

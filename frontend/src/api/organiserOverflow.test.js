@@ -60,7 +60,7 @@ describe('organiser overflow work API contract', () => {
   })
 
   it('posts work with no source requirement as an explicit null', async () => {
-    fetchWithBearerToken.mockResolvedValue({ data: { overflowWork } })
+    fetchWithBearerToken.mockResolvedValue({ data: { overflowWork: [overflowWork] } })
 
     await createOrganiserOverflowWork(writeInput, tokenGetter)
 
@@ -75,7 +75,7 @@ describe('organiser overflow work API contract', () => {
   })
 
   it('keeps the source requirement when converting a shortage', async () => {
-    fetchWithBearerToken.mockResolvedValue({ data: { overflowWork } })
+    fetchWithBearerToken.mockResolvedValue({ data: { overflowWork: [overflowWork] } })
 
     await createOrganiserOverflowWork({ ...writeInput, sourceRequirementId: 12 }, tokenGetter)
 
@@ -147,8 +147,8 @@ describe('organiser overflow work API contract', () => {
     )
   })
 
-  it('rejects a single item that does not match the contract', async () => {
-    fetchWithBearerToken.mockResolvedValueOnce({ data: { overflowWork: { id: 4 } } })
+  it('rejects an array that does not match the contract', async () => {
+    fetchWithBearerToken.mockResolvedValueOnce({ data: { overflowWork: [{ id: 4 }] } })
 
     await expect(createOrganiserOverflowWork(writeInput, tokenGetter)).rejects.toThrow(
       /did not match the agreed contract/i,

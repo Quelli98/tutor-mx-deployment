@@ -23,7 +23,7 @@ export interface OrganiserOverflowWorkService {
   listOverflowWork(): Promise<OrganiserOverflowWorkSummary[]>;
   createOverflowWork(
     input: OrganiserOverflowWorkCreateInput,
-  ): Promise<OrganiserOverflowWorkSummary>;
+  ): Promise<OrganiserOverflowWorkSummary[]>;
   updateOverflowWork(
     overflowWorkId: number,
     input: OrganiserOverflowWorkUpdateInput,
@@ -48,6 +48,7 @@ interface OverflowWorkRow {
   status: OverflowWorkStatus;
   closesAt: Date | null;
   sourceRequirementId: number | null;
+  slotIndex: number | null;
   createdAt: Date;
   updatedAt: Date;
   course: { code: string; name: string };
@@ -125,10 +126,11 @@ export function createOrganiserOverflowWorkService(
     },
 
     /**
-     * Posting overflow. When a source requirement is given the item must be an
-     * exact conversion of it: same course, same window, and no more hours than
-     * are still unfilled. The link is stored, never derived, so the trace
-     * survives later edits to either side and cannot be invented by a client.
+     * Posting overflow. When a source requirement is given, create one overflow
+     * item per unfilled tutor slot: each slot is a separate opportunity for one
+     * student, with hours no more than the session length. The slotIndex tracks
+     * which tutor slot each item covers, and the composite unique constraint on
+     * (sourceRequirementId, slotIndex) prevents duplicate conversions.
      */
     async createOverflowWork(input) {
       try {
@@ -185,10 +187,10 @@ export function createOrganiserOverflowWorkService(
                 );
               }
 
-              // The shortage is the same read-time figure the staffing board
-              // shows: required tutor-hours minus the confirmed hours that
-              // overlap the window. Nothing is assigned by converting.
-              // Use the transaction connection to prevent race conditions.
+              const windowHours = windowHoursFor(
+                requirement.startsAt,
+                requirement.endsAt,
+              );
               const transactionQueryClient = {
                 async query<Row>(sql: string, parameters: unknown[] = []) {
                   const rows = await transaction.$queryRawUnsafe<Row[]>(sql, ...parameters);
@@ -218,15 +220,45 @@ export function createOrganiserOverflowWorkService(
                   "That staffing requirement is already covered, so it has nothing left to send to overflow.",
                 );
               }
-              if (input.hours > shortageHours + HOURS_TOLERANCE) {
-                throw createRouteError(
-                  409,
-                  "OVERFLOW_SOURCE_HOURS",
-                  `Only ${shortageHours} hours of that staffing requirement are still unfilled.`,
-                );
+
+              // Find the next available slotIndex by checking existing overflow items
+              const existingItems = await transaction.overflowWork.findMany({
+                where: { sourceRequirementId: requirement.id },
+                select: { slotIndex: true, status: true },
+              });
+              const maxSlotIndex = existingItems.reduce(
+                (max, item) => Math.max(max, item.slotIndex ?? -1),
+                -1,
+              );
+
+              // Create one overflow item per unfilled tutor slot
+              const createdItems: OverflowWorkRow[] = [];
+              let remainingShortage = shortageHours;
+              let slotIndex = maxSlotIndex + 1;
+
+              while (remainingShortage > HOURS_TOLERANCE) {
+                const hoursForSlot = Math.min(remainingShortage, windowHours);
+                const created = await transaction.overflowWork.create({
+                  data: {
+                    courseId: input.courseId,
+                    startsAt: input.startsAt,
+                    endsAt: input.endsAt,
+                    hours: hoursForSlot,
+                    closesAt: input.closesAt,
+                    sourceRequirementId: input.sourceRequirementId,
+                    slotIndex,
+                  },
+                  include: overflowWorkInclude,
+                });
+                createdItems.push(created as OverflowWorkRow);
+                remainingShortage = roundHours(remainingShortage - hoursForSlot);
+                slotIndex += 1;
               }
+
+              return createdItems.map(toOverflowWorkSummary);
             }
 
+            // Manual posting (no source requirement): create a single item
             const created = await transaction.overflowWork.create({
               data: {
                 courseId: input.courseId,
@@ -238,18 +270,18 @@ export function createOrganiserOverflowWorkService(
               },
               include: overflowWorkInclude,
             });
-            return toOverflowWorkSummary(created);
+            return [toOverflowWorkSummary(created)];
           },
           { isolationLevel: "Serializable" },
         );
       } catch (value) {
         // Two organisers converting the same requirement at once both pass the
-        // checks above; the unique index lets exactly one through.
+        // checks above; the composite unique index lets exactly one through per slot.
         if (isUniqueViolation(value)) {
           throw createRouteError(
             409,
             "OVERFLOW_SOURCE_ALREADY_SENT",
-            "That staffing requirement already has an overflow item.",
+            "That staffing requirement already has overflow items being created.",
           );
         }
         throw value;
