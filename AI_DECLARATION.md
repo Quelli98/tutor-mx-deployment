@@ -1,5 +1,11 @@
 # AI Development Declaration
 
+## Sprint 3 Member 4
+
+- Qoder[Auto tier; underlying model automatically routed] was used on 24 September 2026 for S3-M4-1 on branch `s3/m4/completion`: the Student withdrawal action for a pending volunteer request, wired to the existing withdrawal endpoint with the PENDING-only affordance, the confirmation dialog, the in-flight duplicate guard, refresh after a conflict and the accompanying client and component tests.
+
+- Qoder[Auto tier; underlying model automatically routed] was used on 24 September 2026 for S3-M4-2 on branch `s3/m4/completion`: the `sourceRequirementId` trace from overflow work back to the staffing requirement it was converted from, the organiser overflow service listing, posting, editing and closing that work inside Serializable transactions with `updatedAt` version checks and claim guards, the four ORGANISER routes, the overflow API client, the post/edit/close and send-to-overflow screen with its route and navigation entry, and the accompanying unit, route and component tests.
+
 ## Sprint 3 Member 3
 
 - Qoder[Auto tier; underlying model automatically routed] was used on 23 September 2026 to implement S3-M3-1, S3-M3-2 and S3-M3-3 on branch `s3/m3/completion`: the academic-term model, migration, seed and listing route; the CSV, paste and calendar-file timetable parser and its mapper onto the existing TimeSlot payload, with a preview route, an atomic commit route and the Tutor import card; the returned-timesheet correction, revision-history, declaration and dispute surface, with the database-enforced editability rule, the responsible-organiser notification and the timeline UI; the payroll CSV export and its reconciliation with the workload report; and the accompanying unit, route and schema-integration tests.
