@@ -177,4 +177,65 @@ describe('ConfirmationDialog', () => {
     await user.click(screen.getByRole('button', { name: 'Cancel' }))
     expect(opener).toHaveFocus()
   })
+
+  it('keeps Tab focus cycling inside the dialog', async () => {
+    const user = userEvent.setup()
+
+    render(
+      <ConfirmationDialog
+        open
+        title="Confirm volunteer"
+        onConfirm={vi.fn()}
+        onCancel={vi.fn()}
+      >
+        Confirmation details
+      </ConfirmationDialog>,
+    )
+
+    const cancelButton = screen.getByRole('button', { name: 'Cancel' })
+    const confirmButton = screen.getByRole('button', { name: 'Confirm' })
+    expect(cancelButton).toHaveFocus()
+
+    await user.tab()
+    expect(confirmButton).toHaveFocus()
+
+    // Tab past the last action wraps back to the first instead of walking
+    // into the page behind the modal.
+    await user.tab()
+    expect(cancelButton).toHaveFocus()
+
+    await user.tab({ shift: true })
+    expect(confirmButton).toHaveFocus()
+
+    await user.tab({ shift: true })
+    expect(cancelButton).toHaveFocus()
+  })
+
+  it('gives every open dialog its own accessible title', () => {
+    render(
+      <>
+        <ConfirmationDialog
+          open
+          title="First dialog"
+          onConfirm={vi.fn()}
+          onCancel={vi.fn()}
+        >
+          First details
+        </ConfirmationDialog>
+        <ConfirmationDialog
+          open
+          title="Second dialog"
+          onConfirm={vi.fn()}
+          onCancel={vi.fn()}
+        >
+          Second details
+        </ConfirmationDialog>
+      </>,
+    )
+
+    const dialogs = screen.getAllByRole('dialog')
+    expect(dialogs).toHaveLength(2)
+    expect(dialogs[0]).toHaveAccessibleName('First dialog')
+    expect(dialogs[1]).toHaveAccessibleName('Second dialog')
+  })
 })

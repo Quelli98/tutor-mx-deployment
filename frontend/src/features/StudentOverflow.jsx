@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { getStudentOverflowWork } from '../api/studentOverflow'
 import { EmptyState, ErrorState, LoadingState, SuccessState } from '../components/shared/StatusMessage'
 import { getVolunteerRequests, volunteerForWork, withdrawVolunteerRequest } from '../api/studentVolunteer'
@@ -178,6 +178,12 @@ export function StudentOverflow({ loadWorkItems, claimWork, loadRequests, loadHo
     const [holidaysSource, setHolidaysSource] = useState('external')
     const [holidaysRetrievedAt, setHolidaysRetrievedAt] = useState(null)
 
+    // When a confirmed action removes the button that opened the dialog, the
+    // shared dialog cannot restore focus to it, so the outcome message takes
+    // focus instead of leaving the keyboard user at the top of the document.
+    const claimStatusRef = useRef(null)
+    const withdrawStatusRef = useRef(null)
+
     const loadWork = useCallback(async () => {
         setStatus('loading')
         setErrorMessage('')
@@ -236,6 +242,26 @@ export function StudentOverflow({ loadWorkItems, claimWork, loadRequests, loadHo
         // eslint-disable-next-line react-hooks/set-state-in-effect
         loadHolidaysList()
     }, [loadHolidaysList])
+
+    useEffect(() => {
+        // A generic failure keeps the dialog open, and focus must stay in it;
+        // every other outcome hides the dialog, so the message takes focus.
+        if (
+            claimStatus === 'success' ||
+            (claimStatus === 'error' && !selectedWork)
+        ) {
+            claimStatusRef.current?.focus()
+        }
+    }, [claimStatus, selectedWork])
+
+    useEffect(() => {
+        if (
+            withdrawStatus === 'success' ||
+            (withdrawStatus === 'error' && !withdrawTarget)
+        ) {
+            withdrawStatusRef.current?.focus()
+        }
+    }, [withdrawStatus, withdrawTarget])
 
     const handleVolunteer = (work) => {
         if (work.status !== 'OPEN') {
@@ -489,15 +515,19 @@ export function StudentOverflow({ loadWorkItems, claimWork, loadRequests, loadHo
             </section>
 
             {withdrawStatus === 'success' && (
-                <SuccessState title="Volunteer request withdrawn" message={withdrawMessage} />
+                <div ref={withdrawStatusRef} tabIndex={-1}>
+                    <SuccessState title="Volunteer request withdrawn" message={withdrawMessage} />
+                </div>
             )}
 
             {withdrawStatus === 'error' && (
-                <ErrorState
-                    title="Withdrawal unsuccessful"
-                    message={withdrawMessage}
-                    onRetry={withdrawTarget ? handleConfirmWithdraw : undefined}
-                />
+                <div ref={withdrawStatusRef} tabIndex={-1}>
+                    <ErrorState
+                        title="Withdrawal unsuccessful"
+                        message={withdrawMessage}
+                        onRetry={withdrawTarget ? handleConfirmWithdraw : undefined}
+                    />
+                </div>
             )}
 
             {status === 'success' && (
@@ -553,15 +583,19 @@ export function StudentOverflow({ loadWorkItems, claimWork, loadRequests, loadHo
             )}
 
             {claimStatus === 'success' && (
-                <SuccessState title="Volunteer request successful" message={claimMessage} />
+                <div ref={claimStatusRef} tabIndex={-1}>
+                    <SuccessState title="Volunteer request successful" message={claimMessage} />
+                </div>
             )}
 
             {claimStatus === 'error' && (
-                <ErrorState
-                    title="Volunteer request unsuccessful"
-                    message={claimMessage}
-                    onRetry={selectedWork ? handleConfirmVolunteer : undefined}
-                />
+                <div ref={claimStatusRef} tabIndex={-1}>
+                    <ErrorState
+                        title="Volunteer request unsuccessful"
+                        message={claimMessage}
+                        onRetry={selectedWork ? handleConfirmVolunteer : undefined}
+                    />
+                </div>
             )}
 
             {selectedWork && claimStatus !== 'success' && (

@@ -213,10 +213,17 @@ describe('StudentOverflow', () => {
     expect(screen.getByRole('button', { name: 'Confirm' })).toHaveFocus()
     await user.keyboard('{Enter}')
 
-    expect(
-      await screen.findByRole('heading', { name: /volunteer request successful/i }),
-    ).toBeInTheDocument()
+    const successHeading = await screen.findByRole('heading', {
+      name: /volunteer request successful/i,
+    })
+    expect(successHeading).toBeInTheDocument()
     expect(claimWork).toHaveBeenCalledTimes(1)
+
+    // The work card disappears on success, so the outcome message is where
+    // the keyboard user continues instead of losing focus to the page body.
+    await waitFor(() => {
+      expect(document.activeElement).toContainElement(successHeading)
+    })
   })
 
   it('closes confirmation without making a claim when Cancel is clicked', async () => {
@@ -741,6 +748,15 @@ describe('StudentOverflow', () => {
     ).toBeInTheDocument()
     expect(screen.getByText(/changed on the server/i)).toBeInTheDocument()
 
+    // The Withdraw button is gone after the refresh, so the conflict message
+    // is announced in text and takes focus.
+    const errorHeading = screen.getByRole('heading', {
+      name: 'Withdrawal unsuccessful',
+    })
+    await waitFor(() => {
+      expect(document.activeElement).toContainElement(errorHeading)
+    })
+
     expect(await screen.findByText('Approved')).toBeInTheDocument()
     expect(screen.queryByText('Pending')).not.toBeInTheDocument()
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
@@ -835,5 +851,51 @@ describe('StudentOverflow', () => {
       await screen.findByRole('heading', { name: 'Volunteer request withdrawn' }),
     ).toBeInTheDocument()
     expect(withdrawRequest).toHaveBeenCalledTimes(2)
+  })
+
+  it('supports the full withdraw flow with the keyboard and moves focus to the outcome', async () => {
+    const user = userEvent.setup()
+    const loadRequests = vi
+      .fn()
+      .mockResolvedValueOnce([pendingRequest])
+      .mockResolvedValue([withdrawnRequest])
+    const withdrawRequest = vi.fn().mockResolvedValue({
+      id: 21,
+      overflowWorkId: 4,
+      status: 'WITHDRAWN',
+      reviewReason: null,
+      updatedAt: '2026-08-01T09:00:00.000Z',
+    })
+
+    renderPage(
+      vi.fn().mockResolvedValue([openWork]),
+      undefined,
+      loadRequests,
+      undefined,
+      withdrawRequest,
+    )
+
+    const withdrawButton = await screen.findByRole('button', { name: 'Withdraw' })
+    withdrawButton.focus()
+    await user.keyboard('{Enter}')
+
+    const dialog = screen.getByRole('dialog')
+    expect(within(dialog).getByRole('button', { name: 'Cancel' })).toHaveFocus()
+
+    await user.tab()
+    expect(within(dialog).getByRole('button', { name: 'Withdraw' })).toHaveFocus()
+
+    await user.keyboard('{Enter}')
+
+    const successHeading = await screen.findByRole('heading', {
+      name: 'Volunteer request withdrawn',
+    })
+    expect(withdrawRequest).toHaveBeenCalledWith(21)
+
+    // The Withdraw button disappears with the withdrawal, so focus lands on
+    // the outcome message rather than the page body.
+    await waitFor(() => {
+      expect(document.activeElement).toContainElement(successHeading)
+    })
   })
 })

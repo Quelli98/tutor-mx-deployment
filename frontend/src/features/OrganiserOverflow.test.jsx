@@ -1,4 +1,5 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import OrganiserOverflow from './OrganiserOverflow'
@@ -415,5 +416,165 @@ describe('OrganiserOverflow', () => {
     expect(
       await screen.findByRole('heading', { name: /no overflow work yet/i }),
     ).toBeVisible()
+  })
+
+  it('moves focus to the form heading when an open item is edited', async () => {
+    const user = userEvent.setup()
+
+    renderPage()
+    await listTable()
+
+    await user.click(
+      screen.getByRole('button', { name: /^edit COMS3011 on .*$/i }),
+    )
+
+    expect(
+      screen.getByRole('heading', { name: /edit COMS3011 overflow work/i }),
+    ).toHaveFocus()
+  })
+
+  it('moves focus to the form heading when a requirement is sent to overflow', async () => {
+    const user = userEvent.setup()
+
+    renderPage()
+    await unmetTable()
+
+    await user.click(
+      screen.getByRole('button', { name: /^send COMS3011 on .* to overflow$/i }),
+    )
+
+    expect(
+      screen.getByRole('heading', { name: /send requirement #12 to overflow/i }),
+    ).toHaveFocus()
+  })
+
+  it('returns focus to the form heading when an edit is cancelled', async () => {
+    const user = userEvent.setup()
+
+    renderPage()
+    await listTable()
+
+    await user.click(
+      screen.getByRole('button', { name: /^edit COMS3011 on .*$/i }),
+    )
+    await user.click(screen.getByRole('button', { name: /^cancel edit$/i }))
+
+    // The Cancel edit button unmounts with the mode it cancels, so focus
+    // returns to the heading of the mode that is left.
+    expect(
+      screen.getByRole('heading', { name: /^post overflow work$/i }),
+    ).toHaveFocus()
+  })
+
+  it('moves focus to the first invalid field when the form is submitted empty', async () => {
+    const user = userEvent.setup()
+
+    renderPage()
+    await listTable()
+
+    await user.click(
+      screen.getByRole('button', { name: /^post overflow work$/i }),
+    )
+
+    expect(screen.getByLabelText(/^course$/i)).toHaveFocus()
+    expect(screen.getByLabelText(/^course$/i)).toHaveAttribute(
+      'aria-invalid',
+      'true',
+    )
+    expect(screen.getByText('Select a course.')).toBeVisible()
+    expect(createOrganiserOverflowWork).not.toHaveBeenCalled()
+  })
+
+  it('supports the close flow with the keyboard and moves focus to the outcome', async () => {
+    const user = userEvent.setup()
+
+    renderPage()
+    await listTable()
+
+    const closeButton = screen.getByRole('button', {
+      name: /^close COMS3011 on .*$/i,
+    })
+    closeButton.focus()
+    await user.keyboard('{Enter}')
+
+    const dialog = await screen.findByRole('dialog')
+    expect(within(dialog).getByRole('button', { name: 'Cancel' })).toHaveFocus()
+
+    await user.tab()
+    expect(
+      within(dialog).getByRole('button', { name: /^close overflow work$/i }),
+    ).toHaveFocus()
+
+    listOrganiserOverflowWork.mockResolvedValue([{ ...openWork, status: 'CLOSED' }])
+    await user.keyboard('{Enter}')
+
+    const successMessage = await screen.findByText(/overflow work is now closed/i)
+    expect(closeOrganiserOverflowWork).toHaveBeenCalledTimes(1)
+
+    // The closed row loses its Close action, so focus lands on the outcome
+    // message instead of the page body.
+    await waitFor(() => {
+      expect(successMessage).toHaveFocus()
+    })
+  })
+
+  it('moves focus to the error when a failed close leaves no button behind', async () => {
+    const user = userEvent.setup()
+
+    listOrganiserOverflowWork
+      .mockResolvedValueOnce([openWork])
+      .mockResolvedValue([{ ...openWork, status: 'CLOSED' }])
+
+    renderPage()
+    await listTable()
+
+    closeOrganiserOverflowWork.mockRejectedValue(
+      errorWithCode(
+        'OVERFLOW_WORK_STALE',
+        'This overflow work changed in another session. Reload it and try again.',
+      ),
+    )
+
+    await user.click(
+      screen.getByRole('button', { name: /^close COMS3011 on .*$/i }),
+    )
+    const dialog = await screen.findByRole('dialog')
+    await user.click(
+      within(dialog).getByRole('button', { name: /^close overflow work$/i }),
+    )
+
+    const errorMessage = await screen.findByText(
+      /changed in another session\. Reload it and try again\./i,
+    )
+
+    // The reloaded row is closed, so the button that opened the dialog is
+    // gone and the refusal takes focus instead.
+    await waitFor(() => {
+      expect(errorMessage).toHaveFocus()
+    })
+  })
+
+  it('keeps focus on the Close button when a refused close leaves the row in place', async () => {
+    const user = userEvent.setup()
+
+    closeOrganiserOverflowWork.mockRejectedValue(new Error('offline'))
+
+    renderPage()
+    await listTable()
+
+    const closeButton = screen.getByRole('button', {
+      name: /^close COMS3011 on .*$/i,
+    })
+    await user.click(closeButton)
+    const dialog = await screen.findByRole('dialog')
+    await user.click(
+      within(dialog).getByRole('button', { name: /^close overflow work$/i }),
+    )
+
+    expect(await screen.findByText(/could not be closed safely/i)).toBeVisible()
+
+    await waitFor(() => {
+      expect(closeButton).toHaveFocus()
+    })
   })
 })

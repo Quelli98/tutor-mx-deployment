@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useAuth0 } from '@auth0/auth0-react'
 import { listCourses, listStaffingRequirements } from '../api/organiser'
 import {
@@ -139,6 +139,18 @@ function validateForm(form) {
   return errors
 }
 
+// Document order of the form fields, so the first refusal shown is also the
+// first one a keyboard user is sent to.
+const FIELD_FOCUS_ORDER = ['courseId', 'startsAt', 'endsAt', 'hours', 'closesAt']
+
+const FIELD_IDS = {
+  courseId: 'overflow-course',
+  startsAt: 'overflow-starts',
+  endsAt: 'overflow-ends',
+  hours: 'overflow-hours',
+  closesAt: 'overflow-closes',
+}
+
 export default function OrganiserOverflow() {
   const { getAccessTokenSilently } = useAuth0()
   const [status, setStatus] = useState('loading')
@@ -157,6 +169,13 @@ export default function OrganiserOverflow() {
 
   const [pendingClose, setPendingClose] = useState(null)
   const [closeStatus, setCloseStatus] = useState('idle')
+
+  const formHeadingRef = useRef(null)
+  const formErrorRef = useRef(null)
+  const successMessageRef = useRef(null)
+  const closePendingRef = useRef(false)
+  const focusFirstErrorRef = useRef(false)
+  const [formFocusRequest, setFormFocusRequest] = useState(0)
 
   const loadOverflowWork = useCallback(
     async (isActive = () => true) => {
@@ -199,16 +218,64 @@ export default function OrganiserOverflow() {
     }
   }, [loadOverflowWork])
 
+  useEffect(() => {
+    if (formFocusRequest === 0) return
+    // Edit and Send to overflow change the form above the table, so the
+    // heading is where a keyboard user needs to continue.
+    formHeadingRef.current?.focus()
+  }, [formFocusRequest])
+
+  useEffect(() => {
+    if (!focusFirstErrorRef.current) return
+    focusFirstErrorRef.current = false
+    const firstInvalid = FIELD_FOCUS_ORDER.find((field) => fieldErrors[field])
+    if (firstInvalid) {
+      document.getElementById(FIELD_IDS[firstInvalid])?.focus()
+    }
+  }, [fieldErrors])
+
+  useEffect(() => {
+    if (closeStatus === 'pending') {
+      closePendingRef.current = true
+      return
+    }
+    if (!closePendingRef.current) return
+    closePendingRef.current = false
+
+    if (successMessage) {
+      successMessageRef.current?.focus()
+      return
+    }
+
+    // A refused close restores focus to its button; only take over when the
+    // reload left that button removed, disabled or unfocusable.
+    const activeElement = document.activeElement
+    const focusWasLost =
+      !activeElement ||
+      activeElement === document.body ||
+      !activeElement.isConnected ||
+      activeElement.disabled === true
+
+    if (focusWasLost) {
+      formErrorRef.current?.focus()
+    }
+  }, [closeStatus, successMessage, formError])
+
   function updateField(field, value) {
     setForm((current) => ({ ...current, [field]: value }))
   }
 
-  function resetForm() {
+  function resetForm({ focusHeading = false } = {}) {
     setForm(EMPTY_FORM)
     setEditingOverflowWork(null)
     setSourceRequirementId(null)
     setFieldErrors({})
     setFormError('')
+    if (focusHeading) {
+      // The Cancel buttons unmount with the mode they cancel, so the form
+      // heading becomes the way back into the page.
+      setFormFocusRequest((request) => request + 1)
+    }
   }
 
   function startEditing(work) {
@@ -224,6 +291,7 @@ export default function OrganiserOverflow() {
     setFieldErrors({})
     setFormError('')
     setSuccessMessage('')
+    setFormFocusRequest((request) => request + 1)
   }
 
   function sendToOverflow(requirement) {
@@ -241,6 +309,7 @@ export default function OrganiserOverflow() {
     setFieldErrors({})
     setFormError('')
     setSuccessMessage('')
+    setFormFocusRequest((request) => request + 1)
   }
 
   async function handleSubmit(event) {
@@ -250,7 +319,10 @@ export default function OrganiserOverflow() {
     setFieldErrors(errors)
     setFormError('')
     setSuccessMessage('')
-    if (Object.keys(errors).length > 0) return
+    if (Object.keys(errors).length > 0) {
+      focusFirstErrorRef.current = true
+      return
+    }
 
     const payload = {
       courseId: Number(form.courseId),
@@ -356,7 +428,7 @@ export default function OrganiserOverflow() {
 
       <section className="role-card" aria-labelledby="overflow-form-heading">
         <form onSubmit={handleSubmit} noValidate>
-          <h2 id="overflow-form-heading">
+          <h2 id="overflow-form-heading" ref={formHeadingRef} tabIndex={-1}>
             {editingOverflowWork
               ? `Edit ${editingOverflowWork.courseCode} overflow work`
               : sourceRequirementId
@@ -484,7 +556,7 @@ export default function OrganiserOverflow() {
               <button
                 className="secondary-button"
                 type="button"
-                onClick={resetForm}
+                onClick={() => resetForm({ focusHeading: true })}
                 disabled={isSaving}
               >
                 Cancel edit
@@ -495,7 +567,7 @@ export default function OrganiserOverflow() {
               <button
                 className="secondary-button"
                 type="button"
-                onClick={resetForm}
+                onClick={() => resetForm({ focusHeading: true })}
                 disabled={isSaving}
               >
                 Cancel conversion
@@ -504,7 +576,12 @@ export default function OrganiserOverflow() {
           </div>
 
           {formError && (
-            <p className="status-note danger" role="alert">
+            <p
+              ref={formErrorRef}
+              className="status-note danger"
+              role="alert"
+              tabIndex={-1}
+            >
               {formError}
             </p>
           )}
@@ -512,7 +589,7 @@ export default function OrganiserOverflow() {
       </section>
 
       {successMessage && (
-        <p className="status-note" role="status">
+        <p ref={successMessageRef} className="status-note" role="status" tabIndex={-1}>
           {successMessage}
         </p>
       )}
