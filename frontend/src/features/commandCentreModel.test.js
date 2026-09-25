@@ -5,7 +5,6 @@ import {
   DRILL_DOWN_PATHS,
   STAFFING_STATUS,
   STAFFING_STATUS_TONES,
-  buildAttentionFeed,
   buildBudgetPanel,
   buildHeatmap,
   buildKpis,
@@ -428,95 +427,6 @@ describe('commandCentreModel workload panel', () => {
 
     expect(workload.idleTutors).toBe(0)
     expect(workload.idleNote).toBeNull()
-  })
-})
-
-describe('commandCentreModel needs-attention feed', () => {
-  it('is empty when nothing is short, unclaimed, waiting or overspent', () => {
-    const feed = buildAttentionFeed(summary())
-
-    expect(feed.items).toEqual([])
-    expect(feed.total).toBe(0)
-  })
-
-  it('lists shortages worst first and calls an unfilled one critical', () => {
-    const feed = buildAttentionFeed(
-      summary({
-        staffing: staffingWith({
-          requirements: [
-            requirement({ id: 1, shortageHours: 2, shortageTutors: 1, fillState: 'partially-filled' }),
-            requirement({ id: 2, shortageHours: 8 }),
-          ],
-        }),
-      }),
-    )
-
-    expect(feed.items.map((item) => item.key)).toEqual(['staffing-2', 'staffing-1'])
-    expect(feed.items[0]).toMatchObject({
-      kind: 'staffing-shortage',
-      severity: 'critical',
-      title: 'COMS3011: 8 h still unfilled',
-    })
-    expect(feed.items[1].severity).toBe('warning')
-    expect(feed.items[1].detail).toMatch(/1 more tutor needed/)
-  })
-
-  it('leaves requirements that are covered out of the feed', () => {
-    const feed = buildAttentionFeed(
-      summary({
-        staffing: staffingWith({
-          requirements: [
-            requirement({ id: 3, assignedHours: 8, shortageHours: 0, shortageTutors: 0, fillState: 'fully-filled' }),
-          ],
-        }),
-      }),
-    )
-
-    expect(feed.items).toEqual([])
-  })
-
-  it('reads the queues, the unclaimed overflow work and the budgets', () => {
-    const feed = buildAttentionFeed(
-      summary({
-        actions: {
-          pendingTimesheets: 3,
-          pendingVolunteerClaims: 1,
-          pendingExcuses: 2,
-          openDisputes: 1,
-          total: 7,
-        },
-        overflow: { openItems: 4, openHours: 12, unclaimedItems: 2 },
-        finance: financeWith({ budget: 100, spend: 250, remaining: -150, overBudgetCourses: 1 }),
-      }),
-    )
-
-    expect(feed.total).toBe(6)
-    expect(feed.items.map((item) => item.kind)).toEqual([
-      'over-budget',
-      'overflow-unclaimed',
-      'timesheet-approvals',
-      'volunteer-claims',
-      'timesheet-disputes',
-      'excuse-approvals',
-    ])
-    expect(feed.items.every((item) => ORGANISER_ROUTES.includes(item.path))).toBe(true)
-    expect(feed.items.every((item) => item.linkLabel === DRILL_DOWN_LABELS[item.kind])).toBe(true)
-  })
-
-  it('shows the most pressing few and says how many behind them', () => {
-    const feed = buildAttentionFeed(
-      summary({
-        staffing: staffingWith({
-          requirements: Array.from({ length: 9 }, (_, index) =>
-            requirement({ id: index + 1, shortageHours: 10 - index }),
-          ),
-        }),
-      }),
-    )
-
-    expect(feed.items).toHaveLength(8)
-    expect(feed.total).toBe(9)
-    expect(feed.items[0].title).toBe('COMS3011: 10 h still unfilled')
   })
 })
 

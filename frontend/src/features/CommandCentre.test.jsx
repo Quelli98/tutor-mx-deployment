@@ -4,10 +4,15 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import CommandCentre from './CommandCentre'
 
 const getCommandCentreSummary = vi.fn()
+const fetchNotifications = vi.fn()
 const getAccessTokenSilently = vi.fn()
 
 vi.mock('../api/organiser', () => ({
   getCommandCentreSummary: (...args) => getCommandCentreSummary(...args),
+}))
+
+vi.mock('../api/notifications', () => ({
+  fetchNotifications: (...args) => fetchNotifications(...args),
 }))
 
 vi.mock('@auth0/auth0-react', () => ({
@@ -135,6 +140,13 @@ describe('CommandCentre', () => {
     vi.useFakeTimers({ shouldAdvanceTime: true })
     vi.setSystemTime(new Date('2026-09-16T12:00:00.000Z'))
     getCommandCentreSummary.mockReset().mockResolvedValue(summary)
+    fetchNotifications.mockReset().mockResolvedValue({
+      items: [],
+      page: 1,
+      pageSize: 25,
+      total: 0,
+      unreadCount: 0,
+    })
     getAccessTokenSilently.mockReset()
   })
 
@@ -365,7 +377,12 @@ describe('CommandCentre', () => {
       'aria-valuenow',
       '100',
     )
-    expect(screen.getByRole('link', { name: 'Open COMS3011' })).toHaveAttribute(
+    // The budget panel's own link, scoped now that the feed links the same
+    // course from its own card as well.
+    const budget = screen
+      .getByRole('heading', { name: 'Spend against budget' })
+      .closest('section')
+    expect(within(budget).getByRole('link', { name: 'Open COMS3011' })).toHaveAttribute(
       'href',
       '/organiser/courses/3',
     )
@@ -490,6 +507,178 @@ describe('CommandCentre', () => {
 
     expect(screen.getByText('Nothing needs attention in this period.')).toBeVisible()
     expect(within(kpiCard('Unfilled work')).getByText('0 h')).toBeVisible()
+  })
+
+  it('reads the reminder store beside the summary, once per load', async () => {
+    await renderLoaded()
+
+    expect(fetchNotifications).toHaveBeenCalledWith({ status: 'all' }, getAccessTokenSilently)
+    expect(fetchNotifications).toHaveBeenCalledTimes(1)
+  })
+
+  it('offers one filter per category with the count behind it', async () => {
+    await renderLoaded()
+
+    const feed = screen.getByRole('heading', { name: 'Needs attention' }).closest('section')
+
+    expect(within(feed).getByRole('button', { name: 'All (2)' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    )
+    for (const name of [
+      'Shortages (1)',
+      'Approvals (0)',
+      'Timesheets (1)',
+      'Tutor capacity (0)',
+      'Budget (0)',
+    ]) {
+      expect(within(feed).getByRole('button', { name })).toHaveAttribute('aria-pressed', 'false')
+    }
+  })
+
+  it('shows one category at a time and goes back to everything on All', async () => {
+    await renderLoaded()
+
+    const feed = screen.getByRole('heading', { name: 'Needs attention' }).closest('section')
+
+    fireEvent.click(within(feed).getByRole('button', { name: 'Timesheets (1)' }))
+
+    expect(within(feed).getByText('1 timesheet waiting for approval')).toBeVisible()
+    expect(within(feed).queryByText('COMS3011: 8 h still unfilled')).not.toBeInTheDocument()
+
+    fireEvent.click(within(feed).getByRole('button', { name: 'All (2)' }))
+
+    expect(within(feed).getByText('COMS3011: 8 h still unfilled')).toBeVisible()
+  })
+
+  it('says a category with nothing in it is clear for this period', async () => {
+    await renderLoaded()
+
+    const feed = screen.getByRole('heading', { name: 'Needs attention' }).closest('section')
+
+    fireEvent.click(within(feed).getByRole('button', { name: 'Budget (0)' }))
+
+    expect(
+      within(feed).getByText('Nothing needs attention in Budget for this period.'),
+    ).toBeVisible()
+  })
+
+  it('carries the category and the urgency in words on each card', async () => {
+    await renderLoaded()
+
+    const feed = screen.getByRole('heading', { name: 'Needs attention' }).closest('section')
+
+    expect(within(feed).getByText('Shortages')).toBeVisible()
+    expect(within(feed).getByText('Urgent')).toBeVisible()
+    expect(within(feed).getByText('Timesheets')).toBeVisible()
+    expect(within(feed).getByText('Soon')).toBeVisible()
+  })
+
+  it('folds the reminders already raised into the queue card that carries them', async () => {
+    getCommandCentreSummary.mockResolvedValue(
+      summaryWith({
+        actions: { ...summary.actions, pendingTimesheets: 2, total: 2 },
+      }),
+    )
+    fetchNotifications.mockResolvedValue({
+      items: [
+        {
+          id: 1,
+          recipientId: 8,
+          type: 'TIMESHEET_REVIEW_DUE',
+          title: 'A timesheet has waited two days for review',
+          body: 'A submitted timesheet has waited for your review.',
+          linkPath: '/organiser/approvals',
+          targetType: 'timesheet',
+          targetId: 501,
+          readAt: null,
+          createdAt: '2026-09-16T06:00:00.000Z',
+        },
+      ],
+      page: 1,
+      pageSize: 25,
+      total: 1,
+      unreadCount: 1,
+    })
+
+    await renderLoaded()
+
+    const feed = screen.getByRole('heading', { name: 'Needs attention' }).closest('section')
+
+    expect(within(feed).getByText('2 timesheets waiting for approval')).toBeVisible()
+    expect(
+      within(feed).getByText(/A review reminder has already been raised for 1 of them\./),
+    ).toBeVisible()
+    // The reminder rides on the queue's card; it never becomes a card of its own.
+    expect(within(feed).getAllByRole('listitem')).toHaveLength(2)
+  })
+
+  it('keeps the feed standing on the counts when the reminder read fails', async () => {
+    fetchNotifications.mockRejectedValue(new Error('reminder store unavailable'))
+
+    await renderLoaded()
+
+    const feed = screen.getByRole('heading', { name: 'Needs attention' }).closest('section')
+
+    expect(within(feed).getByText('COMS3011: 8 h still unfilled')).toBeVisible()
+    expect(within(feed).getByText('1 timesheet waiting for approval')).toBeVisible()
+    expect(
+      within(feed).getByText(
+        'Waiting times come from the reminder read, which could not be completed, so a queue may be more urgent than it looks.',
+      ),
+    ).toBeVisible()
+  })
+
+  it('takes a tutor whose capacity is fully taken to the tutor screen', async () => {
+    getCommandCentreSummary.mockResolvedValue(
+      summaryWith({
+        workload: {
+          tutors: [
+            {
+              ...summary.workload.tutors[0],
+              allocatedHours: 40,
+              shareOfAllocatedHours: 1,
+            },
+          ],
+        },
+      }),
+    )
+
+    await renderLoaded()
+
+    const feed = screen.getByRole('heading', { name: 'Needs attention' }).closest('section')
+
+    expect(within(feed).getByText('Ada Tutor has no capacity left for the period')).toBeVisible()
+    expect(within(feed).getByRole('link', { name: 'Open Ada Tutor' })).toHaveAttribute(
+      'href',
+      '/organiser/tutors/7',
+    )
+  })
+
+  it('takes a course the figures put over budget to the course screen', async () => {
+    getCommandCentreSummary.mockResolvedValue(
+      summaryWith({
+        finance: {
+          ...summary.finance,
+          spend: 1900,
+          remaining: -400,
+          overBudgetCourses: 1,
+          courses: [
+            { ...summary.finance.courses[0], spend: 1900, budget: 1500, budgetRemaining: -400 },
+          ],
+        },
+      }),
+    )
+
+    await renderLoaded()
+
+    const feed = screen.getByRole('heading', { name: 'Needs attention' }).closest('section')
+
+    expect(within(feed).getByText('COMS3011 is over budget')).toBeVisible()
+    expect(within(feed).getByRole('link', { name: 'Open COMS3011' })).toHaveAttribute(
+      'href',
+      '/organiser/courses/3',
+    )
   })
 
   it('shows the budget position as a sentence, not only a bar', async () => {

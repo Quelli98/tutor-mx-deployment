@@ -2482,6 +2482,20 @@ textarea:focus {
 .attention-critical { border-left-color: var(--danger); background: var(--danger-soft); }
 .attention-warning { border-left-color: var(--warning); background: var(--warning-soft); }
 
+/* The Needs Attention filter, in the same shape as the notification filter
+   above it in the file: one button per category, the chosen one marked. */
+.attention-filter { display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0 12px; }
+.attention-filter-button { border: 1px solid #d8def0; border-radius: 9px; background: #f7f9fd; padding: 7px 10px; color: #3d4967; font: inherit; font-weight: 700; cursor: pointer; }
+.attention-filter-button.active { border-color: #316bd6; background: #edf3ff; color: #174fae; }
+
+/* A card says its category and urgency in words as well as in colour. */
+.attention-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.attention-category { font-size: 0.72rem; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; color: #3d4967; }
+.attention-priority { font-size: 0.72rem; font-weight: 700; border-radius: 999px; padding: 2px 9px; }
+.attention-priority-critical { background: var(--danger-soft); color: var(--danger); }
+.attention-priority-warning { background: var(--warning-soft); color: var(--warning); }
+.attention-priority-info { background: #edf2f7; color: #42556a; }
+
 /* Every heat square states its staffing state in words as well as in colour,
    and the courses that start on a day link to the course screen that already
    exists. The written list below the squares repeats the same days for anyone

@@ -2,13 +2,22 @@ import { useCallback, useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useAuth0 } from '@auth0/auth0-react'
 import { getCommandCentreSummary } from '../api/organiser'
+import { fetchNotifications } from '../api/notifications'
 import { EmptyState, ErrorState, LoadingState } from '../components/shared/StatusMessage'
 import { addDays, localMonday, weekRangeLabel } from '../components/shared/scheduleWeek'
+import {
+  ALL_FILTER,
+  ATTENTION_CATEGORY_LABELS,
+  ATTENTION_PRIORITY_LABELS,
+  attentionFilterOptions,
+  buildAttentionFeed,
+  filterAttentionItems,
+  resolveAttentionTarget,
+} from './attentionFeed'
 import {
   DRILL_DOWN_LABELS,
   DRILL_DOWN_PATHS,
   PERIOD_LENGTHS,
-  buildAttentionFeed,
   buildBudgetPanel,
   buildHeatmap,
   buildKpis,
@@ -323,43 +332,95 @@ function WorkloadVisual({ workload }) {
   )
 }
 
-function NeedsAttentionFeed({ feed }) {
+/**
+ * What needs a person, filtered to the kind of work the organiser chose. Each
+ * card is one underlying issue the model identified, carries its category and
+ * urgency in words as well as colour, and links only to a target the mapper
+ * vouched for - the destination screen keeps responsibility for permission,
+ * state and the decision itself, so no action is taken here.
+ */
+function NeedsAttentionFeed({
+  feed,
+  filter,
+  onFilterChange,
+  knownCourseIds,
+  knownTutorIds,
+  remindersAvailable,
+}) {
+  const options = attentionFilterOptions(feed.items)
+  const visible = filterAttentionItems(feed.items, filter)
+  const showingAll = !filter || filter === ALL_FILTER
+
   return (
     <section className="role-card" aria-labelledby="command-centre-attention-heading">
       <div className="section-heading-row">
         <div>
           <h2 id="command-centre-attention-heading">Needs attention</h2>
           <p className="helper-text">
-            Shortages, posted work nobody has claimed, queues waiting on a decision, and budgets
-            that have run past what was planned.
+            Shortages, posted work nobody has claimed, queues waiting on a decision, tutors whose
+            capacity is fully taken, and budgets that have run past what was planned. Each card
+            opens the screen that already handles it.
           </p>
         </div>
         {feed.total > 0 && <span className="count-badge">{feed.total}</span>}
       </div>
 
-      {feed.items.length === 0 ? (
+      <div className="attention-filter" role="group" aria-label="Filter needs attention">
+        {options.map((option) => (
+          <button
+            key={option.value}
+            type="button"
+            className={`attention-filter-button${filter === option.value ? ' active' : ''}`}
+            aria-pressed={filter === option.value}
+            onClick={() => onFilterChange(option.value)}
+          >
+            {`${option.label} (${option.count})`}
+          </button>
+        ))}
+      </div>
+
+      {visible.length === 0 ? (
         <p className="status-note" role="status">
-          Nothing needs attention in this period.
+          {showingAll
+            ? 'Nothing needs attention in this period.'
+            : `Nothing needs attention in ${ATTENTION_CATEGORY_LABELS[filter]} for this period.`}
         </p>
       ) : (
         <ul className="attention-list">
-          {feed.items.map((item) => (
-            <li key={item.key} className={`attention-item attention-${item.severity}`}>
-              <div className="attention-body">
-                <strong>{item.title}</strong>
-                <p className="helper-text">{item.detail}</p>
-              </div>
-              <Link className="text-link" to={item.path}>
-                {item.linkLabel}
-              </Link>
-            </li>
-          ))}
+          {visible.map((item) => {
+            const target = resolveAttentionTarget(item, { knownCourseIds, knownTutorIds })
+
+            return (
+              <li key={item.id} className={`attention-item attention-${item.priority}`}>
+                <div className="attention-body">
+                  <div className="attention-meta">
+                    <span className="attention-category">
+                      {ATTENTION_CATEGORY_LABELS[item.category]}
+                    </span>
+                    <span className={`attention-priority attention-priority-${item.priority}`}>
+                      {ATTENTION_PRIORITY_LABELS[item.priority]}
+                    </span>
+                  </div>
+                  <strong>{item.title}</strong>
+                  <p className="helper-text">{item.detail}</p>
+                </div>
+                {target.ok ? (
+                  <Link className="text-link" to={target.path}>
+                    {target.linkLabel}
+                  </Link>
+                ) : (
+                  <span className="helper-text">No longer in the current data.</span>
+                )}
+              </li>
+            )
+          })}
         </ul>
       )}
 
-      {feed.total > feed.items.length && (
+      {!remindersAvailable && (
         <p className="helper-text">
-          Showing the {feed.items.length} most pressing of {feed.total}.
+          Waiting times come from the reminder read, which could not be completed, so a queue may
+          be more urgent than it looks.
         </p>
       )}
     </section>
@@ -373,6 +434,9 @@ export default function CommandCentre() {
   const [errorMessage, setErrorMessage] = useState('')
   const [selectedMonday, setSelectedMonday] = useState(() => localMonday(new Date()))
   const [weeks, setWeeks] = useState(4)
+  const [attentionFilter, setAttentionFilter] = useState(ALL_FILTER)
+  const [notifications, setNotifications] = useState([])
+  const [remindersAvailable, setRemindersAvailable] = useState(true)
 
   const weekStartIso = toIsoDate(selectedMonday)
   const isCurrentWeek = localMonday(new Date()).valueOf() === selectedMonday.valueOf()
@@ -393,13 +457,25 @@ export default function CommandCentre() {
       setErrorMessage('')
 
       try {
-        const result = await getCommandCentreSummary(
-          { weekStart: weekStartIso, weeks },
-          getAccessTokenSilently,
-        )
+        // The reminder read is Member 1's notification store, reused: it is
+        // what tells the feed which queues have already waited long enough for
+        // a reminder. It is secondary to the summary, which owns every figure
+        // the screen shows - a failed reminder read leaves the queue cards
+        // standing on the counts alone, and says so under the feed.
+        const [result, reminderRead] = await Promise.all([
+          getCommandCentreSummary(
+            { weekStart: weekStartIso, weeks },
+            getAccessTokenSilently,
+          ),
+          fetchNotifications({ status: 'all' }, getAccessTokenSilently).catch(
+            () => null,
+          ),
+        ])
         if (!isActive()) return
 
         setSummary(result)
+        setNotifications(reminderRead === null ? [] : reminderRead.items)
+        setRemindersAvailable(reminderRead !== null)
         setStatus('success')
       } catch (err) {
         if (!isActive()) return
@@ -543,7 +619,14 @@ export default function CommandCentre() {
             <WorkloadVisual workload={buildWorkloadPanel(summary)} />
           </div>
 
-          <NeedsAttentionFeed feed={buildAttentionFeed(summary)} />
+          <NeedsAttentionFeed
+            feed={buildAttentionFeed(summary, notifications)}
+            filter={attentionFilter}
+            onFilterChange={setAttentionFilter}
+            knownCourseIds={new Set(summary.finance.courses.map((course) => course.courseId))}
+            knownTutorIds={new Set(summary.workload.tutors.map((tutor) => tutor.tutorId))}
+            remindersAvailable={remindersAvailable}
+          />
 
           <p className="helper-text">
             Every figure was read from the screen behind it for the same weeks, at the moment this

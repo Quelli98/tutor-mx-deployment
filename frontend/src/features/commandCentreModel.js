@@ -4,7 +4,8 @@
  * dashboard has, which day a requirement falls on, how wide a bar is - and
  * never adds hours together or turns them into money itself. That is why the
  * summary arrives as one read: the cards, the heatmap and the feed are all
- * measured over the same weeks.
+ * measured over the same weeks. The Needs Attention feed's own model lives in
+ * attentionFeed.js and reads the same summary plus the notification store.
  */
 
 /** The same three period lengths the reports screen offers, so the two agree. */
@@ -182,11 +183,6 @@ export function budgetStatusFor({ budget = null, spend = null, remaining = null 
   return BUDGET_STATUS.WITHIN
 }
 
-const SEVERITY_ORDER = Object.freeze({ critical: 0, warning: 1, info: 2 })
-
-/** How much of the feed a screenful shows before it says how many are left. */
-const MAX_ATTENTION_ITEMS = 8
-
 export function formatHours(value) {
   return Number.isFinite(value) ? `${Math.round(value * 100) / 100} h` : '--'
 }
@@ -201,7 +197,7 @@ export function formatPercent(fraction) {
   return Number.isFinite(fraction) ? `${Math.round(fraction * 100)}%` : '--'
 }
 
-function countLabel(count, noun) {
+export function countLabel(count, noun) {
   return `${count} ${noun}${count === 1 ? '' : 's'}`
 }
 
@@ -582,113 +578,6 @@ export function buildWorkloadPanel(summary) {
     // indication of how the work fell, not a score or a rule to pass.
     softNote:
       "The share is the report's own figure for how the period's allocated hours are spread. It is indicative only, not a target or a fair-share rule.",
-  }
-}
-
-/**
- * What needs a person, in the order it needs one: the staffing the period is
- * short of, work nobody has claimed, the queues waiting on a decision, and the
- * budgets that have run past what was planned. Each item comes from a figure the
- * server sent - a shortage, a queue length, a count - and points at the screen
- * that already handles it.
- */
-export function buildAttentionFeed(summary) {
-  const items = []
-
-  const short = summary.staffing.requirements
-    .filter((requirement) => requirement.shortageHours > 0)
-    .sort((first, second) => second.shortageHours - first.shortageHours)
-
-  for (const requirement of short) {
-    items.push({
-      key: `staffing-${requirement.id}`,
-      kind: 'staffing-shortage',
-      severity: requirement.fillState === 'unfilled' ? 'critical' : 'warning',
-      title: `${requirement.courseCode}: ${formatHours(requirement.shortageHours)} still unfilled`,
-      detail: `${requirement.courseName} on ${dayLabel(requirement.startsAt.slice(0, 10))}. ${countLabel(
-        requirement.shortageTutors,
-        'more tutor',
-      )} needed.`,
-    })
-  }
-
-  if (summary.overflow.unclaimedItems > 0) {
-    items.push({
-      key: 'overflow-unclaimed',
-      kind: 'overflow-unclaimed',
-      severity: 'warning',
-      title: `${countLabel(summary.overflow.unclaimedItems, 'overflow item')} with no student claims`,
-      detail: `${formatHours(summary.overflow.openHours)} of posted work is still waiting for a volunteer.`,
-    })
-  }
-
-  if (summary.actions.pendingTimesheets > 0) {
-    items.push({
-      key: 'timesheet-approvals',
-      kind: 'timesheet-approvals',
-      severity: 'warning',
-      title: `${countLabel(summary.actions.pendingTimesheets, 'timesheet')} waiting for approval`,
-      detail: 'Submitted hours cannot be paid until they are signed off.',
-    })
-  }
-
-  if (summary.actions.pendingVolunteerClaims > 0) {
-    items.push({
-      key: 'volunteer-claims',
-      kind: 'volunteer-claims',
-      severity: 'warning',
-      title: `${countLabel(summary.actions.pendingVolunteerClaims, 'volunteer claim')} waiting for a decision`,
-      detail: 'Students have asked to take on posted work.',
-    })
-  }
-
-  if (summary.actions.pendingExcuses > 0) {
-    items.push({
-      key: 'excuse-approvals',
-      kind: 'excuse-approvals',
-      severity: 'info',
-      title: `${countLabel(summary.actions.pendingExcuses, 'excuse')} waiting for a decision`,
-      detail: 'Tutors have asked to be excused from allocated work.',
-    })
-  }
-
-  if (summary.actions.openDisputes > 0) {
-    items.push({
-      key: 'timesheet-disputes',
-      kind: 'timesheet-disputes',
-      severity: 'warning',
-      title: `${countLabel(summary.actions.openDisputes, 'timesheet dispute')} still open`,
-      detail: 'Disputed weeks are held back from payroll until they are answered.',
-    })
-  }
-
-  if (summary.finance.overBudgetCourses > 0) {
-    items.push({
-      key: 'over-budget',
-      kind: 'over-budget',
-      severity: 'critical',
-      title: `${countLabel(summary.finance.overBudgetCourses, 'course')} over budget`,
-      detail: 'Approved work has passed what was planned for the period.',
-    })
-  }
-
-  // Critical first, then warnings, then anything worth knowing. The sort is
-  // stable, so within a severity the list keeps the order the figures were
-  // read in: the biggest shortage first, then the queues.
-  const ordered = items
-    .map((item) => ({
-      ...item,
-      path: DRILL_DOWN_PATHS[item.kind],
-      linkLabel: DRILL_DOWN_LABELS[item.kind],
-    }))
-    .sort(
-      (first, second) =>
-        SEVERITY_ORDER[first.severity] - SEVERITY_ORDER[second.severity],
-    )
-
-  return {
-    items: ordered.slice(0, MAX_ATTENTION_ITEMS),
-    total: ordered.length,
   }
 }
 

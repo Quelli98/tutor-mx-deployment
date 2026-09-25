@@ -89,6 +89,12 @@ vi.mock('../api/tutorDashboard', () => ({
     Promise.resolve({ allocations: [], weeklyLimit: 10, usedHours: 0, remainingHours: 10 }),
 }))
 
+vi.mock('../api/notifications', () => ({
+  fetchNotifications: vi
+    .fn()
+    .mockResolvedValue({ items: [], page: 1, pageSize: 25, total: 0, unreadCount: 0 }),
+}))
+
 function renderRole(currentRole, path = '/', onSignOut = vi.fn()) {
   render(
     <MemoryRouter initialEntries={[path]}>
