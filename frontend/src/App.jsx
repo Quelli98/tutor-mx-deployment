@@ -1,8 +1,10 @@
 import { useEffect, useState } from 'react'
-import { Link, Route, Routes } from 'react-router-dom'
+import { Route, Routes } from 'react-router-dom'
 import { useAuth0 } from '@auth0/auth0-react'
 import { useCurrentUser } from './auth/useCurrentUser'
 import { completeOnboarding, resendVerificationEmail, TUTOR_MX_ROLES } from './api/onboarding'
+import { CsamMark } from './components/shared/CsamMark'
+import { Landing } from './features/Landing'
 import { PasswordResetPage, NewPasswordPage } from './features/PasswordReset'
 import { RoleRouter } from './routes/RoleRouter'
 import './App.css'
@@ -31,11 +33,17 @@ function LoadingCard({ message }) {
   )
 }
 
+const ONBOARDING_ERROR_MESSAGES = Object.freeze({
+  EMAIL_NOT_VERIFIED: 'Verify your email using the Auth0 verification email, then click Try again.',
+  ORGANISER_SELF_SIGNUP_DISABLED:
+    'Organiser accounts are set up by the School, so one cannot be created here. Contact the School to be given Organiser access.',
+})
+
 function Brand() {
   return (
-    <div className="auth-brand" aria-label="Tutor Mx">
-      <span className="brand-mark" aria-hidden="true">TM</span>
-      <span className="brand-name">Tutor Mx</span>
+    <div className="auth-brand">
+      <CsamMark className="brand-mark" />
+      <span className="brand-name">CSAM Tutor Hub</span>
     </div>
   )
 }
@@ -90,56 +98,6 @@ function RoleChoices({ selectedRole, onSelect, heading = 'Choose your role' }) {
   )
 }
 
-function AuthEntry({ handleAuthRedirect, isSubmitting, status, selectedRole, onSelectRole }) {
-  const label = selectedRole ? ROLE_DETAILS[selectedRole].title : ''
-
-  return (
-    <main className="auth-shell">
-      <section className="auth-card auth-card-entry" aria-labelledby="auth-heading">
-        <Brand />
-
-        <div className="auth-header">
-          <h1 id="auth-heading" className="auth-title">Welcome</h1>
-          <p className="auth-subtitle">Choose your role to get started.</p>
-        </div>
-
-        <RoleChoices selectedRole={selectedRole} onSelect={onSelectRole} />
-
-        <div className="auth-actions auth-actions-entry">
-          <button
-            type="button"
-            className="primary-button create-account-button"
-            onClick={() => handleAuthRedirect('signup')}
-            disabled={isSubmitting || !selectedRole}
-          >
-            {isSubmitting && selectedRole
-              ? 'Opening...'
-              : selectedRole
-                ? `Create ${label} account`
-                : 'Choose a role'}
-          </button>
-
-          <button
-            type="button"
-            className="secondary-button sign-in-button"
-            aria-label="Sign in with Auth0"
-            onClick={() => handleAuthRedirect('login')}
-            disabled={isSubmitting}
-          >
-            {isSubmitting ? 'Opening...' : 'Sign in'}
-          </button>
-
-          <Link className="text-link auth-forgot-link" to="/reset-password">Forgot password?</Link>
-        </div>
-
-        {status.message && status.type === 'error' && (
-          <p className="status-message error" aria-live="polite">{status.message}</p>
-        )}
-      </section>
-    </main>
-  )
-}
-
 function OnboardingCard({ role, onComplete, onSignOut }) {
   const { getAccessTokenSilently } = useAuth0()
   const [attempt, setAttempt] = useState(0)
@@ -155,7 +113,7 @@ function OnboardingCard({ role, onComplete, onSignOut }) {
         await completeOnboarding(role, getAccessTokenSilently)
         if (ignore) return
         window.sessionStorage.removeItem(PENDING_ROLE_KEY)
-        setState({ status: 'success', message: 'Your Tutor Mx account is ready.', code: '' })
+        setState({ status: 'success', message: 'Your CSAM Tutor Hub account is ready.', code: '' })
         onComplete()
       } catch (error) {
         if (ignore) return
@@ -164,16 +122,16 @@ function OnboardingCard({ role, onComplete, onSignOut }) {
           // selection and continue straight into the existing workspace so a
           // linked account never returns to role choice.
           window.sessionStorage.removeItem(PENDING_ROLE_KEY)
-          setState({ status: 'success', message: 'Your existing Tutor Mx account is ready.', code: '' })
+          setState({ status: 'success', message: 'Your existing CSAM Tutor Hub account is ready.', code: '' })
           onComplete()
           return
         }
         setState({
           status: 'error',
           code: error?.code || '',
-          message: error?.code === 'EMAIL_NOT_VERIFIED'
-            ? 'Verify your email using the Auth0 verification email, then click Try again.'
-            : error?.message || 'Your Tutor Mx account could not be set up. Please try again.',
+          message: ONBOARDING_ERROR_MESSAGES[error?.code]
+            || error?.message
+            || 'Your CSAM Tutor Hub account could not be set up. Please try again.',
         })
       }
     }
@@ -201,7 +159,9 @@ function OnboardingCard({ role, onComplete, onSignOut }) {
         <p className={`status-message ${state.status}`}>{state.message}</p>
         {state.status === 'error' && (
           <div className="auth-actions">
-            <button type="button" className="primary-button" onClick={() => setAttempt((v) => v + 1)}>Try again</button>
+            {state.code !== 'ORGANISER_SELF_SIGNUP_DISABLED' && (
+              <button type="button" className="primary-button" onClick={() => setAttempt((v) => v + 1)}>Try again</button>
+            )}
             <button type="button" className="secondary-button" onClick={onSignOut}>Sign out</button>
           </div>
         )}
@@ -234,7 +194,7 @@ function FinishSetupCard({ onChooseRole, onSignOut }) {
         <Brand />
         <div className="auth-header">
           <h1 className="auth-title">Choose your role</h1>
-          <p className="auth-subtitle">Finish setting up your Tutor Mx account.</p>
+          <p className="auth-subtitle">Finish setting up your CSAM Tutor Hub account.</p>
         </div>
         <RoleChoices selectedRole={selectedRole} onSelect={setSelectedRole} heading="Account role" />
         <div className="auth-actions">
@@ -249,7 +209,6 @@ function FinishSetupCard({ onChooseRole, onSignOut }) {
 function App() {
   const { isAuthenticated, loginWithRedirect, logout, isLoading } = useAuth0()
   const [pendingRole, setPendingRole] = useState(() => storedPendingRole())
-  const [selectedRole, setSelectedRole] = useState(null)
   const { role: currentRole, loading: userLoading, error: userError, errorCode: userErrorCode } = useCurrentUser({ enabled: !pendingRole })
   const [status, setStatus] = useState({ type: 'idle', message: '' })
   const [isSubmitting, setIsSubmitting] = useState(false)
@@ -259,9 +218,9 @@ function App() {
     setPendingRole(role)
   }
 
-  const handleAuthRedirect = async (mode = 'login') => {
+  const handleAuthRedirect = async (mode = 'login', role = null) => {
     if (isSubmitting) return
-    if (mode === 'signup' && !selectedRole) {
+    if (mode === 'signup' && !TUTOR_MX_ROLES.includes(role)) {
       setStatus({ type: 'error', message: 'Choose Student, Tutor or Organiser first.' })
       return
     }
@@ -270,7 +229,7 @@ function App() {
     setStatus({ type: 'loading', message: '' })
 
     if (mode === 'signup') {
-      window.sessionStorage.setItem(PENDING_ROLE_KEY, selectedRole)
+      window.sessionStorage.setItem(PENDING_ROLE_KEY, role)
     } else {
       window.sessionStorage.removeItem(PENDING_ROLE_KEY)
       setPendingRole(null)
@@ -305,12 +264,11 @@ function App() {
         <Route
           path="*"
           element={(
-            <AuthEntry
-              handleAuthRedirect={handleAuthRedirect}
+            <Landing
+              onCreateAccount={(role) => handleAuthRedirect('signup', role)}
+              onSignIn={() => handleAuthRedirect('login')}
               isSubmitting={isSubmitting}
               status={status}
-              selectedRole={selectedRole}
-              onSelectRole={setSelectedRole}
             />
           )}
         />
@@ -328,7 +286,7 @@ function App() {
         <section className="auth-card" role="alert">
           <Brand />
           <h1 className="auth-title">Access unavailable</h1>
-          <p className="auth-subtitle">{userError || 'Your account does not have a permitted Tutor Mx role.'}</p>
+          <p className="auth-subtitle">{userError || 'Your account does not have a permitted CSAM Tutor Hub role.'}</p>
           <button type="button" className="primary-button" onClick={handleSignOut}>Sign out</button>
         </section>
       </main>

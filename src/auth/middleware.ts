@@ -24,7 +24,7 @@ export function createProfileRoleMiddleware(findProfileByAuth0Id: (auth0Id: stri
     if (!auth) { sendError(response, 401, "AUTHENTICATION_REQUIRED", "A valid bearer token is required."); return; }
     try {
       const profile = await findProfileByAuth0Id(auth.subject);
-      if (!profile) { sendError(response, 404, "PROFILE_NOT_FOUND", "No Tutor Mx profile is linked to this account."); return; }
+      if (!profile) { sendError(response, 404, "PROFILE_NOT_FOUND", "No CSAM Tutor Hub profile is linked to this account."); return; }
       if (auth.role && auth.role !== profile.role) {
         sendError(response, 403, "ROLE_MISMATCH", "Your account permissions are out of date. Sign in again or contact support."); return;
       }

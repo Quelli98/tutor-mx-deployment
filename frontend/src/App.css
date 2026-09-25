@@ -111,17 +111,9 @@
 }
 
 .brand-mark {
-  width: 38px;
+  flex: none;
+  width: 34px;
   height: 38px;
-  display: grid;
-  place-items: center;
-  border-radius: 12px;
-  background: linear-gradient(135deg, var(--auth-blue), var(--auth-green));
-  color: #ffffff;
-  font-size: 0.75rem;
-  font-weight: 800;
-  letter-spacing: -0.02em;
-  box-shadow: 0 8px 20px rgba(18, 104, 232, 0.18);
 }
 
 .brand-name {
@@ -478,9 +470,8 @@ textarea[aria-invalid='true'] {
   }
 
   .brand-mark {
-    width: 34px;
+    width: 30px;
     height: 34px;
-    border-radius: 10px;
   }
 
   .auth-title {
@@ -1708,10 +1699,8 @@ a:focus-visible {
 }
 
 .role-navigation-brand .brand-mark {
-  width: 34px;
+  width: 30px;
   height: 34px;
-  border-radius: 10px;
-  font-size: 0.7rem;
 }
 
 .role-navigation-link {

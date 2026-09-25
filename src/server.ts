@@ -244,7 +244,7 @@ async function findTutorProfileIdForAnyRole(auth0Id: string) {
     select: { id: true },
   });
   if (!profile) {
-    throw createRouteError(404, "PROFILE_NOT_FOUND", "No Tutor Mx profile is linked to this account.");
+    throw createRouteError(404, "PROFILE_NOT_FOUND", "No CSAM Tutor Hub profile is linked to this account.");
   }
   return profile.id;
 }
@@ -396,7 +396,7 @@ const app = createApp(
       });
       const role = normalizeTutorRole(profile?.role);
       if (!profile || !role) {
-        throw createRouteError(404, "PROFILE_NOT_FOUND", "No Tutor Mx profile is linked to this account.");
+        throw createRouteError(404, "PROFILE_NOT_FOUND", "No CSAM Tutor Hub profile is linked to this account.");
       }
       return searchService.search({ id: profile.id, role }, query);
     },
@@ -433,7 +433,7 @@ const app = createApp(
       if (existing) {
         const existingRole = normalizeTutorRole(existing.role);
         if (!existingRole || existingRole !== role) {
-          throw createRouteError(409, "ROLE_ALREADY_SET", "This Tutor Mx account already has a different role.");
+          throw createRouteError(409, "ROLE_ALREADY_SET", "This CSAM Tutor Hub account already has a different role.");
         }
         const identity = await provisionAuth0Role(auth0Id, role);
         if (!identity.emailVerified) throw createRouteError(403, "EMAIL_NOT_VERIFIED", "Verify your email address, then try again.");
@@ -450,7 +450,7 @@ const app = createApp(
         return { ...profile, role };
       } catch (error) {
         if (isPrismaErrorCode(error, "P2002")) {
-          throw createRouteError(409, "PROFILE_CONFLICT", "This email or Auth0 account is already linked to another Tutor Mx profile.");
+          throw createRouteError(409, "PROFILE_CONFLICT", "This email or Auth0 account is already linked to another CSAM Tutor Hub profile.");
         }
         throw error;
       }

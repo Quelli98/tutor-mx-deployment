@@ -95,9 +95,9 @@ export function CommandPalette() {
       </button>
       {open && (
         <div className="command-palette-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) close() }}>
-          <section className="command-palette" role="dialog" aria-modal="true" aria-label="Search Tutor Mx">
+          <section className="command-palette" role="dialog" aria-modal="true" aria-label="Search CSAM Tutor Hub">
             <div className="command-palette-header">
-              <label htmlFor="global-search">Search Tutor Mx</label>
+              <label htmlFor="global-search">Search CSAM Tutor Hub</label>
               <button type="button" className="command-palette-close" onClick={close} aria-label="Close search">Close</button>
             </div>
             <input ref={inputRef} id="global-search" type="search" value={query} onChange={(event) => { const value = event.target.value; setQuery(value); if (value.trim().length < 2) { setGroups([]); setStatus('idle') } else { setStatus('loading') } }} onKeyDown={onInputKeyDown} placeholder="Courses, people or timesheets..." autoComplete="off" aria-controls="global-search-results" />

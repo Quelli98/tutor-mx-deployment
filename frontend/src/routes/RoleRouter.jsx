@@ -16,6 +16,7 @@ import OrganiserOverflow from '../features/OrganiserOverflow'
 import { SkipToContent } from '../components/shared/SkipToContent'
 import { NotificationBell } from '../components/shared/NotificationBell'
 import { CommandPalette } from '../components/shared/CommandPalette'
+import { CsamMark } from '../components/shared/CsamMark'
 
 const ORGANISER_LINKS = Object.freeze([
   { path: '/organiser/courses', label: 'Courses' },
@@ -32,12 +33,12 @@ function RoleNavigation({ currentRole, onSignOut }) {
   return (
     <nav
       className="role-navigation"
-      aria-label="Tutor Mx primary navigation"
+      aria-label="CSAM Tutor Hub primary navigation"
     >
       <div className="role-navigation-inner">
-        <span className="role-navigation-brand" aria-label="Tutor Mx">
-          <span className="brand-mark" aria-hidden="true">TM</span>
-          <span>Tutor Mx</span>
+        <span className="role-navigation-brand">
+          <CsamMark className="brand-mark" />
+          <span>CSAM Tutor Hub</span>
         </span>
         <NavLink
           to={roleRoute.path}

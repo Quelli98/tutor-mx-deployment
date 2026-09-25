@@ -232,7 +232,7 @@ export default function CourseManagement() {
         <div>
           <p className="eyebrow">Organiser workspace</p>
           <h1>Course management</h1>
-          <p className="helper-text">Create and maintain the courses used across Tutor Mx.</p>
+          <p className="helper-text">Create and maintain the courses used across CSAM Tutor Hub.</p>
         </div>
       </header>
 
@@ -373,7 +373,7 @@ export default function CourseManagement() {
       {status === 'success' && courses.length === 0 && (
         <EmptyState
           title="No courses yet"
-          message="No courses have been set up for Tutor Mx yet."
+          message="No courses have been set up for CSAM Tutor Hub yet."
         />
       )}
 
@@ -382,7 +382,7 @@ export default function CourseManagement() {
           <h2 id="course-list-heading">Courses</h2>
           <div className="table-scroll" tabIndex="0" aria-label="Course list table">
             <table className="tutor-table">
-              <caption>Courses currently set up for Tutor Mx</caption>
+              <caption>Courses currently set up for CSAM Tutor Hub</caption>
               <thead>
                 <tr>
                   <th scope="col">Course code</th>

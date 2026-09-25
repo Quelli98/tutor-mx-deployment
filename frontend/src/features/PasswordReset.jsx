@@ -35,7 +35,7 @@ export function PasswordResetPage() {
   return (
     <main className="auth-shell">
       <section className="auth-card" aria-labelledby="reset-heading">
-        <p className="eyebrow">Tutor Mx account security</p>
+        <p className="eyebrow">CSAM Tutor Hub account security</p>
         <h1 id="reset-heading">Reset your password</h1>
         <p className="subtitle">
           Enter your email. The response is deliberately the same whether or not an account exists.
@@ -76,11 +76,11 @@ export function NewPasswordPage() {
   return (
     <main className="auth-shell">
       <section className="auth-card" aria-labelledby="new-password-heading">
-        <p className="eyebrow">Tutor Mx account security</p>
+        <p className="eyebrow">CSAM Tutor Hub account security</p>
         <h1 id="new-password-heading">Choose a new password</h1>
         <p className="subtitle">
           Open the secure link in your reset email to set the new password on Auth0&apos;s hosted
-          page. Tutor Mx never receives or stores it.
+          page. CSAM Tutor Hub never receives or stores it.
         </p>
         <Link className="primary-link" to="/reset-password">
           Request another reset link

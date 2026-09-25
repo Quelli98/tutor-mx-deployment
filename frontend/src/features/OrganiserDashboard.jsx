@@ -496,7 +496,7 @@ export default function OrganiserDashboard() {
     <main id="main-content" className="dashboard-shell organiser-dashboard">
       <header className="dashboard-header">
         <div>
-          <p className="eyebrow">Tutor Mx</p>
+          <p className="eyebrow">CSAM Tutor Hub</p>
           <h1>Organiser workspace</h1>
           <p className="helper-text">
             Create, recheck and maintain tutor allocations with every server rule visible.
