@@ -59,28 +59,24 @@ export async function fetchNotifications(options, tokenOrGetter) {
 }
 
 /**
- * The most pages a single all-pages read will walk. The list endpoint caps a
- * page at 25 rows and allows page numbers up to 10,000, so a caller asking for
- * everything is bounded by this instead: it is a guard against a store that
- * keeps reporting more rows, not a page of record. A read that hits it still
- * returns every row the pages it read held.
- */
-export const MAX_NOTIFICATION_PAGES = 40
-
-/**
  * Every page of the list, for a caller that needs the whole store rather than
  * the first screenful (the Command Centre's Needs Attention feed does: the
  * reminders it folds in are not guaranteed to sit on page one). It walks the
  * same paginated read the bell pages through, one page at a time, passing the
  * page size the server reported so the pages line up, and stops once the rows
- * read add up to the total the server reported. A page that fails rejects the
- * whole read, so the caller can degrade as it already does when the list is
- * unavailable rather than working from half the store.
+ * read add up to the total the server reported. That total is the count of the
+ * whole filtered store the endpoint took alongside page one, so it bounds the
+ * walk on its own: the last page is fixed from it before the walk starts, a
+ * page that comes back empty ends the walk early, and a page past the
+ * endpoint's own page maximum is refused, failing the read the way any other
+ * failed page does. A failed page rejects the whole read, so the caller can
+ * degrade as it already does when the list is unavailable rather than working
+ * from half the store.
  */
 export async function fetchAllNotifications(options = {}, tokenOrGetter) {
   const first = await fetchNotifications({ ...options, page: 1 }, tokenOrGetter)
   const pageSize = first.pageSize > 0 ? first.pageSize : MAX_NOTIFICATION_PAGE_SIZE
-  const lastPage = Math.min(Math.ceil(first.total / pageSize), MAX_NOTIFICATION_PAGES)
+  const lastPage = Math.ceil(first.total / pageSize)
   const items = [...first.items]
 
   for (let page = 2; page <= lastPage && items.length < first.total; page += 1) {

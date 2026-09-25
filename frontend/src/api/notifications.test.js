@@ -1,6 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
-  MAX_NOTIFICATION_PAGES,
   fetchAllNotifications,
   fetchNotifications,
   fetchUnreadCount,
@@ -149,7 +148,7 @@ describe('fetchAllNotifications', () => {
     expect(globalThis.fetch).toHaveBeenCalledTimes(1)
   })
 
-  it('stops at the page bound rather than walking a store that keeps reporting more', async () => {
+  it('stops at the total the first page reported rather than a later, larger one', async () => {
     const token = vi.fn().mockResolvedValue('token-1')
     globalThis.fetch = vi.fn().mockImplementation((url) => {
       const page = Number(new URL(url, 'http://localhost').searchParams.get('page'))
@@ -158,7 +157,9 @@ describe('fetchAllNotifications', () => {
           items: pageOfItems(Array.from({ length: 25 }, (_, index) => (page - 1) * 25 + index + 1)),
           page,
           pageSize: 25,
-          total: 100000,
+          // Only the total the first page reported bounds the walk; a later
+          // page claiming the store has grown cannot stretch it.
+          total: page === 1 ? 50 : 100000,
           unreadCount: 0,
         },
       })
@@ -166,8 +167,47 @@ describe('fetchAllNotifications', () => {
 
     const result = await fetchAllNotifications({}, token)
 
-    expect(globalThis.fetch).toHaveBeenCalledTimes(MAX_NOTIFICATION_PAGES)
-    expect(result.items).toHaveLength(MAX_NOTIFICATION_PAGES * 25)
+    expect(globalThis.fetch).toHaveBeenCalledTimes(2)
+    expect(result.items).toHaveLength(50)
+  })
+
+  it('reads past a thousand rows, so a reminder on the last page is still surfaced', async () => {
+    const token = vi.fn().mockResolvedValue('token-1')
+    const finalReminder = {
+      ...VALID_ITEM,
+      id: 1001,
+      type: 'TIMESHEET_REVIEW_DUE',
+      title: 'A timesheet has waited two days for review',
+      targetType: 'timesheet',
+      targetId: 901,
+    }
+    const rows = [
+      ...pageOfItems(Array.from({ length: 1000 }, (_, index) => index + 1)),
+      finalReminder,
+    ]
+    globalThis.fetch = vi.fn().mockImplementation((url) => {
+      const page = Number(new URL(url, 'http://localhost').searchParams.get('page'))
+      return okResponse({
+        data: {
+          items: rows.slice((page - 1) * 25, page * 25),
+          page,
+          pageSize: 25,
+          total: 1001,
+          unreadCount: 0,
+        },
+      })
+    })
+
+    const result = await fetchAllNotifications({}, token)
+
+    expect(globalThis.fetch).toHaveBeenCalledTimes(41)
+    expect(result.items).toHaveLength(1001)
+    expect(result.items.at(-1)).toMatchObject({
+      id: 1001,
+      type: 'TIMESHEET_REVIEW_DUE',
+      targetType: 'timesheet',
+      targetId: 901,
+    })
   })
 
   it('rejects when a later page fails, so the caller degrades rather than working from half the store', async () => {
