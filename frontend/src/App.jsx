@@ -237,7 +237,12 @@ function App() {
 
     try {
       await loginWithRedirect({
-        authorizationParams: { screen_hint: mode === 'signup' ? 'signup' : 'login' },
+        authorizationParams: {
+          screen_hint: mode === 'signup' ? 'signup' : 'login',
+          // Always show Auth0's form: accounts are per role, so a remembered login must not
+          // silently choose the account (or reuse it for a new sign-up).
+          prompt: 'login',
+        },
         appState: { targetUrl: '/' },
       })
     } catch {

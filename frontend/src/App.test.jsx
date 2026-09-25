@@ -73,14 +73,14 @@ describe('Auth entry flow', () => {
     expect(screen.getByText(/university of the witwatersrand/i)).toBeInTheDocument()
   })
 
-  it('redirects an existing user to Auth0 sign in', async () => {
+  it('redirects an existing user to Auth0 sign in and always shows the login form', async () => {
     render(<MemoryRouter><App /></MemoryRouter>)
 
     fireEvent.click(screen.getAllByRole('button', { name: /^sign in$/i })[0])
 
     await waitFor(() =>
       expect(loginMock).toHaveBeenCalledWith({
-        authorizationParams: { screen_hint: 'login' },
+        authorizationParams: { screen_hint: 'login', prompt: 'login' },
         appState: { targetUrl: '/' },
       }),
     )
@@ -93,7 +93,7 @@ describe('Auth entry flow', () => {
 
     await waitFor(() =>
       expect(loginMock).toHaveBeenCalledWith({
-        authorizationParams: { screen_hint: 'signup' },
+        authorizationParams: { screen_hint: 'signup', prompt: 'login' },
         appState: { targetUrl: '/' },
       }),
     )
