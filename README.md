@@ -151,7 +151,7 @@ See `docs/member-2-handoff.md`, `docs/sprint2-endpoint-role-matrix.md`, `docs/sp
 
 ## AI declaration
 
-This repository makes use of AI code generation using the following tools: Codex[GPT-5], ChatGPT[GPT-5.6 Sol], Qoder[Auto tier; underlying model automatically routed].
+This repository makes use of AI code generation using the following tools: Codex[GPT-5], ChatGPT[GPT-5.6 Sol], Qoder[Auto tier; underlying model automatically routed], Claude Code[Claude Opus 5.5].
 
 This repository makes use of AI in-line editing using the following tools: Qoder[Auto tier; underlying model automatically routed].
 
