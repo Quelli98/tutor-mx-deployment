@@ -1,5 +1,5 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { MemoryRouter } from 'react-router-dom'
+import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import TutorManagement from './TutorManagement'
 
@@ -48,10 +48,13 @@ const tutorWithoutHours = {
 
 const tutors = [tutorWithHours, tutorWithoutHours]
 
-function renderPage() {
+function renderPage(entry = '/organiser/tutors') {
   render(
-    <MemoryRouter>
-      <TutorManagement />
+    <MemoryRouter initialEntries={[entry]}>
+      <Routes>
+        <Route path="/organiser/tutors" element={<TutorManagement />} />
+        <Route path="/organiser/tutors/:tutorId" element={<TutorManagement />} />
+      </Routes>
     </MemoryRouter>,
   )
 }
@@ -150,6 +153,24 @@ describe('TutorManagement', () => {
     )
 
     expect(screen.getByText(/allocation details for Sam Tutor/i)).toBeInTheDocument()
+  })
+
+  it('opens the tutor a link names once that tutor week has been read', async () => {
+    listTutors.mockResolvedValue(tutors)
+
+    renderPage('/organiser/tutors/7')
+
+    expect(listTutors).toHaveBeenCalled()
+    expect(await screen.findByText(/allocation details for Sam Tutor/i)).toBeInTheDocument()
+  })
+
+  it('leaves the details closed when the linked tutor is not in the list', async () => {
+    listTutors.mockResolvedValue(tutors)
+
+    renderPage('/organiser/tutors/999')
+
+    await screen.findByText('Sam Tutor')
+    expect(screen.queryByText(/allocation details for/i)).not.toBeInTheDocument()
   })
 
   it('tells the organiser how a tutor becomes available when no tutors exist', async () => {

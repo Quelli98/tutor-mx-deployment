@@ -20,8 +20,8 @@ function requirement(overrides = {}) {
     courseId: 3,
     courseCode: 'COMS3011',
     courseName: 'Software Design Project',
-    startsAt: '2026-09-16T14:00:00.000Z',
-    endsAt: '2026-09-16T18:00:00.000Z',
+    startsAt: '2026-09-14T14:00:00.000Z',
+    endsAt: '2026-09-14T18:00:00.000Z',
     tutorsNeeded: 2,
     windowHours: 4,
     requiredHours: 8,
@@ -274,8 +274,170 @@ describe('CommandCentre', () => {
     expect(within(table).getByText('12 h')).toBeVisible()
     expect(within(table).getByText('6 h unfilled')).toBeVisible()
     // The other six days of the week hold nothing, and say so.
-    expect(within(table).getAllByText('nothing starts')).toHaveLength(6)
+    expect(within(table).getAllByText(/nothing starts/i)).toHaveLength(6)
     expect(screen.getByText(/1 of the period's days still have hours unfilled/i)).toBeVisible()
+  })
+
+  it('writes the state of each day in its square rather than in colour alone', async () => {
+    await renderLoaded()
+
+    const table = screen.getByRole('table', { name: /hours required, allocated/i })
+    expect(within(table).getByText('Partly staffed')).toBeVisible()
+    expect(within(table).queryByText('Unstaffed')).not.toBeInTheDocument()
+    // The legend says the same words the squares carry.
+    expect(screen.getByText('Fully staffed')).toBeVisible()
+  })
+
+  it('links the course that starts on a day to the course screen', async () => {
+    await renderLoaded()
+
+    const table = screen.getByRole('table', { name: /hours required, allocated/i })
+    expect(
+      within(table).getByRole('link', { name: 'Open COMS3011: Software Design Project' }),
+    ).toHaveAttribute('href', '/organiser/courses/3')
+  })
+
+  it('offers the same days as a written table only when it is asked for', async () => {
+    await renderLoaded()
+
+    const toggle = screen.getByRole('button', { name: 'Show the written list' })
+    expect(toggle).toHaveAttribute('aria-expanded', 'false')
+    expect(
+      screen.queryByRole('table', { name: /the same days in words/i }),
+    ).not.toBeInTheDocument()
+
+    fireEvent.click(toggle)
+
+    const written = screen.getByRole('table', { name: /the same days in words/i })
+    expect(written).toBeVisible()
+    expect(screen.getByRole('button', { name: 'Hide the written list' })).toHaveAttribute(
+      'aria-expanded',
+      'true',
+    )
+    // The same day the squares show, with the same figures, in words.
+    expect(within(written).getByText('Partly staffed')).toBeVisible()
+    expect(within(written).getByText('12 h')).toBeVisible()
+    // Allocated and unfilled hold the same figure on this day, so it appears twice.
+    expect(within(written).getAllByText('6 h')).toHaveLength(2)
+    expect(within(written).getByRole('link', { name: /Open COMS3011/ })).toHaveAttribute(
+      'href',
+      '/organiser/courses/3',
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Hide the written list' }))
+    expect(
+      screen.queryByRole('table', { name: /the same days in words/i }),
+    ).not.toBeInTheDocument()
+  })
+
+  it('shows the budget as a gauge with the position written beside it', async () => {
+    await renderLoaded()
+
+    expect(screen.getByText('Within budget')).toBeVisible()
+    expect(screen.getByText('73% of budget used')).toBeVisible()
+    const meter = screen.getByRole('meter', { name: 'Budget used: R1100.00 of R1500.00' })
+    expect(meter).toHaveAttribute('aria-valuenow', '73')
+    expect(meter).toHaveAttribute('aria-valuetext', '73% of the budget spent')
+  })
+
+  it('writes that a period is over budget when spend has passed it', async () => {
+    getCommandCentreSummary.mockResolvedValue(
+      summaryWith({
+        finance: {
+          ...summary.finance,
+          spend: 1900,
+          remaining: -400,
+          overBudgetCourses: 1,
+          courses: [
+            { ...summary.finance.courses[0], spend: 1900, budget: 1500, budgetRemaining: -400 },
+          ],
+        },
+      }),
+    )
+
+    await renderLoaded()
+
+    expect(screen.getByText('Over budget')).toBeVisible()
+    expect(screen.getByText('127% of budget used')).toBeVisible()
+    expect(screen.getByText('R1900.00 spent against a R1500.00 budget, R400.00 over.')).toBeVisible()
+    // The bar can be no fuller than full, and the words say how far past it is.
+    expect(screen.getByRole('meter', { name: 'Budget used: R1900.00 of R1500.00' })).toHaveAttribute(
+      'aria-valuenow',
+      '100',
+    )
+    expect(screen.getByRole('link', { name: 'Open COMS3011' })).toHaveAttribute(
+      'href',
+      '/organiser/courses/3',
+    )
+  })
+
+  it('says spend cannot be worked out rather than dividing by nothing', async () => {
+    getCommandCentreSummary.mockResolvedValue(
+      summaryWith({
+        finance: { ...summary.finance, budget: null, spend: null, committed: null, remaining: null },
+      }),
+    )
+
+    await renderLoaded()
+
+    expect(screen.getByText('Spend cannot be worked out')).toBeVisible()
+    expect(screen.queryByRole('meter')).not.toBeInTheDocument()
+    expect(
+      screen.getByText(
+        'No hourly rate is set for a course with work in this period, so spend cannot be worked out.',
+      ),
+    ).toBeVisible()
+  })
+
+  it('says what is left of a tutor capacity and links to that tutor', async () => {
+    await renderLoaded()
+
+    const workload = screen
+      .getByRole('heading', { name: 'Who is carrying the work' })
+      .closest('section')
+
+    expect(within(workload).getByText('34 h of 40 h capacity left.')).toBeVisible()
+    expect(within(workload).getByRole('link', { name: 'Open Ada Tutor' })).toHaveAttribute(
+      'href',
+      '/organiser/tutors/7',
+    )
+    expect(
+      within(workload).getByText('1 tutor carrying allocated or approved hours in this period.'),
+    ).toBeVisible()
+    // The spread of work is described as an indication, never as a rule.
+    expect(
+      within(workload).getByText(/indicative only, not a target or a fair-share rule/),
+    ).toBeVisible()
+  })
+
+  it('says no tutor has hours instead of drawing an empty list', async () => {
+    getCommandCentreSummary.mockResolvedValue(
+      summaryWith({
+        workload: {
+          tutors: [
+            {
+              tutorId: 7,
+              fullName: 'Ada Tutor',
+              capacityHours: null,
+              allocatedHours: 0,
+              approvedWorkedHours: 0,
+              shareOfAllocatedHours: 0,
+            },
+          ],
+        },
+      }),
+    )
+
+    await renderLoaded()
+
+    const workload = screen
+      .getByRole('heading', { name: 'Who is carrying the work' })
+      .closest('section')
+
+    expect(
+      within(workload).getByText('No tutor has allocated or approved hours in this period.'),
+    ).toBeVisible()
+    expect(within(workload).queryByRole('link')).not.toBeInTheDocument()
   })
 
   it('keeps every heatmap row the same width as its header', async () => {

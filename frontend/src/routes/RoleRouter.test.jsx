@@ -298,6 +298,34 @@ describe('RoleRouter', () => {
     expect(screen.queryByRole('heading', { name: 'Course management' })).not.toBeInTheDocument()
   })
 
+  it('opens course management on the course a link named', async () => {
+    renderRole('ORGANISER', '/organiser/courses/2')
+
+    expect(await screen.findByRole('heading', { name: 'Course management' })).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: /access denied/i })).not.toBeInTheDocument()
+  })
+
+  it('opens tutor management on the tutor a link named', async () => {
+    renderRole('ORGANISER', '/organiser/tutors/7')
+
+    expect(await screen.findByRole('heading', { name: 'Tutor management' })).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: /access denied/i })).not.toBeInTheDocument()
+  })
+
+  it('keeps the course deep link away from a tutor', () => {
+    renderRole('TUTOR', '/organiser/courses/2')
+
+    expect(screen.getByRole('heading', { name: /access denied/i })).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: 'Course management' })).not.toBeInTheDocument()
+  })
+
+  it('keeps the tutor deep link away from a student', () => {
+    renderRole('STUDENT', '/organiser/tutors/7')
+
+    expect(screen.getByRole('heading', { name: /access denied/i })).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: 'Tutor management' })).not.toBeInTheDocument()
+  })
+
   it('provides a skip link to the shared main-content target', () => {
     renderRole('ORGANISER')
 

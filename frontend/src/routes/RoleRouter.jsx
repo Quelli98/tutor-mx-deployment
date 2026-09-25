@@ -131,8 +131,20 @@ export function RoleRouter({ currentRole, onSignOut }) {
           path="/organiser/courses"
           element={protect(currentRole, ['ORGANISER'], <CourseManagement />)}
         />
+        {/* The same screen, opened on one course: the path the search results
+            and the command centre already publish for a course. */}
+        <Route
+          path="/organiser/courses/:courseId"
+          element={protect(currentRole, ['ORGANISER'], <CourseManagement />)}
+        />
         <Route
           path="/organiser/tutors"
+          element={protect(currentRole, ['ORGANISER'], <TutorManagement />)}
+        />
+        {/* The same screen, opened on one tutor: the path the search results
+            and the command centre already publish for a person. */}
+        <Route
+          path="/organiser/tutors/:tutorId"
           element={protect(currentRole, ['ORGANISER'], <TutorManagement />)}
         />
         <Route

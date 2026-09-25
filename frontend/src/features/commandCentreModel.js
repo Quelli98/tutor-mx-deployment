@@ -51,6 +51,137 @@ export const DRILL_DOWN_LABELS = Object.freeze({
   'over-budget': 'Open reports',
 })
 
+/**
+ * How full a day of staffing is, in words rather than in colour. The state the
+ * server stated for a day is used as it stands; the staffing service's own rule
+ * is repeated below only for a day the server gave figures for and no state,
+ * and it invents no threshold of its own - nothing left to fill is fully
+ * staffed, some hours allocated is partly staffed, none allocated is unstaffed.
+ */
+export const STAFFING_STATUS = Object.freeze({
+  FULLY_STAFFED: 'fully-staffed',
+  PARTIALLY_STAFFED: 'partially-staffed',
+  UNSTAFFED: 'unstaffed',
+  NOT_BEING_FILLED: 'not-being-filled',
+  NO_WORK: 'no-work',
+})
+
+/** The written words for each state, so a colour is never the only reading. */
+export const STAFFING_STATUS_LABELS = Object.freeze({
+  [STAFFING_STATUS.FULLY_STAFFED]: 'Fully staffed',
+  [STAFFING_STATUS.PARTIALLY_STAFFED]: 'Partly staffed',
+  [STAFFING_STATUS.UNSTAFFED]: 'Unstaffed',
+  [STAFFING_STATUS.NOT_BEING_FILLED]: 'Not being filled',
+  [STAFFING_STATUS.NO_WORK]: 'Nothing starts',
+})
+
+/** The staffing board's own colour names, so the two screens agree. */
+export const STAFFING_STATUS_TONES = Object.freeze({
+  [STAFFING_STATUS.FULLY_STAFFED]: 'fully-filled',
+  [STAFFING_STATUS.PARTIALLY_STAFFED]: 'partially-filled',
+  [STAFFING_STATUS.UNSTAFFED]: 'unfilled',
+  [STAFFING_STATUS.NOT_BEING_FILLED]: 'not-being-filled',
+  [STAFFING_STATUS.NO_WORK]: 'empty',
+})
+
+/** The order the legend reads in: the states that need a person come first. */
+const LEGEND_STATUSES = Object.freeze([
+  STAFFING_STATUS.UNSTAFFED,
+  STAFFING_STATUS.PARTIALLY_STAFFED,
+  STAFFING_STATUS.FULLY_STAFFED,
+  STAFFING_STATUS.NOT_BEING_FILLED,
+  STAFFING_STATUS.NO_WORK,
+])
+
+/** The server's own fill state, mapped onto the words this screen shows. */
+const FILL_STATE_STATUS = Object.freeze({
+  'fully-filled': STAFFING_STATUS.FULLY_STAFFED,
+  'partially-filled': STAFFING_STATUS.PARTIALLY_STAFFED,
+  unfilled: STAFFING_STATUS.UNSTAFFED,
+  'not-being-filled': STAFFING_STATUS.NOT_BEING_FILLED,
+})
+
+/**
+ * The state of one day of staffing, from the figures the server sent for it.
+ * The server's own state wins when it sent one; otherwise the staffing
+ * service's rule decides, which is why a day with no requirements left to fill
+ * is fully staffed however much was allocated to it.
+ */
+export function staffingStatusFor({
+  requirements = 0,
+  fillState = null,
+  status = 'OPEN',
+  assignedHours = 0,
+  shortageHours = 0,
+} = {}) {
+  if (!(requirements > 0)) return STAFFING_STATUS.NO_WORK
+  if (FILL_STATE_STATUS[fillState]) return FILL_STATE_STATUS[fillState]
+  if (status !== 'OPEN') return STAFFING_STATUS.NOT_BEING_FILLED
+  if (shortageHours === 0) return STAFFING_STATUS.FULLY_STAFFED
+  return assignedHours > 0 ? STAFFING_STATUS.PARTIALLY_STAFFED : STAFFING_STATUS.UNSTAFFED
+}
+
+/** The written words for a state, and a plain admission when it is not known. */
+export function staffingStatusLabel(status) {
+  return STAFFING_STATUS_LABELS[status] ?? 'State not known'
+}
+
+/**
+ * Where the course screen and the tutor screen already live. The search results
+ * publish these same paths, so a drill-down lands on the page an organiser
+ * reaches from anywhere else rather than on a second copy of either screen.
+ */
+export function courseDetailPath(courseId) {
+  return courseId === null || courseId === undefined
+    ? '/organiser/courses'
+    : `/organiser/courses/${courseId}`
+}
+
+export function tutorDetailPath(tutorId) {
+  return tutorId === null || tutorId === undefined
+    ? '/organiser/tutors'
+    : `/organiser/tutors/${tutorId}`
+}
+
+/** How the period stands against its budget, in the money the server sent. */
+export const BUDGET_STATUS = Object.freeze({
+  OVER: 'over',
+  FULLY_USED: 'fully-used',
+  WITHIN: 'within',
+  NO_BUDGET: 'no-budget',
+  UNKNOWN: 'unknown',
+})
+
+export const BUDGET_STATUS_LABELS = Object.freeze({
+  [BUDGET_STATUS.OVER]: 'Over budget',
+  [BUDGET_STATUS.FULLY_USED]: 'Budget fully used',
+  [BUDGET_STATUS.WITHIN]: 'Within budget',
+  [BUDGET_STATUS.NO_BUDGET]: 'No budget set',
+  [BUDGET_STATUS.UNKNOWN]: 'Spend cannot be worked out',
+})
+
+export const BUDGET_STATUS_TONES = Object.freeze({
+  [BUDGET_STATUS.OVER]: 'danger',
+  [BUDGET_STATUS.FULLY_USED]: 'warning',
+  [BUDGET_STATUS.WITHIN]: 'success',
+  [BUDGET_STATUS.NO_BUDGET]: 'neutral',
+  [BUDGET_STATUS.UNKNOWN]: 'neutral',
+})
+
+/**
+ * The budget position in one word, from the totals the server worked out. A
+ * spend it could not work out is unknown rather than zero, a budget of zero is
+ * no budget rather than a division with no answer, and a budget spent to the
+ * cent is said to be fully used rather than over or under.
+ */
+export function budgetStatusFor({ budget = null, spend = null, remaining = null } = {}) {
+  if (spend === null || remaining === null) return BUDGET_STATUS.UNKNOWN
+  if (remaining < 0) return BUDGET_STATUS.OVER
+  if (budget === null || budget <= 0) return BUDGET_STATUS.NO_BUDGET
+  if (remaining === 0) return BUDGET_STATUS.FULLY_USED
+  return BUDGET_STATUS.WITHIN
+}
+
 const SEVERITY_ORDER = Object.freeze({ critical: 0, warning: 1, info: 2 })
 
 /** How much of the feed a screenful shows before it says how many are left. */
@@ -200,40 +331,104 @@ export function buildKpis(summary) {
 
 /**
  * The period as a week per row, so a run of short days is visible at a glance.
- * Each cell is a day the server already summed, and its state is the staffing
- * service's own description of how filled that day is.
+ * Each cell is a day the server already summed, its state is the staffing
+ * service's own description of how filled that day is, and it says that state
+ * in words as well as in colour. The courses that start on a day are the same
+ * requirement rows the server bucketed onto it, linked to the course screen.
  */
 export function buildHeatmap(summary) {
-  const days = summary.staffing.days.map((day) => ({
-    key: day.date,
-    date: day.date,
-    weekday: weekdayLabel(day.date),
-    label: dayLabel(day.date),
-    requirements: day.requirements,
-    requiredHours: day.requiredHours,
-    assignedHours: day.assignedHours,
-    unfilledHours: day.unfilledHours,
-    fillState: day.fillState,
-    tone: day.fillState === null ? 'empty' : day.fillState,
-    detail:
-      day.requirements === 0
-        ? `No requirements start on ${dayLabel(day.date)}.`
-        : `${countLabel(day.requirements, 'requirement')} starting: ${formatHours(
-            day.requiredHours,
-          )} required, ${formatHours(day.assignedHours)} allocated, ${formatHours(
-            day.unfilledHours,
-          )} unfilled.`,
-  }))
+  // The staffing service buckets a requirement onto the day it starts on, so
+  // a day's courses are grouped the same way rather than by a second rule.
+  const byDay = new Map()
+  for (const requirement of summary.staffing.requirements) {
+    const date = String(requirement.startsAt ?? '').slice(0, 10)
+    const rows = byDay.get(date)
+    if (rows) {
+      rows.push(requirement)
+    } else {
+      byDay.set(date, [requirement])
+    }
+  }
+
+  const days = summary.staffing.days.map((day) => {
+    const status = staffingStatusFor({
+      requirements: day.requirements,
+      fillState: day.fillState,
+      assignedHours: day.assignedHours,
+      shortageHours: day.unfilledHours,
+    })
+    const statusLabel = staffingStatusLabel(status)
+    const courses = (byDay.get(day.date) ?? []).map((requirement) => ({
+      key: requirement.id,
+      code: requirement.courseCode,
+      name: requirement.courseName,
+      path: courseDetailPath(requirement.courseId),
+      linkLabel: `Open ${requirement.courseCode}`,
+    }))
+    const sums = `${formatHours(day.requiredHours)} required, ${formatHours(
+      day.assignedHours,
+    )} allocated, ${formatHours(day.unfilledHours)} unfilled`
+
+    return {
+      key: day.date,
+      date: day.date,
+      weekday: weekdayLabel(day.date),
+      label: dayLabel(day.date),
+      requirements: day.requirements,
+      requiredHours: day.requiredHours,
+      assignedHours: day.assignedHours,
+      unfilledHours: day.unfilledHours,
+      fillState: day.fillState,
+      status,
+      statusLabel,
+      tone: STAFFING_STATUS_TONES[status],
+      courses,
+      detail:
+        day.requirements === 0
+          ? `No requirements start on ${dayLabel(day.date)}.`
+          : `${statusLabel}. ${countLabel(day.requirements, 'requirement')} starting: ${sums}.${
+              courses.length === 0
+                ? ''
+                : ` Courses: ${courses.map((course) => course.code).join(', ')}.`
+            }`,
+    }
+  })
 
   const weeks = []
   for (let index = 0; index < days.length; index += 7) {
     weeks.push(days.slice(index, index + 7))
   }
 
+  const withWork = days.filter((day) => day.requirements > 0)
+
   return {
     weeks,
-    hasWork: days.some((day) => day.requirements > 0),
+    hasWork: withWork.length > 0,
     unfilledDays: days.filter((day) => day.unfilledHours > 0).length,
+    // The legend and the written list are built from the same days and the same
+    // states as the squares above them, so the two can never drift apart.
+    legend: LEGEND_STATUSES.map((status) => ({
+      status,
+      label: STAFFING_STATUS_LABELS[status],
+      tone: STAFFING_STATUS_TONES[status],
+    })),
+    rows: withWork.map((day) => ({
+      key: day.date,
+      label: day.label,
+      statusLabel: day.statusLabel,
+      tone: day.tone,
+      requiredLabel: formatHours(day.requiredHours),
+      assignedLabel: formatHours(day.assignedHours),
+      unfilledLabel: formatHours(day.unfilledHours),
+      courses: day.courses,
+      detail: day.detail,
+    })),
+    rowsNote:
+      withWork.length === 0
+        ? null
+        : withWork.length === 1
+          ? '1 day of the period has work on it, with the same figures as the squares.'
+          : `${withWork.length} days of the period have work on them, with the same figures as the squares.`,
   }
 }
 
@@ -266,13 +461,28 @@ function budgetSentence(finance) {
  */
 export function buildBudgetPanel(summary) {
   const finance = summary.finance
-  const fraction =
-    finance.budget === null || finance.spend === null || finance.budget <= 0
-      ? null
-      : Math.min(1, finance.spend / finance.budget)
+  // A bar needs a budget to read a spend against, and it is only drawn when
+  // what is left can be worked out too: a budget total that includes a course
+  // with no rate has a spend total short by that course's work, so a bar drawn
+  // from it would read as a position rather than as the half-answer it is. A
+  // budget of zero is not divided by at all.
+  const gaugeable =
+    finance.budget !== null &&
+    finance.budget > 0 &&
+    finance.spend !== null &&
+    finance.remaining !== null
+  const fraction = gaugeable ? Math.min(1, finance.spend / finance.budget) : null
+  // The bar can only be so full, so the true figure is written beside it: a
+  // period well past its budget says so rather than reading as exactly full.
+  const usedPercent = gaugeable ? formatPercent(finance.spend / finance.budget) : null
+  const status = budgetStatusFor(finance)
 
   return {
     fraction,
+    usedPercent,
+    status,
+    statusLabel: BUDGET_STATUS_LABELS[status],
+    statusTone: BUDGET_STATUS_TONES[status],
     sentence: budgetSentence(finance),
     unpricedNote:
       finance.unpricedCourses === 0
@@ -293,52 +503,85 @@ export function buildBudgetPanel(summary) {
       .filter((course) => course.budgetRemaining !== null && course.budgetRemaining < 0)
       .map((course) => ({
         key: course.courseId,
+        id: course.courseId,
         code: course.courseCode,
         name: course.courseName,
         spentLabel: formatMoney(course.spend),
         budgetLabel: formatMoney(course.budget),
         overLabel: formatMoney(Math.abs(course.budgetRemaining)),
+        path: courseDetailPath(course.courseId),
+        linkLabel: `Open ${course.courseCode}`,
       })),
     unpricedCourses: finance.unpricedCourses,
   }
 }
 
+function capacityNoteFor(tutor, capacityLeft) {
+  if (tutor.capacityHours === null) {
+    return 'No capacity is set for the period, so what is left cannot be worked out.'
+  }
+  if (capacityLeft < 0) {
+    return `${formatHours(-capacityLeft)} over the ${formatHours(tutor.capacityHours)} capacity for the period.`
+  }
+  if (capacityLeft === 0) {
+    return `All ${formatHours(tutor.capacityHours)} of capacity for the period is allocated.`
+  }
+  return `${formatHours(capacityLeft)} of ${formatHours(tutor.capacityHours)} capacity left.`
+}
+
 /**
  * Who is carrying the period, in the order the report lists them. The bar is
- * the tutor's allocated hours against their capacity, and the share is the
- * report's own figure rather than a second opinion about fairness.
+ * the tutor's allocated hours against their capacity, what is left is those two
+ * figures the server sent subtracted - never a fresh guess about capacity - and
+ * the share is the report's own figure rather than a second opinion about
+ * fairness. Nothing here marks a tutor as fairly or unfairly loaded.
  */
 export function buildWorkloadPanel(summary) {
   const tutors = summary.workload.tutors
-  const idleTutors = tutors.filter(
-    (tutor) => tutor.allocatedHours === 0 && tutor.approvedWorkedHours === 0,
-  ).length
+  const withWork = tutors.filter(
+    (tutor) => tutor.allocatedHours > 0 || tutor.approvedWorkedHours > 0,
+  )
+  const idleTutors = tutors.length - withWork.length
 
   return {
-    rows: tutors
-      .filter(
-        (tutor) => tutor.allocatedHours > 0 || tutor.approvedWorkedHours > 0,
-      )
-      .map((tutor) => ({
+    rows: withWork.map((tutor) => {
+      const capacityLeft =
+        tutor.capacityHours === null ? null : tutor.capacityHours - tutor.allocatedHours
+
+      return {
         key: tutor.tutorId,
         name: tutor.fullName,
+        path: tutorDetailPath(tutor.tutorId),
+        linkLabel: `Open ${tutor.fullName}`,
         allocatedLabel: formatHours(tutor.allocatedHours),
         approvedLabel: formatHours(tutor.approvedWorkedHours),
         shareLabel: formatPercent(tutor.shareOfAllocatedHours),
         capacityLabel:
           tutor.capacityHours === null ? null : formatHours(tutor.capacityHours),
+        remainingLabel: capacityLeft === null ? null : formatHours(Math.max(0, capacityLeft)),
+        capacityNote: capacityNoteFor(tutor, capacityLeft),
         fraction:
           tutor.capacityHours === null || tutor.capacityHours <= 0
             ? null
             : Math.min(1, tutor.allocatedHours / tutor.capacityHours),
         over:
           tutor.capacityHours !== null && tutor.allocatedHours > tutor.capacityHours,
-      })),
+      }
+    }),
+    emptyNote: 'No tutor has allocated or approved hours in this period.',
+    spreadNote:
+      withWork.length === 0
+        ? null
+        : `${countLabel(withWork.length, 'tutor')} carrying allocated or approved hours in this period.`,
     idleTutors,
     idleNote:
       idleTutors === 0
         ? null
         : `${countLabel(idleTutors, 'tutor')} has no allocated or approved hours in this period.`,
+    // The share is the report's figure, and it is described as what it is: an
+    // indication of how the work fell, not a score or a rule to pass.
+    softNote:
+      "The share is the report's own figure for how the period's allocated hours are spread. It is indicative only, not a target or a fair-share rule.",
   }
 }
 

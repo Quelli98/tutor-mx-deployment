@@ -67,8 +67,12 @@ function KpiCard({ kpi }) {
   )
 }
 
-/** One square per day, the days grouped into the weeks they belong to. */
+/** One square per day, the days grouped into the weeks they belong to. The
+ * state of a day is written inside its square as well as coloured, and the
+ * written list below repeats the same days for anyone the squares do not serve.
+ */
 function ShortageHeatmap({ heatmap }) {
+  const [showList, setShowList] = useState(false)
   const weekdays = heatmap.weeks[0] ?? []
 
   return (
@@ -76,7 +80,7 @@ function ShortageHeatmap({ heatmap }) {
       <h2 id="command-centre-staffing-heading">Staffing shortages by day</h2>
       <p className="helper-text">
         Each square is a day work starts on, however full that day is. The state is the same one
-        the staffing board uses.
+        the staffing board uses, and it is written in the square.
       </p>
       <div className="table-scroll" tabIndex="0" aria-label="Staffing shortage heatmap">
         <table className="tutor-table heatmap-table">
@@ -101,10 +105,26 @@ function ShortageHeatmap({ heatmap }) {
                       <span className="heat-hours">
                         {day.requirements === 0 ? '-' : formatHours(day.requiredHours)}
                       </span>
-                      <span className="heat-note">
-                        {day.requirements === 0 ? 'nothing starts' : `${formatHours(day.unfilledHours)} unfilled`}
-                      </span>
+                      <span className="heat-state">{day.statusLabel}</span>
+                      {day.requirements > 0 && (
+                        <span className="heat-note">{`${formatHours(day.unfilledHours)} unfilled`}</span>
+                      )}
                     </span>
+                    {day.courses.length > 0 && (
+                      <ul className="heat-courses">
+                        {day.courses.map((course) => (
+                          <li key={course.key}>
+                            <Link
+                              className="text-link"
+                              to={course.path}
+                              aria-label={`${course.linkLabel}: ${course.name}`}
+                            >
+                              {course.code}
+                            </Link>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
                     <span className="visually-hidden">{day.detail}</span>
                   </td>
                 ))}
@@ -114,26 +134,12 @@ function ShortageHeatmap({ heatmap }) {
         </table>
       </div>
       <ul className="heatmap-legend">
-        <li>
-          <span className="heat-swatch heat-unfilled" aria-hidden="true" />
-          Nothing filled
-        </li>
-        <li>
-          <span className="heat-swatch heat-partially-filled" aria-hidden="true" />
-          Partly filled
-        </li>
-        <li>
-          <span className="heat-swatch heat-fully-filled" aria-hidden="true" />
-          Fully filled
-        </li>
-        <li>
-          <span className="heat-swatch heat-not-being-filled" aria-hidden="true" />
-          Not being filled
-        </li>
-        <li>
-          <span className="heat-swatch heat-empty" aria-hidden="true" />
-          Nothing starts
-        </li>
+        {heatmap.legend.map((entry) => (
+          <li key={entry.status}>
+            <span className={`heat-swatch heat-${entry.tone}`} aria-hidden="true" />
+            {entry.label}
+          </li>
+        ))}
       </ul>
       {heatmap.hasWork ? (
         <p className="helper-text">
@@ -144,6 +150,68 @@ function ShortageHeatmap({ heatmap }) {
       ) : (
         <p className="helper-text">No requirement starts in this period.</p>
       )}
+
+      <div>
+        <button
+          className="secondary-button"
+          type="button"
+          aria-expanded={showList}
+          aria-controls="command-centre-heatmap-list"
+          onClick={() => setShowList((current) => !current)}
+        >
+          {showList ? 'Hide the written list' : 'Show the written list'}
+        </button>
+      </div>
+      <div id="command-centre-heatmap-list" className="heatmap-written" hidden={!showList}>
+        {heatmap.rowsNote && <p className="helper-text">{heatmap.rowsNote}</p>}
+        <div className="table-scroll" tabIndex="0" aria-label="Written staffing list table">
+          <table className="tutor-table heatmap-table">
+            <caption>The same days in words, with the courses that start on each</caption>
+            <thead>
+              <tr>
+                <th scope="col">Day</th>
+                <th scope="col">State</th>
+                <th scope="col">Required</th>
+                <th scope="col">Allocated</th>
+                <th scope="col">Unfilled</th>
+                <th scope="col">Courses</th>
+              </tr>
+            </thead>
+            <tbody>
+              {heatmap.rows.map((row) => (
+                <tr key={row.key}>
+                  <th scope="row">{row.label}</th>
+                  <td>
+                    <span className={`fill-state fill-${row.tone}`}>{row.statusLabel}</span>
+                  </td>
+                  <td>{row.requiredLabel}</td>
+                  <td>{row.assignedLabel}</td>
+                  <td>{row.unfilledLabel}</td>
+                  <td>
+                    {row.courses.length === 0 ? (
+                      '-'
+                    ) : (
+                      <ul className="heat-courses">
+                        {row.courses.map((course) => (
+                          <li key={course.key}>
+                            <Link
+                              className="text-link"
+                              to={course.path}
+                              aria-label={`${course.linkLabel}: ${course.name}`}
+                            >
+                              {course.code}
+                            </Link>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
     </section>
   )
 }
@@ -153,10 +221,21 @@ function BudgetVisual({ budget }) {
     <section className="role-card" aria-labelledby="command-centre-budget-heading">
       <h2 id="command-centre-budget-heading">Spend against budget</h2>
       <p className="helper-text">{budget.sentence}</p>
+      <div className="gauge-status">
+        <span className={`status-badge gauge-${budget.statusTone}`}>{budget.statusLabel}</span>
+        {budget.usedPercent !== null && (
+          <span className="gauge-percent">{budget.usedPercent} of budget used</span>
+        )}
+      </div>
       {budget.fraction !== null && (
         <span
           className={`spend-bar${budget.full ? ' spend-bar-full' : ''}`}
-          aria-hidden="true"
+          role="meter"
+          aria-label={`Budget used: ${budget.spendLabel} of ${budget.budgetLabel}`}
+          aria-valuemin="0"
+          aria-valuemax="100"
+          aria-valuenow={Math.round(budget.fraction * 100)}
+          aria-valuetext={`${budget.usedPercent ?? '--'} of the budget spent`}
         >
           <span className="spend-bar-fill" style={{ width: `${budget.fraction * 100}%` }} />
         </span>
@@ -188,7 +267,10 @@ function BudgetVisual({ budget }) {
               <span className="helper-text">
                 {course.name}: {course.spentLabel} spent against {course.budgetLabel},{' '}
                 {course.overLabel} over.
-              </span>
+              </span>{' '}
+              <Link className="text-link" to={course.path}>
+                {course.linkLabel}
+              </Link>
             </li>
           ))}
         </ul>
@@ -205,7 +287,7 @@ function WorkloadVisual({ workload }) {
     <section className="role-card" aria-labelledby="command-centre-workload-heading">
       <h2 id="command-centre-workload-heading">Who is carrying the work</h2>
       {workload.rows.length === 0 ? (
-        <p className="helper-text">No tutor has allocated or approved hours in this period.</p>
+        <p className="helper-text">{workload.emptyNote}</p>
       ) : (
         <ul className="workload-list">
           {workload.rows.map((row) => (
@@ -217,6 +299,7 @@ function WorkloadVisual({ workload }) {
                   allocated hours
                   {row.capacityLabel === null ? '' : `, against ${row.capacityLabel} capacity`}
                 </span>
+                <span className="helper-text">{row.capacityNote}</span>
               </div>
               {row.fraction !== null && (
                 <span
@@ -226,14 +309,16 @@ function WorkloadVisual({ workload }) {
                   <span className="spend-bar-fill" style={{ width: `${row.fraction * 100}%` }} />
                 </span>
               )}
+              <Link className="text-link" to={row.path}>
+                {row.linkLabel}
+              </Link>
             </li>
           ))}
         </ul>
       )}
+      {workload.spreadNote && <p className="helper-text">{workload.spreadNote}</p>}
       {workload.idleNote && <p className="helper-text">{workload.idleNote}</p>}
-      <p className="helper-text">
-        The share is the report&apos;s own figure, so it can never disagree with the reports screen.
-      </p>
+      <p className="helper-text">{workload.softNote}</p>
     </section>
   )
 }

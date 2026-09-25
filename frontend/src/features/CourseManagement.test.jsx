@@ -1,5 +1,5 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
-import { MemoryRouter } from 'react-router-dom'
+import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import CourseManagement from './CourseManagement'
 
@@ -25,10 +25,13 @@ const courses = [
   { id: 2, code: 'COMS3011', name: 'Software Design Project', hourlyRate: 30, budget: 5000 },
 ]
 
-function renderPage() {
+function renderPage(entry = '/organiser/courses') {
   render(
-    <MemoryRouter>
-      <CourseManagement />
+    <MemoryRouter initialEntries={[entry]}>
+      <Routes>
+        <Route path="/organiser/courses" element={<CourseManagement />} />
+        <Route path="/organiser/courses/:courseId" element={<CourseManagement />} />
+      </Routes>
     </MemoryRouter>,
   )
 }
@@ -445,5 +448,41 @@ describe('CourseManagement money fields', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent(/hourly rate above 0/i)
     // The screen did not block it first with a rule of its own.
     expect(createCourse).toHaveBeenCalled()
+  })
+})
+
+describe('CourseManagement deep links from the command centre', () => {
+  beforeEach(() => {
+    listCourses.mockReset().mockResolvedValue(courses)
+    updateCourse.mockReset()
+    getAccessTokenSilently.mockReset()
+  })
+
+  it('opens the course a link named once that course has been read', async () => {
+    renderPage('/organiser/courses/2')
+    await screen.findByRole('table')
+
+    expect(
+      await screen.findByRole('heading', { name: 'Edit COMS3011' }),
+    ).toBeInTheDocument()
+    expect(screen.getByLabelText(/course code/i)).toHaveValue('COMS3011')
+    expect(screen.getByLabelText(/budget/i)).toHaveValue(5000)
+  })
+
+  it('stays on a new course when the link names a course that is not there', async () => {
+    renderPage('/organiser/courses/999')
+    await screen.findByRole('table')
+
+    expect(screen.getByRole('heading', { name: 'Add a course' })).toBeInTheDocument()
+    expect(screen.getByLabelText(/course code/i)).toHaveValue('')
+  })
+
+  it('leaves the form cancelled once the organiser closes the linked course', async () => {
+    renderPage('/organiser/courses/2')
+    await screen.findByRole('heading', { name: 'Edit COMS3011' })
+
+    fireEvent.click(screen.getByRole('button', { name: /cancel edit/i }))
+
+    expect(screen.getByRole('heading', { name: 'Add a course' })).toBeInTheDocument()
   })
 })
