@@ -52,6 +52,36 @@ vi.mock('../api/organiser', () => ({
     courses: [],
     tutors: [],
   }),
+  getCommandCentreSummary: vi.fn().mockResolvedValue({
+    period: { weekStart: '2026-09-14T00:00:00.000Z', weekEnd: '2026-10-12T00:00:00.000Z', weeks: 4 },
+    staffing: {
+      requiredHours: 0,
+      assignedHours: 0,
+      unfilledHours: 0,
+      openRequirements: 0,
+      unfilledRequirements: 0,
+      requirements: [],
+      days: [],
+    },
+    finance: {
+      budget: null,
+      spend: null,
+      committed: null,
+      remaining: null,
+      overBudgetCourses: 0,
+      unpricedCourses: 0,
+      courses: [],
+    },
+    workload: { tutors: [] },
+    actions: {
+      pendingTimesheets: 0,
+      pendingVolunteerClaims: 0,
+      pendingExcuses: 0,
+      openDisputes: 0,
+      total: 0,
+    },
+    overflow: { openItems: 0, openHours: 0, unclaimedItems: 0 },
+  }),
 }))
 
 vi.mock('../api/tutorDashboard', () => ({
@@ -220,6 +250,34 @@ describe('RoleRouter', () => {
 
     expect(screen.getByRole('heading', { name: /access denied/i })).toBeInTheDocument()
     expect(screen.queryByRole('heading', { name: 'Reports' })).not.toBeInTheDocument()
+  })
+
+  it('offers the command centre in the organiser navigation', () => {
+    renderRole('ORGANISER')
+
+    expect(screen.getByRole('link', { name: 'Command centre' })).toHaveAttribute(
+      'href',
+      '/organiser/command-centre',
+    )
+  })
+
+  it('hides the command centre link from a tutor', () => {
+    renderRole('TUTOR', '/tutor')
+
+    expect(screen.queryByRole('link', { name: 'Command centre' })).not.toBeInTheDocument()
+  })
+
+  it('opens the command centre for an organiser', async () => {
+    renderRole('ORGANISER', '/organiser/command-centre')
+
+    expect(await screen.findByRole('heading', { name: 'Command centre' })).toBeInTheDocument()
+  })
+
+  it('keeps the command centre away from a tutor', () => {
+    renderRole('TUTOR', '/organiser/command-centre')
+
+    expect(screen.getByRole('heading', { name: /access denied/i })).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: 'Command centre' })).not.toBeInTheDocument()
   })
 
   it('reaches reports from the organiser dashboard, not the main navigation', () => {

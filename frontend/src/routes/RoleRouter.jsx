@@ -13,11 +13,13 @@ import StaffingRequirements from '../features/StaffingRequirements'
 import BulkAllocation from '../features/BulkAllocation'
 import OrganiserReports from '../features/OrganiserReports'
 import OrganiserOverflow from '../features/OrganiserOverflow'
+import CommandCentre from '../features/CommandCentre'
 import { SkipToContent } from '../components/shared/SkipToContent'
 import { NotificationBell } from '../components/shared/NotificationBell'
 import { CommandPalette } from '../components/shared/CommandPalette'
 
 const ORGANISER_LINKS = Object.freeze([
+  { path: '/organiser/command-centre', label: 'Command centre' },
   { path: '/organiser/courses', label: 'Courses' },
   { path: '/organiser/tutors', label: 'Tutors' },
   { path: '/organiser/staffing', label: 'Staffing' },
@@ -120,6 +122,10 @@ export function RoleRouter({ currentRole, onSignOut }) {
         <Route
           path="/organiser"
           element={protect(currentRole, ['ORGANISER'], <OrganiserDashboard />)}
+        />
+        <Route
+          path="/organiser/command-centre"
+          element={protect(currentRole, ['ORGANISER'], <CommandCentre />)}
         />
         <Route
           path="/organiser/courses"

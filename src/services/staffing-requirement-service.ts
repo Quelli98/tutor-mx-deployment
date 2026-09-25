@@ -111,7 +111,11 @@ function shortageFor(
   return remaining <= HOURS_TOLERANCE ? 0 : remaining;
 }
 
-function fillStateFor(
+/**
+ * The one rule for how filled a window is, exported so a day's worth of
+ * requirements is described in exactly the same words as a single one.
+ */
+export function fillStateFor(
   assignedHours: number,
   shortageHours: number,
   status: StaffingRequirementStatus,
