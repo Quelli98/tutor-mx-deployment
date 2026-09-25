@@ -1,3 +1,4 @@
+import { createRouteError } from "../http/errors.js";
 import { readFile, readdir } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { PGlite } from "@electric-sql/pglite";
@@ -331,10 +332,7 @@ describe("bulk allocation commit", () => {
       .fn()
       .mockResolvedValueOnce({ id: 44 })
       .mockRejectedValueOnce(
-        Object.assign(new Error("The tutor has a timetable clash for this allocation."), {
-          status: 409,
-          code: "schedule-clash",
-        }),
+        createRouteError(409, "schedule-clash", "The tutor has a timetable clash for this allocation."),
       )
       .mockResolvedValueOnce({ id: 45 });
 
@@ -357,10 +355,7 @@ describe("bulk allocation commit", () => {
 
   it("reports an ineligible tutor as the rules refused them, reason or not", async () => {
     const createAllocation = vi.fn().mockRejectedValue(
-      Object.assign(new Error("The tutor does not meet the allocation mark requirement."), {
-        status: 409,
-        code: "insufficient-mark",
-      }),
+      createRouteError(409, "insufficient-mark", "The tutor does not meet the allocation mark requirement."),
     );
 
     const results = await commit(commitService(createAllocation), [
@@ -489,5 +484,29 @@ describe("preview writes nothing, against a real database", () => {
     expect(items[0]!.proposals.map((proposal) => proposal.tutorId)).toEqual([1, 2]);
     expect(await snapshot()).toEqual(before);
     expect(before.Allocation).toBe(0);
+  });
+});
+
+describe("Member 5 overlapping bulk commits", () => {
+  it("keeps item-level conflicts safe and does not duplicate a saved allocation", async () => {
+    const saved = new Set<number>();
+    const writer = vi.fn(async (_owner: string, input: { tutorId: number }) => {
+      if (saved.has(input.tutorId)) throw createRouteError(409, 'ALLOCATION_CONFLICT', 'That tutor is already booked.');
+      saved.add(input.tutorId);
+      return { id: 90 + input.tutorId };
+    });
+    const service = createBulkAllocationService(candidateClient([]), async () => [requirement()], writer);
+    const input = { minimumMark: 65, items: [{ requirementId: 100, tutorId: 1, proposedTutorId: 1 }] };
+    const results = (await Promise.all([service.commit('organiser', input), service.commit('organiser', input)])).flat();
+    expect(results.filter((item) => item.outcome === 'saved')).toHaveLength(1);
+    expect(results.filter((item) => item.code === 'ALLOCATION_CONFLICT')).toHaveLength(1);
+    expect(saved.size).toBe(1);
+  });
+  it("does not trust status-shaped errors for public item messages", async () => {
+    const writer = vi.fn().mockRejectedValue(Object.assign(new Error('password=secret'), { status: 409, code: 'DB_DETAIL' }));
+    const service = createBulkAllocationService(candidateClient([]), async () => [requirement()], writer);
+    const results = await service.commit('organiser', { minimumMark: 65, items: [{ requirementId: 100, tutorId: 1, proposedTutorId: 1 }] });
+    expect(results[0]?.code).toBe('INTERNAL_ERROR');
+    expect(JSON.stringify(results)).not.toContain('secret');
   });
 });

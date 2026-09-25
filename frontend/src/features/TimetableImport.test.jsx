@@ -90,6 +90,19 @@ describe('TimetableImport', () => {
     onImported.mockReset()
   })
 
+  it.each(['synchronous', 'asynchronous'])('keeps confirmed import success when the %s refresh fails', async (mode) => {
+    if (mode === 'synchronous') onImported.mockImplementation(() => { throw new Error('refresh failed') })
+    else onImported.mockRejectedValue(new Error('refresh failed'))
+    await renderImport()
+    typeRows()
+    fireEvent.click(screen.getByRole('button', { name: /preview import/i }))
+    fireEvent.click(await screen.findByRole('button', { name: /save 1 entry/i }))
+    expect(await screen.findByText('Imported 1 schedule entry.')).toBeInTheDocument()
+    expect(await screen.findByText(/was saved, but the schedule could not be refreshed/i)).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /save 1 entry/i })).not.toBeInTheDocument()
+    expect(mockCommit).toHaveBeenCalledTimes(1)
+  })
+
   it('previews the pasted rows against the term that has not finished yet', async () => {
     await renderImport()
     typeRows()

@@ -1,3 +1,4 @@
+import { requestFingerprint } from "../http/idempotency.js";
 import { readFile, readdir } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { PGlite, type Transaction } from "@electric-sql/pglite";
@@ -160,7 +161,9 @@ function createImportClient(database: PGlite, failAfter = Number.POSITIVE_INFINI
       // PGlite's transaction() rolls back when the callback throws, which is the
       // behaviour the service relies on for its all-or-nothing commit.
       return database.transaction(async (transaction) =>
-        operation({ timeSlot: timeSlot(transaction) }),
+        operation({ timeSlot: timeSlot(transaction), async $queryRawUnsafe<T>(sql: string, ...values: unknown[]): Promise<T> {
+          return (await transaction.query(sql, values)).rows as T;
+        } }),
       );
     },
   };
@@ -267,6 +270,41 @@ describe("timetable import service", () => {
     );
     return result.rows;
   }
+
+  describe("Member 5 durable retry and transaction evidence", () => {
+    const csv = "date,start,end,label,repeat\n2030-09-02,09:00,11:00,Maths,weekly";
+    it("returns the original result for a replayed key without inserting duplicates", async () => {
+      const input = request(csv);
+      const first = await service().commit(TUTOR, input, "m5-replay-001");
+      const second = await service().commit(TUTOR, input, "m5-replay-001");
+      expect(second).toEqual(first);
+      expect(await storedSlots()).toHaveLength(1);
+    });
+    it("rejects a key reused with different validated content", async () => {
+      await service().commit(TUTOR, request(csv), "m5-conflict-001");
+      await expect(service().commit(TUTOR, request(csv.replace("Maths", "Physics")), "m5-conflict-001"))
+        .rejects.toMatchObject({ status: 409, code: "IDEMPOTENCY_KEY_REUSED" });
+      expect(await storedSlots()).toHaveLength(1);
+    });
+    it("rolls back both receipt and all imported rows on an injected second-row failure", async () => {
+      const input = request(csv + "\n2030-09-03,09:00,11:00,Physics,weekly");
+      await expect(service(1).commit(TUTOR, input, "m5-rollback-001")).rejects.toMatchObject({ status: 409 });
+      expect(await storedSlots()).toHaveLength(0);
+      expect((await database.query(`SELECT * FROM "ApiWriteReceipt" WHERE "key" = $1`, [requestFingerprint({ scope: "timetable-import", key: "m5-rollback-001" })])).rows).toHaveLength(0);
+      expect((await service().commit(TUTOR, input, "m5-rollback-001")).created).toBe(2);
+    });
+    it("simultaneous keyed requests return one durable import", async () => {
+      const input = request(csv);
+      const results = await Promise.all([service().commit(TUTOR, input, "m5-concurrent-001"), service().commit(TUTOR, input, "m5-concurrent-001")]);
+      expect(results[0]).toEqual(results[1]);
+      expect(await storedSlots()).toHaveLength(1);
+    });
+    it("simultaneous unkeyed requests cannot duplicate schedule rows", async () => {
+      const results = await Promise.allSettled([service().commit(TUTOR, request(csv)), service().commit(TUTOR, request(csv))]);
+      expect(results.some((result) => result.status === 'fulfilled')).toBe(true);
+      expect(await storedSlots()).toHaveLength(1);
+    });
+  });
 
   describe("preview", () => {
     it("reports a valid row without writing anything", async () => {

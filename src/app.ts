@@ -1,3 +1,6 @@
+import { normalizeIdempotencyKey } from "./http/idempotency.js";
+import { createRouteError, sanitizeError } from "./http/errors.js";
+import { boundedInteger, MAX_DATABASE_ID, parsePage } from "./http/validation.js";
 import express, { type Express } from "express";
 import helmet from "helmet";
 import { rateLimit } from "express-rate-limit";
@@ -377,6 +380,8 @@ export interface BulkAllocationCommitResult {
 }
 
 export interface StaffingRequirementListQuery {
+  /** Internal filter for a validated bulk selection. */
+  ids?: number[];
   courseId?: number;
   status?: StaffingRequirementStatus;
 }
@@ -823,6 +828,7 @@ export interface AppDependencies {
   listOrganiserOverflowWork?: () => Promise<OrganiserOverflowWorkSummary[]>;
   createOrganiserOverflowWork?: (
     input: OrganiserOverflowWorkCreateInput,
+    retry?: { auth0Id: string; key: string },
   ) => Promise<OrganiserOverflowWorkSummary[]>;
   updateOrganiserOverflowWork?: (
     overflowWorkId: number,
@@ -844,6 +850,7 @@ export interface AppDependencies {
   commitTutorTimetableImport?: (
     auth0Id: string,
     request: TimetableImportRequest,
+    idempotencyKey?: string,
   ) => Promise<TimetableImportCommitResult>;
   verifyAccessToken: AccessTokenVerifier;
 }
@@ -988,50 +995,9 @@ function error(status: number, code: string, message: string) {
   return { status, body: { error: { code, message } } };
 }
 
-// Only deliberately constructed public errors may expose their message.
-const publicRouteErrors = new WeakSet<Error>();
-
-export function createRouteError(
-  status: number,
-  code: string,
-  message: string,
-): RouteError {
-  const routeError = new Error(message) as RouteError;
-  routeError.status = status;
-  routeError.code = code;
-  publicRouteErrors.add(routeError);
-  return routeError;
-}
-
-function isRouteError(value: unknown): value is RouteError {
-  return (
-    typeof value === "object" &&
-    value !== null &&
-    value instanceof Error &&
-    publicRouteErrors.has(value) &&
-    "status" in value &&
-    typeof (value as RouteError).status === "number" &&
-    "code" in value &&
-    typeof (value as RouteError).code === "string"
-  );
-}
-
+export { createRouteError } from "./http/errors.js";
 function sendRouteError(response: express.Response, value: unknown) {
-  if (isRouteError(value)) {
-    response.status(value.status).json({
-      error: {
-        code: value.code,
-        message: value.message,
-      },
-    });
-    return;
-  }
-
-  const result = error(
-    500,
-    "INTERNAL_ERROR",
-    "The request could not be completed.",
-  );
+  const result = sanitizeError(value);
   response.status(result.status).json(result.body);
 }
 
@@ -1600,23 +1566,10 @@ function parseWeekStart(value: unknown): Date | null {
 }
 
 function parsePositiveInteger(value: unknown) {
-  const normalized = firstQueryParam(value);
-  if (
-    normalized === null ||
-    normalized === undefined ||
-    typeof normalized === "boolean" ||
-    (typeof normalized === "string" && normalized.trim() === "")
-  ) {
-    return null;
-  }
-  const numeric = Number(normalized);
-  return Number.isInteger(numeric) && numeric > 0 ? numeric : null;
+  return boundedInteger(value, 1, MAX_DATABASE_ID);
 }
-
 function parseJsonPositiveInteger(value: unknown) {
-  return typeof value === "number" && Number.isInteger(value) && value > 0
-    ? value
-    : null;
+  return typeof value === "number" ? boundedInteger(value, 1, MAX_DATABASE_ID) : null;
 }
 
 function hasAtMostTwoDecimalPlaces(value: number) {
@@ -1760,6 +1713,7 @@ function parseTimesheetDisputeInput(body: unknown) {
 }
 
 function parseTimesheetDisputeResolutionInput(body: unknown) {
+  if (!hasOnlyFields(body, ["resolutionReason"])) return { error: "Provide only a resolutionReason; resolving a dispute does not change the timesheet status." } as const;
   const payload = body as { resolutionReason?: unknown } | null;
   const resolutionReason = parseRequiredText(
     payload?.resolutionReason,
@@ -2128,8 +2082,8 @@ function parseNumericId(
   resourceName: string,
 ) {
   const resolved = Array.isArray(value) ? value[0] : value;
-  const numeric = Number(resolved);
-  if (!Number.isInteger(numeric) || numeric <= 0) {
+  const numeric = boundedInteger(resolved, 1, MAX_DATABASE_ID);
+  if (numeric === null) {
     return {
       error: `${resourceName} identifier must be a positive whole number.`,
     } as const;
@@ -2196,52 +2150,16 @@ export function createApp(
   const resolveProfileRole = createProfileRoleMiddleware(dependencies.findProfileByAuth0Id);
   const requireTutorMxRole = requireRole(...TUTOR_ROLES);
 
-  app.disable("x-powered-by");
-  app.use(helmet());
-  app.use(
-    "/api",
-    rateLimit({
-      windowMs: 60_000,
-      limit: 120,
-      standardHeaders: "draft-8",
-      legacyHeaders: false,
-    }),
-  );
-  const sensitiveAuthLimiter = rateLimit({
-    windowMs: 15 * 60_000,
-    limit: 10,
-    standardHeaders: "draft-8",
-    legacyHeaders: false,
-  });
-
-  if (requestLogger) {
-    app.use((request, response, next) => {
-      const startedAt = process.hrtime.bigint();
-
-      response.on("finish", () => {
-        requestLogger({
-          method: request.method,
-          path: request.path,
-          status: response.statusCode,
-          durationMs: Number(process.hrtime.bigint() - startedAt) / 1_000_000,
-        });
-      });
-
-      next();
-    });
-  }
-
-  app.use(express.json({ limit: "32kb" }));
-
   const corsOrigin = dependencies.corsOrigin;
   if (corsOrigin) {
     app.use((request, response, next) => {
       if (request.header("origin") === corsOrigin) {
         response.setHeader("Access-Control-Allow-Origin", corsOrigin);
         response.setHeader("Vary", "Origin");
+        response.setHeader("Access-Control-Expose-Headers", "Content-Disposition");
         response.setHeader(
           "Access-Control-Allow-Headers",
-          "Authorization, Content-Type",
+          "Authorization, Content-Type, Idempotency-Key",
         );
         response.setHeader(
           "Access-Control-Allow-Methods",
@@ -2255,6 +2173,45 @@ export function createApp(
       next();
     });
   }
+
+  app.disable("x-powered-by");
+  app.use(helmet());
+  app.use(
+    "/api",
+    rateLimit({
+      windowMs: 60_000,
+      limit: 120,
+      standardHeaders: "draft-8",
+      legacyHeaders: false,
+      message: { error: { code: "RATE_LIMITED", message: "Too many requests. Please try again shortly." } },
+    }),
+  );
+  const sensitiveAuthLimiter = rateLimit({
+    windowMs: 15 * 60_000,
+    limit: 10,
+    standardHeaders: "draft-8",
+    legacyHeaders: false,
+      message: { error: { code: "RATE_LIMITED", message: "Too many requests. Please try again shortly." } },
+  });
+
+  if (requestLogger) {
+    app.use((request, response, next) => {
+      const startedAt = process.hrtime.bigint();
+
+      response.on("finish", () => {
+        requestLogger({
+          method: request.method,
+          path: typeof request.route?.path === "string" ? request.route.path : "/unmatched",
+          status: response.statusCode,
+          durationMs: Number(process.hrtime.bigint() - startedAt) / 1_000_000,
+        });
+      });
+
+      next();
+    });
+  }
+
+  app.use(express.json({ limit: "32kb" }));
 
   app.get("/health", (_request, response) => {
     response.status(200).json({ status: "ok" });
@@ -3134,8 +3091,10 @@ export function createApp(
         if (!dependencies.createOrganiserOverflowWork) {
           throw overflowWorkUnavailable();
         }
+        const key = normalizeIdempotencyKey(request.headers["idempotency-key"]);
         const overflowWork = await dependencies.createOrganiserOverflowWork(
           parsed.value,
+          ...(key ? [{ auth0Id: (request as AuthenticatedRequest).auth!.subject, key }] : []),
         );
         response.status(201).json({ data: { overflowWork } });
       } catch (value) {
@@ -3666,9 +3625,11 @@ export function createApp(
         // does. This is why the batch endpoint exists rather than a client loop
         // over the single-time-slot route, which would leave partial writes
         // behind once a later row failed.
+        const key = normalizeIdempotencyKey(request.headers["idempotency-key"]);
         const result = await dependencies.commitTutorTimetableImport(
           (request as AuthenticatedRequest).auth!.subject,
           parsed.value,
+          ...(key ? [key] : []),
         );
         response.status(200).json({ data: { result } });
       } catch (value) {
@@ -4274,6 +4235,10 @@ export function createApp(
     requireTutorMxRole,
     async (request, response) => {
       const auth = (request as AuthenticatedRequest).auth!;
+      if (parsePage(request.query.page) === null || parsePage(request.query.pageSize, 10, 25) === null) {
+        response.status(400).json({ error: { code: "VALIDATION_ERROR", message: "Use page 1–10000 and pageSize 1–25." } });
+        return;
+      }
       try {
         if (!dependencies.search) {
           throw createRouteError(503, "SEARCH_UNAVAILABLE", "Search is not configured.");
@@ -4304,6 +4269,10 @@ export function createApp(
     requireTutorMxRole,
     async (request, response) => {
       const auth = (request as AuthenticatedRequest).auth!;
+      if (parsePage(request.query.page) === null || parsePage(request.query.pageSize, 10, 25) === null) {
+        response.status(400).json({ error: { code: "VALIDATION_ERROR", message: "Use page 1–10000 and pageSize 1–25." } });
+        return;
+      }
       try {
         if (!dependencies.listNotifications) throw createRouteError(503, "NOTIFICATIONS_UNAVAILABLE", "Notifications are not configured.");
         const query = parseNotificationListQuery(request.query);
@@ -4451,6 +4420,10 @@ export function createApp(
     ) => {
       void _next;
 
+      if (typeof thrown === "object" && thrown !== null && "type" in thrown && thrown.type === "entity.too.large") {
+        response.status(413).json({ error: { code: "PAYLOAD_TOO_LARGE", message: "Keep the request body within 32 KB." } });
+        return;
+      }
       if (
         thrown instanceof SyntaxError &&
         "status" in thrown &&

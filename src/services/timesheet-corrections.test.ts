@@ -765,6 +765,7 @@ describe("disputes", () => {
         resolvedAt: new Date("2030-09-25T09:00:00.000Z"),
       }),
     });
+    harness.disputeFindFirst.mockResolvedValueOnce(disputeRow());
     const service = createService(harness);
 
     await expect(
@@ -937,5 +938,25 @@ describe("correction service surface", () => {
       "recordReturn",
       "resolveDispute",
     ]);
+  });
+});
+
+describe("Member 5 competing dispute resolutions", () => {
+  it("one decision wins and the second receives a conflict", async () => {
+    const harness = makeHarness({ profile: { id: 3, role: 'ORGANISER' }, dispute: disputeRow() });
+    let open = true;
+    harness.disputeUpdateMany.mockImplementation(async () => {
+      if (!open) return { count: 0 };
+      open = false;
+      return { count: 1 };
+    });
+    const service = createService(harness);
+    const results = await Promise.allSettled([
+      service.resolveDispute(AUTH0_ORGANISER, 71, { resolutionReason: 'Reviewed A' }),
+      service.resolveDispute(AUTH0_ORGANISER, 71, { resolutionReason: 'Reviewed B' }),
+    ]);
+    expect(results.filter((result) => result.status === 'fulfilled')).toHaveLength(1);
+    const failed = results.find((result) => result.status === 'rejected');
+    expect(failed?.reason).toMatchObject({ status: 409, code: 'TIMESHEET_DISPUTE_CONFLICT' });
   });
 });

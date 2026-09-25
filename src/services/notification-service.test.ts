@@ -350,3 +350,19 @@ describe("startDueReminderScheduler", () => {
     expect(runDueReminders).toHaveBeenCalledTimes(2);
   });
 });
+
+describe("Member 5 concurrent notification delivery", () => {
+  it("deduplicates simultaneous emit calls using the same event identity", async () => {
+    const { client, rows } = createFakeClient();
+    const service = createNotificationService(client);
+    const results = await Promise.all([service.emit([sampleEvent()]), service.emit([sampleEvent()])]);
+    expect(results.reduce((sum, count) => sum + count, 0)).toBe(1);
+    expect(rows).toHaveLength(1);
+  });
+  it("deduplicates simultaneous reminder runs", async () => {
+    const { client, rows } = createFakeClient({ organisers: [1], submittedTimesheets: [{ id: 10, submittedAt: new Date('2025-01-01') }] });
+    const service = createNotificationService(client);
+    await Promise.all([service.runDueReminders(new Date('2025-01-10')), service.runDueReminders(new Date('2025-01-10'))]);
+    expect(rows).toHaveLength(1);
+  });
+});

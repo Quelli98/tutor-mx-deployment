@@ -356,3 +356,20 @@ describe('TimesheetSection', () => {
     expect(mockFetchTimesheetStatus).toHaveBeenCalledTimes(1)
   })
 })
+
+
+describe('timesheet timeline recovery', () => {
+  it('retries a failed history read without requiring a status change', async () => {
+    window.sessionStorage.setItem(STORAGE_KEY, JSON.stringify([returnedSummary]))
+    mockFetchTimesheetStatus.mockReset().mockResolvedValue(returnedSummary)
+    mockFetchTimesheetHistory.mockReset()
+      .mockRejectedValueOnce(new Error('offline'))
+      .mockResolvedValue(returnedHistory())
+    render(<TimesheetSection tokenOrGetter={tokenGetter} />)
+    expect(await screen.findByText(/timeline could not be refreshed/i)).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: /check for decision/i }))
+    expect(await screen.findByRole('heading', { name: /return and correction timeline/i })).toBeInTheDocument()
+    expect(screen.queryByText(/timeline could not be refreshed/i)).not.toBeInTheDocument()
+    expect(mockFetchTimesheetHistory).toHaveBeenCalledTimes(2)
+  })
+})

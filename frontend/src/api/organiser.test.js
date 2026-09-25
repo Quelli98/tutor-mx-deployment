@@ -11,6 +11,8 @@ import {
   listAllocations,
   listCourses,
   listOrganiserApprovals,
+  listTimesheetDisputes,
+  resolveTimesheetDispute,
   listStaffingRequirements,
   listTutorMarks,
   listTutorTimeSlots,
@@ -575,5 +577,21 @@ describe('staffing requirement API contract', () => {
     await expect(createStaffingRequirement(writeInput, tokenGetter)).rejects.toThrow(
       /did not match the agreed contract/i,
     )
+  })
+})
+
+
+describe('Member 5 organiser dispute contract', () => {
+  it('uses the registered organiser queue URL', async () => {
+    fetchWithBearerToken.mockResolvedValue({ data: { disputes: [] } })
+    await listTimesheetDisputes(tokenGetter)
+    expect(fetchWithBearerToken).toHaveBeenLastCalledWith('/api/organiser/timesheet-disputes', {}, tokenGetter)
+  })
+  it('sends only the supported resolution fields', async () => {
+    fetchWithBearerToken.mockResolvedValue({ data: { dispute: { id: 71 } } })
+    await resolveTimesheetDispute({ disputeId: 71, resolutionReason: 'Reviewed with the tutor.' }, tokenGetter)
+    expect(fetchWithBearerToken).toHaveBeenLastCalledWith('/api/timesheet-disputes/71', {
+      method: 'PATCH', body: JSON.stringify({ resolutionReason: 'Reviewed with the tutor.' }),
+    }, tokenGetter)
   })
 })

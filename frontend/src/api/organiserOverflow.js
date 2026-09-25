@@ -1,3 +1,4 @@
+import { withRetryKey } from './retryKey'
 import { fetchWithBearerToken } from './client'
 
 export const OVERFLOW_WORK_STATUSES = Object.freeze(['OPEN', 'FILLED', 'CLOSED', 'CANCELLED'])
@@ -69,17 +70,13 @@ export async function listOrganiserOverflowWork(tokenOrGetter) {
 }
 
 export async function createOrganiserOverflowWork(input, tokenOrGetter) {
-  const body = await fetchWithBearerToken(
-    '/api/organiser/overflow-work',
-    {
-      method: 'POST',
-      body: overflowWorkBody(input, {
-        sourceRequirementId: input.sourceRequirementId ?? null,
-      }),
-    },
-    tokenOrGetter,
-  )
-  return overflowWorkArrayFrom(body)
+  const payload = overflowWorkBody(input, { sourceRequirementId: input.sourceRequirementId ?? null })
+  return withRetryKey('overflow-create', payload, async (key) => {
+    const body = await fetchWithBearerToken('/api/organiser/overflow-work', {
+      method: 'POST', headers: { 'Idempotency-Key': key }, body: payload,
+    }, tokenOrGetter)
+    return overflowWorkArrayFrom(body)
+  })
 }
 
 export async function updateOrganiserOverflowWork(input, tokenOrGetter) {

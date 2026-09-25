@@ -1,3 +1,4 @@
+import { sanitizeError } from "../http/errors.js";
 import {
   createRouteError,
   type BulkAllocationCommitInput,
@@ -17,6 +18,7 @@ import {
 /** Reads staffing requirements. Deliberately a reader, never a writer. */
 type RequirementReader = (query: {
   status?: "OPEN";
+  ids?: number[];
 }) => Promise<StaffingRequirementSummary[]>;
 
 /** Creates one allocation in its own transaction, rechecking the rules inside it. */
@@ -181,7 +183,7 @@ export function createBulkAllocationService(
   async function openRequirementsById(
     requirementIds: number[],
   ): Promise<Map<number, StaffingRequirementSummary>> {
-    const open = await listRequirements({ status: "OPEN" });
+    const open = await listRequirements({ status: "OPEN", ids: requirementIds });
     const wanted = new Set(requirementIds);
     return new Map(
       open
@@ -310,15 +312,9 @@ export function createBulkAllocationService(
             allocationId: allocation.id,
           });
         } catch (value) {
-          const routeError = value as { status?: number; code?: string; message?: string };
-          if (typeof routeError?.status === "number" && routeError.code) {
-            results.push({
-              requirementId: item.requirementId,
-              tutorId: item.tutorId,
-              outcome: "failed",
-              code: routeError.code,
-              message: routeError.message ?? "This allocation could not be saved.",
-            });
+          const safe = sanitizeError(value);
+          if (safe.status < 500) {
+            results.push({ requirementId: item.requirementId, tutorId: item.tutorId, outcome: "failed", ...safe.body.error });
             continue;
           }
           // An unexpected failure is reported without detail, and the rest of

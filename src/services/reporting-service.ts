@@ -1,3 +1,4 @@
+import { assertResultLimit, MAX_REPORT_ROWS, MAX_PAYROLL_ROWS } from "../http/limits.js";
 import type {
   CourseReportRow,
   PayrollExport,
@@ -35,50 +36,52 @@ const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
  * can fall in different weeks, which the screen notes.
  */
 export const courseReportSql = `
+WITH allocated AS (
+  SELECT "courseId", SUM("allocatedHours") AS hours
+  FROM "Allocation" WHERE "status" = 'CONFIRMED'
+    AND "startsAt" >= $1::timestamp AND "startsAt" < $2::timestamp
+  GROUP BY "courseId"
+), worked AS (
+  SELECT a."courseId", SUM(w."hours") AS hours,
+    SUM(w."hours" * w."approvedHourlyRate") AS spend
+  FROM "WorkLog" w
+  JOIN "Allocation" a ON a."id" = w."allocationId"
+  JOIN "Timesheet" t ON t."id" = w."timesheetId"
+  WHERE t."status" = 'APPROVED' AND w."workDate" >= $1::date AND w."workDate" < $2::date
+  GROUP BY a."courseId"
+)
 SELECT c."id" AS "courseId", c."code" AS "courseCode", c."name" AS "courseName",
-  c."hourlyRate"::double precision AS "hourlyRate",
-  c."budget"::double precision AS "budget",
-  COALESCE((
-    SELECT SUM(a."allocatedHours") FROM "Allocation" a
-    WHERE a."courseId" = c."id" AND a."status" = 'CONFIRMED'
-      AND a."startsAt" >= $1::timestamp AND a."startsAt" < $2::timestamp
-  ), 0)::double precision AS "allocatedHours",
-  COALESCE((
-    SELECT SUM(w."hours") FROM "WorkLog" w
-    JOIN "Allocation" wa ON wa."id" = w."allocationId"
-    JOIN "Timesheet" t ON t."id" = w."timesheetId"
-    WHERE wa."courseId" = c."id" AND t."status" = 'APPROVED'
-      AND w."workDate" >= $1::date AND w."workDate" < $2::date
-  ), 0)::double precision AS "approvedWorkedHours",
-  (
-    SELECT SUM(w."hours" * w."approvedHourlyRate") FROM "WorkLog" w
-    JOIN "Allocation" wa ON wa."id" = w."allocationId"
-    JOIN "Timesheet" t ON t."id" = w."timesheetId"
-    WHERE wa."courseId" = c."id" AND t."status" = 'APPROVED'
-      AND w."workDate" >= $1::date AND w."workDate" < $2::date
-  )::double precision AS "approvedSpend"
+  c."hourlyRate"::double precision AS "hourlyRate", c."budget"::double precision AS "budget",
+  COALESCE(a.hours, 0)::double precision AS "allocatedHours",
+  COALESCE(w.hours, 0)::double precision AS "approvedWorkedHours",
+  w.spend::double precision AS "approvedSpend"
 FROM "Course" c
-ORDER BY c."code" ASC;
+LEFT JOIN allocated a ON a."courseId" = c."id"
+LEFT JOIN worked w ON w."courseId" = c."id"
+ORDER BY c."code" ASC, c."id" ASC LIMIT 5001;
 `;
 
 export const tutorReportSql = `
-SELECT p."id" AS "tutorId", p."fullName",
-  thl."weeklyHours"::double precision AS "weeklyLimit",
-  COALESCE((
-    SELECT SUM(a."allocatedHours") FROM "Allocation" a
-    WHERE a."tutorId" = p."id" AND a."status" = 'CONFIRMED'
-      AND a."startsAt" >= $1::timestamp AND a."startsAt" < $2::timestamp
-  ), 0)::double precision AS "allocatedHours",
-  COALESCE((
-    SELECT SUM(w."hours") FROM "WorkLog" w
-    JOIN "Timesheet" t ON t."id" = w."timesheetId"
-    WHERE w."tutorId" = p."id" AND t."status" = 'APPROVED'
-      AND w."workDate" >= $1::date AND w."workDate" < $2::date
-  ), 0)::double precision AS "approvedWorkedHours"
+WITH allocated AS (
+  SELECT "tutorId", SUM("allocatedHours") AS hours
+  FROM "Allocation" WHERE "status" = 'CONFIRMED'
+    AND "startsAt" >= $1::timestamp AND "startsAt" < $2::timestamp
+  GROUP BY "tutorId"
+), worked AS (
+  SELECT w."tutorId", SUM(w."hours") AS hours
+  FROM "WorkLog" w JOIN "Timesheet" t ON t."id" = w."timesheetId"
+  WHERE t."status" = 'APPROVED' AND w."workDate" >= $1::date AND w."workDate" < $2::date
+  GROUP BY w."tutorId"
+)
+SELECT p."id" AS "tutorId", p."fullName", thl."weeklyHours"::double precision AS "weeklyLimit",
+  COALESCE(a.hours, 0)::double precision AS "allocatedHours",
+  COALESCE(w.hours, 0)::double precision AS "approvedWorkedHours"
 FROM "Profile" p
 LEFT JOIN "TutorHourLimit" thl ON thl."tutorId" = p."id"
+LEFT JOIN allocated a ON a."tutorId" = p."id"
+LEFT JOIN worked w ON w."tutorId" = p."id"
 WHERE p."role" = 'TUTOR'
-ORDER BY p."fullName" ASC, p."id" ASC;
+ORDER BY p."fullName" ASC, p."id" ASC LIMIT 5001;
 `;
 
 /**
@@ -111,7 +114,7 @@ JOIN "Profile" p ON p."id" = w."tutorId"
 WHERE t."status" = 'APPROVED'
   AND w."workDate" >= $1::date AND w."workDate" < $2::date
 GROUP BY t."id", t."weekStart", p."id", p."fullName", c."id", c."code", c."name"
-ORDER BY t."weekStart" ASC, p."fullName" ASC, p."id" ASC, c."code" ASC;
+ORDER BY t."weekStart" ASC, p."fullName" ASC, p."id" ASC, c."code" ASC LIMIT 10001;
 `;
 
 interface CourseRow {
@@ -189,6 +192,8 @@ export function createReportingService(queryClient: QueryClient) {
         queryClient.query<TutorRow>(tutorReportSql, parameters),
       ]);
 
+      assertResultLimit(courseResult.rows, MAX_REPORT_ROWS, "Course report");
+      assertResultLimit(tutorResult.rows, MAX_REPORT_ROWS, "Tutor report");
       const courses: CourseReportRow[] = courseResult.rows.map((row) => {
         // Spend is what is owed: hours done and signed off, priced at the rate
         // that was in force when they were approved. Committed is what is
@@ -255,6 +260,7 @@ export function createReportingService(queryClient: QueryClient) {
         parameters,
       );
 
+      assertResultLimit(result.rows, MAX_PAYROLL_ROWS, "Payroll export");
       const lines: PayrollExportRow[] = result.rows.map((row) => ({
         periodStart: row.periodStart,
         periodEnd: row.periodEnd,

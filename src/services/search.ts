@@ -121,7 +121,7 @@ function clampInteger(
 }
 
 export function clampSearchPage(raw: unknown): number {
-  return clampInteger(raw, 1, 1, Number.MAX_SAFE_INTEGER);
+  return clampInteger(raw, 1, 1, 10_000);
 }
 
 export function clampSearchPageSize(raw: unknown): number {
