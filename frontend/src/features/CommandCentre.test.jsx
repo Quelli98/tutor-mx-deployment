@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import CommandCentre from './CommandCentre'
 
 const getCommandCentreSummary = vi.fn()
-const fetchNotifications = vi.fn()
+const fetchAllNotifications = vi.fn()
 const getAccessTokenSilently = vi.fn()
 
 vi.mock('../api/organiser', () => ({
@@ -12,7 +12,7 @@ vi.mock('../api/organiser', () => ({
 }))
 
 vi.mock('../api/notifications', () => ({
-  fetchNotifications: (...args) => fetchNotifications(...args),
+  fetchAllNotifications: (...args) => fetchAllNotifications(...args),
 }))
 
 vi.mock('@auth0/auth0-react', () => ({
@@ -140,7 +140,7 @@ describe('CommandCentre', () => {
     vi.useFakeTimers({ shouldAdvanceTime: true })
     vi.setSystemTime(new Date('2026-09-16T12:00:00.000Z'))
     getCommandCentreSummary.mockReset().mockResolvedValue(summary)
-    fetchNotifications.mockReset().mockResolvedValue({
+    fetchAllNotifications.mockReset().mockResolvedValue({
       items: [],
       page: 1,
       pageSize: 25,
@@ -512,8 +512,8 @@ describe('CommandCentre', () => {
   it('reads the reminder store beside the summary, once per load', async () => {
     await renderLoaded()
 
-    expect(fetchNotifications).toHaveBeenCalledWith({ status: 'all' }, getAccessTokenSilently)
-    expect(fetchNotifications).toHaveBeenCalledTimes(1)
+    expect(fetchAllNotifications).toHaveBeenCalledWith({ status: 'all' }, getAccessTokenSilently)
+    expect(fetchAllNotifications).toHaveBeenCalledTimes(1)
   })
 
   it('offers one filter per category with the count behind it', async () => {
@@ -580,7 +580,7 @@ describe('CommandCentre', () => {
         actions: { ...summary.actions, pendingTimesheets: 2, total: 2 },
       }),
     )
-    fetchNotifications.mockResolvedValue({
+    fetchAllNotifications.mockResolvedValue({
       items: [
         {
           id: 1,
@@ -614,7 +614,7 @@ describe('CommandCentre', () => {
   })
 
   it('keeps the feed standing on the counts when the reminder read fails', async () => {
-    fetchNotifications.mockRejectedValue(new Error('reminder store unavailable'))
+    fetchAllNotifications.mockRejectedValue(new Error('reminder store unavailable'))
 
     await renderLoaded()
 
@@ -649,6 +649,39 @@ describe('CommandCentre', () => {
     const feed = screen.getByRole('heading', { name: 'Needs attention' }).closest('section')
 
     expect(within(feed).getByText('Ada Tutor has no capacity left for the period')).toBeVisible()
+    expect(within(feed).getByRole('link', { name: 'Open Ada Tutor' })).toHaveAttribute(
+      'href',
+      '/organiser/tutors/7',
+    )
+  })
+
+  it('takes a tutor near the capacity stated for them to the tutor screen as well', async () => {
+    getCommandCentreSummary.mockResolvedValue(
+      summaryWith({
+        workload: {
+          tutors: [
+            {
+              ...summary.workload.tutors[0],
+              allocatedHours: 32,
+              shareOfAllocatedHours: 1,
+            },
+          ],
+        },
+      }),
+    )
+
+    await renderLoaded()
+
+    const feed = screen.getByRole('heading', { name: 'Needs attention' }).closest('section')
+
+    expect(
+      within(feed).getByText('Ada Tutor is near the capacity stated for the period'),
+    ).toBeVisible()
+    expect(
+      within(feed).getByText(
+        '32 h allocated of 40 h capacity, 8 h left. The application marks a tutor as near their limit once 80% of the stated capacity is allocated.',
+      ),
+    ).toBeVisible()
     expect(within(feed).getByRole('link', { name: 'Open Ada Tutor' })).toHaveAttribute(
       'href',
       '/organiser/tutors/7',

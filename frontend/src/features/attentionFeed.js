@@ -38,10 +38,10 @@ import {
  * submitted timesheets above plus the open disputes the summary already counts.
  *
  * TUTOR CAPACITY - the workload report's allocated hours against the capacity it
- * states. No near-capacity threshold exists anywhere in the application, so none
- * is invented here: a tutor is surfaced only when their allocated hours have
- * reached or passed the stated capacity, which is a fact about two server
- * figures rather than a rule. Tutors merely approaching capacity stay on the
+ * states, judged by the application's own near-limit rule rather than by a
+ * threshold of this feed's own: the tutor screens already treat a tutor as near
+ * their limit from 80% of the stated limit upwards (see NEAR_CAPACITY_SHARE
+ * below). A tutor with no capacity stated cannot be judged, so they stay on the
  * workload panel, which already shows how full each one is.
  *
  * BUDGET - the per-course rows the server already flagged (budgetRemaining
@@ -90,6 +90,17 @@ export const ATTENTION_PRIORITY_LABELS = Object.freeze({
 })
 
 const PRIORITY_ORDER = Object.freeze({ critical: 0, warning: 1, info: 2 })
+
+/**
+ * The share of a tutor's stated capacity at which the application itself calls
+ * them near their limit. This is not a threshold invented here: the tutor
+ * screens already use it in the SQL that states a tutor's capacity state
+ * (src/services/allocation-queries.ts, getTutorWorkloads: usedHours at or above
+ * weeklyLimit * 0.8 is "near-limit"). The report's capacity hours are that same
+ * weekly limit measured over the period's weeks, so the same share of the two
+ * period figures the report sends is the same rule.
+ */
+const NEAR_CAPACITY_SHARE = 0.8
 
 /**
  * Every route an attention card may point at. These are the organiser screens
@@ -258,6 +269,19 @@ function joinSentences(...sentences) {
 }
 
 /**
+ * Why a tutor who is near, but not at, their stated capacity is on the feed:
+ * the hours that put them there, what is left, and the application's own share
+ * that decides it, so the reason can be checked rather than taken on trust.
+ */
+function nearCapacitySentence(tutor, overBy) {
+  return `${formatHours(tutor.allocatedHours)} allocated of ${formatHours(
+    tutor.capacityHours,
+  )} capacity, ${formatHours(-overBy)} left. The application marks a tutor as near their limit once ${Math.round(
+    NEAR_CAPACITY_SHARE * 100,
+  )}% of the stated capacity is allocated.`
+}
+
+/**
  * What needs a person, as one structured item per underlying issue. Each item
  * carries its stable identity (`category:entity:id`, never an array index or a
  * random value), its category and priority, the reason it needs attention, and
@@ -381,30 +405,35 @@ export function buildAttentionFeed(summary, notifications = []) {
   }
 
   for (const tutor of summary.workload.tutors ?? []) {
-    // Only the two figures the report states decide this: a tutor is surfaced
-    // when allocated hours have reached or passed the stated capacity. A tutor
-    // with no capacity stated cannot be judged, so they are left to the
-    // workload panel rather than guessed at.
+    // Only the two figures the report states decide this, at the application's
+    // own near-limit share: a tutor is surfaced once allocated hours reach that
+    // share of the stated capacity. A tutor with no capacity stated cannot be
+    // judged, so they are left to the workload panel rather than guessed at.
     if (tutor.capacityHours === null || tutor.capacityHours === undefined) continue
     if (!(tutor.allocatedHours > 0)) continue
-    if (tutor.allocatedHours < tutor.capacityHours) continue
+    if (!(tutor.allocatedHours >= tutor.capacityHours * NEAR_CAPACITY_SHARE)) continue
 
     const overBy = tutor.allocatedHours - tutor.capacityHours
+
     add({
       id: `tutor-capacity:tutor:${tutor.tutorId}`,
       kind: 'tutor-capacity',
       category: ATTENTION_CATEGORIES.TUTOR_CAPACITY,
-      priority: 'warning',
+      priority: overBy >= 0 ? 'warning' : 'info',
       title:
         overBy > 0
           ? `${tutor.fullName} is over the capacity stated for the period`
-          : `${tutor.fullName} has no capacity left for the period`,
+          : overBy === 0
+            ? `${tutor.fullName} has no capacity left for the period`
+            : `${tutor.fullName} is near the capacity stated for the period`,
       detail:
         overBy > 0
           ? `${formatHours(tutor.allocatedHours)} allocated against ${formatHours(
               tutor.capacityHours,
             )} capacity, ${formatHours(overBy)} over.`
-          : `All ${formatHours(tutor.capacityHours)} of capacity is allocated.`,
+          : overBy === 0
+            ? `All ${formatHours(tutor.capacityHours)} of capacity is allocated.`
+            : nearCapacitySentence(tutor, overBy),
       entity: { type: 'tutor', id: tutor.tutorId, label: tutor.fullName },
     })
   }

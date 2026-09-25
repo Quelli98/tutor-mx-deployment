@@ -514,7 +514,7 @@ describe('attentionFeed queues and waiting time', () => {
 })
 
 describe('attentionFeed tutor capacity', () => {
-  it('surfaces only the tutors whose stated capacity is fully taken', () => {
+  it('surfaces the tutors at or over their stated capacity, and leaves the rest out', () => {
     const feed = buildAttentionFeed(
       summary({
         workload: {
@@ -548,13 +548,40 @@ describe('attentionFeed tutor capacity', () => {
     })
   })
 
-  it('invents no near-capacity threshold of its own', () => {
-    // No rule anywhere in the application says how close is too close, so a
-    // tutor merely approaching capacity stays on the workload panel, which
-    // already says how full they are.
+  it("surfaces a tutor at the application's own near-limit share of the stated capacity", () => {
+    // 80% of the stated capacity is where the application already calls a tutor
+    // near their limit (allocation-queries.ts, getTutorWorkloads), so the feed
+    // reuses that share rather than choosing one of its own. 32 of 40 is that
+    // share exactly.
     const feed = buildAttentionFeed(
       summary({
-        workload: { tutors: [tutor({ allocatedHours: 39, shareOfAllocatedHours: 1 })] },
+        workload: {
+          // The same tutor twice: one underlying issue, so one card.
+          tutors: [tutor({ allocatedHours: 32 }), tutor({ allocatedHours: 32 })],
+        },
+      }),
+    )
+
+    expect(feed.items).toHaveLength(1)
+    expect(feed.items[0]).toMatchObject({
+      id: 'tutor-capacity:tutor:7',
+      kind: 'tutor-capacity',
+      category: ATTENTION_CATEGORIES.TUTOR_CAPACITY,
+      priority: 'info',
+      title: 'Ada Tutor is near the capacity stated for the period',
+      detail:
+        '32 h allocated of 40 h capacity, 8 h left. The application marks a tutor as near their limit once 80% of the stated capacity is allocated.',
+      entity: { type: 'tutor', id: 7, label: 'Ada Tutor' },
+    })
+  })
+
+  it('leaves a tutor below the near-limit share to the workload panel', () => {
+    // 31 of 40 is 77.5%, under the application's own 80% share, so the tutor is
+    // not near their limit yet and stays on the workload panel, which already
+    // says how full they are.
+    const feed = buildAttentionFeed(
+      summary({
+        workload: { tutors: [tutor({ allocatedHours: 31 })] },
       }),
     )
 
@@ -679,7 +706,9 @@ describe('attentionFeed empty states', () => {
           ],
         }),
         overflow: { openItems: 3, openHours: 6, unclaimedItems: 0 },
-        workload: { tutors: [tutor({ allocatedHours: 39, shareOfAllocatedHours: 1 })] },
+        // 31 of 40 is 77.5%, just under the application's own near-limit share:
+        // close enough to look like it, and still below the rule.
+        workload: { tutors: [tutor({ allocatedHours: 31, shareOfAllocatedHours: 1 })] },
         finance: financeWith({
           budget: 1500,
           spend: 1100,

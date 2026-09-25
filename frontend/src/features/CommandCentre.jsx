@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useAuth0 } from '@auth0/auth0-react'
 import { getCommandCentreSummary } from '../api/organiser'
-import { fetchNotifications } from '../api/notifications'
+import { fetchAllNotifications } from '../api/notifications'
 import { EmptyState, ErrorState, LoadingState } from '../components/shared/StatusMessage'
 import { addDays, localMonday, weekRangeLabel } from '../components/shared/scheduleWeek'
 import {
@@ -357,9 +357,9 @@ function NeedsAttentionFeed({
         <div>
           <h2 id="command-centre-attention-heading">Needs attention</h2>
           <p className="helper-text">
-            Shortages, posted work nobody has claimed, queues waiting on a decision, tutors whose
-            capacity is fully taken, and budgets that have run past what was planned. Each card
-            opens the screen that already handles it.
+            Shortages, posted work nobody has claimed, queues waiting on a decision, tutors at or
+            near the capacity stated for them, and budgets that have run past what was planned.
+            Each card opens the screen that already handles it.
           </p>
         </div>
         {feed.total > 0 && <span className="count-badge">{feed.total}</span>}
@@ -459,15 +459,18 @@ export default function CommandCentre() {
       try {
         // The reminder read is Member 1's notification store, reused: it is
         // what tells the feed which queues have already waited long enough for
-        // a reminder. It is secondary to the summary, which owns every figure
-        // the screen shows - a failed reminder read leaves the queue cards
-        // standing on the counts alone, and says so under the feed.
+        // a reminder. Every page of it is read, because the reminders the feed
+        // folds in are not guaranteed to sit on the first page - a queue item
+        // that started waiting earlier than the rest is exactly the one that
+        // needs its waiting time shown. It is secondary to the summary, which
+        // owns every figure the screen shows: a failed reminder page leaves the
+        // queue cards standing on the counts alone, and says so under the feed.
         const [result, reminderRead] = await Promise.all([
           getCommandCentreSummary(
             { weekStart: weekStartIso, weeks },
             getAccessTokenSilently,
           ),
-          fetchNotifications({ status: 'all' }, getAccessTokenSilently).catch(
+          fetchAllNotifications({ status: 'all' }, getAccessTokenSilently).catch(
             () => null,
           ),
         ])
