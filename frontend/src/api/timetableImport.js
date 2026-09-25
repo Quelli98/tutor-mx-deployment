@@ -1,3 +1,4 @@
+import { withRetryKey } from './retryKey'
 import { fetchWithBearerToken } from './client'
 
 const SOURCES = ['CSV', 'ICS']
@@ -90,8 +91,10 @@ export async function previewTimetableImport(input, tokenOrGetter) {
 
 export async function commitTimetableImport(input, tokenOrGetter) {
   const payload = buildImportRequest(input)
-  const body = await fetchWithBearerToken('/api/tutor/time-slots/import/commit', {
-    method: 'POST', body: JSON.stringify(payload),
-  }, tokenOrGetter)
-  return commitFrom(body)
+  return withRetryKey('timetable-import', payload, async (key) => {
+    const body = await fetchWithBearerToken('/api/tutor/time-slots/import/commit', {
+      method: 'POST', headers: { 'Idempotency-Key': key }, body: JSON.stringify(payload),
+    }, tokenOrGetter)
+    return commitFrom(body)
+  })
 }

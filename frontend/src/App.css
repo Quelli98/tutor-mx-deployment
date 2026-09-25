@@ -2403,3 +2403,26 @@ textarea:focus {
     transition-duration: 0.01ms !important;
   }
 }
+
+/* Approval recovery stays in context and remains usable on narrow screens. */
+.organiser-approvals .approval-notice {
+  display: flex; align-items: center; justify-content: space-between; gap: 1rem;
+  padding: 1rem 1.25rem; margin: 1rem 0; border: 1px solid #f0c8cc;
+  border-left: 4px solid #b8324b; border-radius: 12px; background: #fff7f8;
+  color: #83263a;
+}
+.organiser-approvals .approval-notice p { margin: 0; overflow-wrap: anywhere; }
+.organiser-approvals .approval-notice button { flex-shrink: 0; }
+.organiser-approvals .approval-card { overflow-wrap: anywhere; }
+.organiser-approvals .approval-decision textarea { width: 100%; box-sizing: border-box; resize: vertical; }
+@media (max-width: 600px) {
+  .organiser-approvals .approval-notice { align-items: stretch; flex-direction: column; }
+  .organiser-approvals .approval-actions { flex-wrap: wrap; }
+  .organiser-approvals .approval-actions button { flex: 1 1 100%; }
+}
+
+.organiser-approvals.dashboard-shell { padding: clamp(16px, 2.5vw, 28px); }
+.organiser-approvals .data-table { min-width: 560px; }
+.organiser-approvals .data-table th { white-space: nowrap; }
+.organiser-approvals .section-heading-row { display: flex; flex-direction: row; align-items: flex-start; }
+.organiser-approvals .count-badge { flex: 0 0 auto; }

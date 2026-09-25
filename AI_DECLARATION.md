@@ -60,3 +60,9 @@ The team remains responsible for reviewing the code, reproducing the acceptance 
 The preceding document was generated and reviewed with the assistance of the following: Codex[GPT-5], ChatGPT[GPT-5.6 Sol].
 
 - 17 Aug 2026: Self-service role onboarding (front-page role choice, server-only Auth0 Management API role provisioning, automatic Prisma/Neon Profile creation, first-token role resolution and tests) was assisted by ChatGPT [GPT-5.6 Sol].
+
+## Sprint 3 Member 5 hardening - 25 September 2026
+
+Codex (OpenAI; exact model identifier not supplied in this session) was used to audit the supplied integrated main archive against S3-M5-1/2/3, fix the organiser approvals/disputes contract, implement API validation and error hardening, add transactional retry receipts and atomic return history, prevent repeated overflow conversion, bound and measure report/ranking queries, add regression tests, and prepare the handoff/documentation evidence. The changes require human integration review; no remote CI, live authenticated test or deployment is claimed.
+
+Follow-up audit: Codex reviewed API routing and save/refresh handling, corrected authenticated CSV downloads and history recovery, added regression tests, and updated the handoff. The exact underlying model identifier was not supplied by the runtime. Local test results and remaining deployed-environment checks are documented in the audit report.

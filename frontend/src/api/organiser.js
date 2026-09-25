@@ -1,4 +1,4 @@
-import { fetchWithBearerToken } from './client'
+import { fetchResponseWithBearerToken, fetchWithBearerToken } from './client'
 import { isTimeSlotSummary } from './availability'
 
 function isMoneyOrUnset(value) {
@@ -670,15 +670,13 @@ export async function downloadPayrollExport(input, tokenOrGetter) {
     weekStart: input.weekStart,
     weeks: String(input.weeks),
   })
-  const token = typeof tokenOrGetter === 'function' ? await tokenOrGetter() : tokenOrGetter
-  const response = await fetch(`/api/reports/payroll-export?${query.toString()}`, {
-    headers: { Authorization: `Bearer ${token}` },
-  })
-  if (!response.ok) {
-    const errorBody = await response.json().catch(() => null)
-    const error = new Error(errorBody?.error?.message || 'The payroll export could not be downloaded.')
-    error.code = errorBody?.error?.code
-    throw error
+  const response = await fetchResponseWithBearerToken(
+    `/api/reports/payroll-export?${query.toString()}`,
+    { headers: { Accept: 'text/csv' } },
+    tokenOrGetter,
+  )
+  if (!/^text\/csv(?:;|$)/i.test(response.headers.get('Content-Type') || '')) {
+    throw new Error('The payroll export response was not a CSV file. Please try again.')
   }
   const blob = await response.blob()
   const disposition = response.headers.get('Content-Disposition') || ''
@@ -715,7 +713,7 @@ export async function decideExcuse(input, tokenOrGetter) {
 }
 
 export async function listTimesheetDisputes(tokenOrGetter) {
-  const body = await fetchWithBearerToken('/api/timesheet-disputes', {}, tokenOrGetter)
+  const body = await fetchWithBearerToken('/api/organiser/timesheet-disputes', {}, tokenOrGetter)
   const disputes = body?.data?.disputes
   if (!Array.isArray(disputes)) {
     throw new Error('The disputes response did not match the agreed contract.')
@@ -729,7 +727,6 @@ export async function resolveTimesheetDispute(input, tokenOrGetter) {
     {
       method: 'PATCH',
       body: JSON.stringify({
-        decision: input.decision,
         resolutionReason: input.resolutionReason,
       }),
     },

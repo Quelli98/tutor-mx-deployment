@@ -1,3 +1,5 @@
+import { normalizeIdempotencyKey, withWriteReceipt, type ReceiptTransaction } from "../http/idempotency.js";
+import { createRouteError } from "../http/errors.js";
 /**
  * Persistence for the timetable import (Sprint 3, card S3-M3-1).
  *
@@ -46,6 +48,7 @@ export interface TimetableImportService {
   commit(
     auth0Id: string,
     request: TimetableImportRequest,
+    idempotencyKey?: string,
   ): Promise<TimetableImportCommitResult>;
 }
 
@@ -110,7 +113,7 @@ interface TimeSlotDelegate {
   }): Promise<{ id: number }>;
 }
 
-export interface TimetableImportTransaction {
+export interface TimetableImportTransaction extends ReceiptTransaction {
   timeSlot: TimeSlotDelegate;
 }
 
@@ -138,10 +141,7 @@ function importError(
   code: TimetableImportError["code"],
   message: string,
 ): TimetableImportError {
-  const error = new Error(message) as TimetableImportError;
-  error.status = status;
-  error.code = code;
-  return error;
+  return createRouteError(status, code, message) as TimetableImportError;
 }
 
 function isImportError(value: unknown): value is TimetableImportError {
@@ -334,7 +334,8 @@ export function createTimetableImportService(
       return preview;
     },
 
-    async commit(auth0Id, request) {
+    async commit(auth0Id, request, idempotencyKey) {
+      const key = normalizeIdempotencyKey(idempotencyKey);
       const { tutor, error, preview } = await prepare(auth0Id, request);
       if (error || !preview) {
         throw importInvalid(error ?? "The timetable could not be read.");
@@ -351,19 +352,9 @@ export function createTimetableImportService(
           errors: row.errors,
         }));
 
-      if (saveable.length === 0) {
-        return {
-          created: 0,
-          createdIds: [],
-          skipped,
-          invalidCount: preview.invalidCount,
-          duplicateCount: preview.duplicateCount,
-        };
-      }
-
       try {
-        const createdIds = await prismaClient.$transaction(
-          async (transaction) => {
+        return await prismaClient.$transaction(
+          async (transaction) => withWriteReceipt(transaction, tutor.id, key, request, async () => {
             // Re-read inside the transaction so two commits racing each other
             // cannot both insert the same rows.
             const insideRows = await markDuplicates(
@@ -397,18 +388,16 @@ export function createTimetableImportService(
               });
               ids.push(created.id);
             }
-            return ids;
-          },
+            return {
+              created: ids.length,
+              createdIds: ids,
+              skipped,
+              invalidCount: preview.invalidCount,
+              duplicateCount: preview.duplicateCount,
+            };
+          }),
           { isolationLevel: "Serializable" },
         );
-
-        return {
-          created: createdIds.length,
-          createdIds,
-          skipped,
-          invalidCount: preview.invalidCount,
-          duplicateCount: preview.duplicateCount,
-        };
       } catch (value) {
         if (isImportError(value)) {
           throw value;

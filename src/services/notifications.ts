@@ -496,7 +496,7 @@ export function parseNotificationListQuery(raw: {
   pageSize?: unknown;
 }): NotificationListQuery {
   const status = raw.status === "all" ? "all" : "unread";
-  const page = clampInteger(raw.page, 1, 1, Number.MAX_SAFE_INTEGER);
+  const page = clampInteger(raw.page, 1, 1, 10_000);
   const pageSize = clampInteger(
     raw.pageSize,
     MAX_NOTIFICATION_PAGE_SIZE,

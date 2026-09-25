@@ -1,3 +1,4 @@
+import { assertResultLimit, MAX_REPORT_ROWS } from "../http/limits.js";
 import {
   createRouteError,
   type StaffingRequirementListQuery,
@@ -219,13 +220,16 @@ export function createStaffingRequirementService(
   return {
     async listStaffingRequirements(query) {
       const rows = await client.staffingRequirement.findMany({
+        take: MAX_REPORT_ROWS + 1,
         where: {
+          ...(query.ids ? { id: { in: query.ids } } : {}),
           ...(query.courseId === undefined ? {} : { courseId: query.courseId }),
           ...(query.status === undefined ? {} : { status: query.status }),
         },
         orderBy: [{ startsAt: "asc" }, { id: "asc" }],
         select: requirementSelection,
       });
+      assertResultLimit(rows, MAX_REPORT_ROWS, "Staffing requirements");
       return await withAssignedHours(rows);
     },
 

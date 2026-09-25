@@ -1,0 +1,55 @@
+{
+  "frontend_tests": 529,
+  "backend_coverage": {
+    "statements": 92.26,
+    "branches": 86.12,
+    "functions": 94.57,
+    "lines": 93.06
+  },
+  "measurements": {
+    "dataset": {
+      "tutors": 1000,
+      "courses": 50,
+      "allocations": 500,
+      "approved_work_logs": 250
+    },
+    "warm_runs": 7,
+    "workload_report": {
+      "median_ms": 15.29,
+      "max_ms": 22.68,
+      "queries": 2
+    },
+    "payroll": {
+      "median_ms": 7.21,
+      "max_ms": 8.91,
+      "queries": 1
+    },
+    "search": {
+      "median_ms": 4.0,
+      "max_ms": 6.02,
+      "queries": 3
+    },
+    "ranking": {
+      "median_ms": 27.23,
+      "max_ms": 35.09,
+      "queries": 1
+    },
+    "import_parse_400_rows": {
+      "median_ms": 10.9,
+      "max_ms": 12.66,
+      "queries": 0
+    }
+  },
+  "scope": "Local PGlite and service/component tests; not production latency or multi-connection PostgreSQL stress testing.",
+  "backend_tests": 1082,
+  "last_incremental_backend_tests": 143,
+  "visual_checks": {
+    "widths": [
+      1440,
+      390
+    ],
+    "runtime_errors": 0,
+    "horizontal_page_overflow": false,
+    "data": "fixture"
+  }
+}

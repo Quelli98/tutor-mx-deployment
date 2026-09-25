@@ -124,9 +124,13 @@ export default function TimetableImport({ tokenOrGetter, onImported }) {
       setFileName('')
       setPreview(null)
       if (fileInput.current) fileInput.current.value = ''
-      onImported?.()
+      try {
+        await onImported?.()
+      } catch {
+        setError('Your timetable was saved, but the schedule could not be refreshed. Reload the schedule to see it.')
+      }
     } catch (failure) {
-      setError(failure?.message || 'The timetable could not be saved. Nothing was changed. Try again.')
+      setError(failure?.message || 'The timetable save could not be confirmed. Retry the same import to check it safely.')
     } finally {
       setPending(false)
     }

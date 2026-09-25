@@ -128,7 +128,7 @@ describe("shared error handling", () => {
     });
   });
 
-  it("uses the generic safe error envelope for other middleware failures", async () => {
+  it("returns a safe 413 envelope for oversized bodies", async () => {
     const app = createApp(async () => undefined);
     const oversizedBody = JSON.stringify({ value: "x".repeat(40_000) });
 
@@ -137,11 +137,11 @@ describe("shared error handling", () => {
       .set("Content-Type", "application/json")
       .send(oversizedBody);
 
-    expect(response.status).toBe(500);
+    expect(response.status).toBe(413);
     expect(response.body).toEqual({
       error: {
-        code: "INTERNAL_ERROR",
-        message: "The request could not be completed.",
+        code: "PAYLOAD_TOO_LARGE",
+        message: "Keep the request body within 32 KB.",
       },
     });
     expect(response.text).not.toContain("request entity too large");

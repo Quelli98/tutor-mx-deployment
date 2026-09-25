@@ -309,13 +309,13 @@ async function listOrganiserProfileIds() {
   return (organisers ?? []).map(({ id }) => id);
 }
 
-async function emitNotifications(events: NotificationEvent[]) {
+async function emitNotifications(events: NotificationEvent[] | (() => Promise<NotificationEvent[]>)) {
   try {
-    await notificationService.emit(events);
-  } catch (error) {
+    await notificationService.emit(typeof events === "function" ? await events() : events);
+  } catch {
     console.error(JSON.stringify({
       event: "notification_error",
-      message: error instanceof Error ? error.message : "unknown",
+      message: "Background notification delivery failed.",
     }));
   }
 }
@@ -346,10 +346,10 @@ async function timesheetReviewerProfileIds(timesheetId: number) {
 async function recordTimesheetReturn(auth0Id: string, timesheetId: number) {
   try {
     await timesheetCorrectionsService.recordReturn(auth0Id, timesheetId);
-  } catch (error) {
+  } catch {
     console.error(JSON.stringify({
       event: "timesheet_return_history_error",
-      message: error instanceof Error ? error.message : "unknown",
+      message: "Timesheet history verification failed.",
     }));
   }
 }
@@ -357,10 +357,10 @@ async function recordTimesheetReturn(auth0Id: string, timesheetId: number) {
 startDueReminderScheduler(notificationService, {
   enabled: process.env.NODE_ENV !== "test" && process.env.DISABLE_REMINDER_SCHEDULER !== "true",
   intervalMs: Number(process.env.REMINDER_INTERVAL_MS ?? 6 * 60 * 60 * 1000),
-  onError: (error) => {
+  onError: () => {
     console.error(JSON.stringify({
       event: "notification_reminder_error",
-      message: error instanceof Error ? error.message : "unknown",
+      message: "Background notification delivery failed.",
     }));
   },
 });
@@ -862,7 +862,7 @@ const app = createApp(
       );
       const result = await timesheetWorkflowService.submit(auth0Id, timesheetId);
       await emitNotifications(
-        buildTimesheetSubmittedNotifications(result, await listOrganiserProfileIds()),
+        async () => buildTimesheetSubmittedNotifications(result, await listOrganiserProfileIds()),
       );
       return result;
     },
@@ -876,7 +876,7 @@ const app = createApp(
         input,
       );
       await emitNotifications(
-        buildTimesheetDisputedNotifications(
+        async () => buildTimesheetDisputedNotifications(
           dispute,
           await timesheetReviewerProfileIds(dispute.timesheetId),
         ),

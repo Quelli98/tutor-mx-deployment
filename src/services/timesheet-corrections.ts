@@ -1,3 +1,4 @@
+import { matchesVersion, permitsTransition } from "../http/validation.js";
 import { createRouteError, type TutorWorkLogSummary } from "../app.js";
 import type { TimesheetWorkflowStatus } from "./timesheet-workflows.js";
 
@@ -174,6 +175,7 @@ interface DeclarationRow {
 }
 
 interface DisputeRow {
+  timesheet?: { weekStart: Date; tutor: { fullName: string; email: string } };
   id: number;
   timesheetId: number;
   tutorId: number;
@@ -383,6 +385,7 @@ interface CorrectionsTransaction {
       where: { timesheetId?: number; status?: "OPEN" | "RESOLVED" };
       orderBy: Array<{ createdAt: "asc" } | { id: "asc" }>;
       select: {
+        timesheet: { select: { weekStart: true; tutor: { select: { fullName: true; email: true } } } };
         id: true;
         timesheetId: true;
         tutorId: true;
@@ -521,6 +524,17 @@ const disputeSelect = {
   resolvedAt: true,
   createdAt: true,
 } as const;
+
+const disputeListSelect = {
+  ...disputeSelect,
+  timesheet: {
+    select: {
+      weekStart: true,
+      tutor: { select: { fullName: true, email: true } },
+    },
+  },
+} as const;
+
 
 function correctionError(
   status: 400 | 404 | 409,
@@ -867,7 +881,7 @@ export function createTimesheetCorrectionsService(
           prismaClient.timesheetDispute.findMany({
             where: { timesheetId: timesheet.id },
             orderBy: [{ createdAt: "asc" }, { id: "asc" }],
-            select: disputeSelect,
+            select: disputeListSelect,
           }),
         ]);
 
@@ -1059,7 +1073,7 @@ export function createTimesheetCorrectionsService(
               throw editLocked();
             }
             // Acknowledging wording that has since changed is not consent.
-            if (statementVersion !== TIMESHEET_DECLARATION_VERSION) {
+            if (!matchesVersion(TIMESHEET_DECLARATION_VERSION, statementVersion)) {
               throw correctionError(
                 409,
                 "TIMESHEET_DECLARATION_STALE",
@@ -1187,9 +1201,16 @@ export function createTimesheetCorrectionsService(
         const disputes = await prismaClient.timesheetDispute.findMany({
           where: { status: "OPEN" },
           orderBy: [{ createdAt: "asc" }, { id: "asc" }],
-          select: disputeSelect,
+          select: disputeListSelect,
         });
-        return disputes.map(summarizeDispute);
+        return disputes.map((row) => ({
+          ...summarizeDispute(row),
+          ...(row.timesheet ? {
+            tutorName: row.timesheet.tutor.fullName,
+            tutorEmail: row.timesheet.tutor.email,
+            weekStart: row.timesheet.weekStart.toISOString().slice(0, 10),
+          } : {}),
+        }));
       } catch (error) {
         return mapPersistenceError(error);
       }
@@ -1212,6 +1233,9 @@ export function createTimesheetCorrectionsService(
               );
             }
 
+            if (!permitsTransition(dispute.status, "OPEN", "RESOLVED", { OPEN: ["RESOLVED"] })) {
+              throw correctionError(409, "TIMESHEET_DISPUTE_CONFLICT", "That dispute has already been resolved.");
+            }
             const resolvedAt = new Date();
             const changed = await transaction.timesheetDispute.updateMany({
               where: { id: dispute.id, status: "OPEN" },

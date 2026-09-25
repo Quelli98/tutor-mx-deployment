@@ -1,0 +1,217 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Tutor Mx · Sprint 3 Member 5 evidence</title><style>:root{font-family:Inter,system-ui,sans-serif;line-height:1.6;color:#172c46;background:#f4f7fb}body{margin:0}main{max-width:1060px;margin:auto;padding:40px 28px}h1{font-size:clamp(2rem,5vw,3.2rem);line-height:1.14;letter-spacing:-.04em}h2{margin-top:2.6rem;color:#174f9e}p,li{max-width:85ch}table{border-collapse:collapse;width:100%;font-size:.9rem;background:white}th,td{padding:12px;text-align:left;border:1px solid #d9e3ef;vertical-align:top}th{background:#eaf1fb;color:#174f9e}pre{padding:20px;overflow:auto;background:#10233d;color:#edf4ff;border-radius:12px}code{font-size:.85em;overflow-wrap:anywhere}a{color:#1268e8}nav{padding:16px 0;border-bottom:1px solid #d9e3ef}img{max-width:100%}@media(max-width:650px){main{padding:22px 16px}table{display:block;overflow:auto}th,td{min-width:110px}}</style></head><body><main><nav><a href="index.html">← Tutor Mx documentation</a></nav><h1>Sprint 3 Member 5: integrated API hardening</h1>
+<p>25 September 2026 · branch target <code>s3/m5/completion</code></p>
+<h2>Why these changes were needed</h2>
+<p>Member 5 starts after the vertical features from Members 1-4 have landed. The work therefore keeps the Auth0, Express, Prisma and Neon architecture and strengthens the points where those features meet. The supplied screenshot exposed a contract integration failure: the approval screen requested a disputes URL that the API does not register. Its all-or-nothing parallel load turned that 404 into a blank approvals screen, and reused decision-save wording for a read failure.</p>
+<p>The frontend now requests <code>GET /api/organiser/timesheet-disputes</code>. A disputes failure is displayed within its section, while timesheets, claims and excuses remain usable. Load failures and uncertain writes have different messages. A confirmed decision removes its card before refreshing, so a later network failure cannot imply that the save failed or invite a duplicate click. The page uses consistent cards, restrained error panels, bounded reason fields, accessible labels, and responsive action layouts. Date-only work dates and week labels render in UTC so browser timezone conversion cannot move them to the previous day.</p>
+<p>A second mismatch concerned disputes. The screen offered “Reinstate timesheet” and “Uphold decision”, but the server only persisted a resolution reason. Those buttons were misleading. The corrected screen presents <strong>Resolve dispute</strong>, states that the timesheet status remains unchanged, and sends only the supported field. The organiser queue reads tutor identity and week details through its existing relation query; fallback labels handle older responses.</p>
+<h2>S3-M5-1: contracts, permissions and ownership</h2>
+<p>Every route below authenticates the bearer token and resolves the stored profile role. Profile role mismatches remain 403. Missing credentials remain 401. Resource ownership uses the verified subject, not a browser-supplied profile identifier. Missing and cross-user tutor/student resources retain non-disclosing 404 responses. Organisers have the existing system-wide workflow oversight; this work does not invent course-specific ownership where the application has none.</p>
+<table>
+<thead>
+<tr>
+<th>Family</th>
+<th>Routes</th>
+<th>Permitted caller and ownership</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Search</td>
+<td><code>GET /api/search</code></td>
+<td>All three roles; role/category intersection. Tutor timesheets/courses and student claims are profile-scoped.</td>
+</tr>
+<tr>
+<td>Notifications</td>
+<td><code>GET /api/notifications</code>, <code>/unread-count</code>, <code>/:id</code>; <code>PATCH /:id/read</code>; <code>POST /read-all</code></td>
+<td>Authenticated recipient only; profile ID resolved from token subject.</td>
+</tr>
+<tr>
+<td>Reminders</td>
+<td><code>POST /api/notifications/reminders/run</code></td>
+<td>Organiser only. Recipients and stable event keys are server-derived.</td>
+</tr>
+<tr>
+<td>Terms</td>
+<td><code>GET /api/academic-terms</code>; <code>POST /api/organiser/academic-terms</code></td>
+<td>List requires a profile; creation is organiser-only.</td>
+</tr>
+<tr>
+<td>Requirements</td>
+<td><code>GET/POST /api/staffing-requirements</code>; <code>PATCH /:id</code>, <code>/:id/status</code></td>
+<td>Organiser only; creation actor comes from the token.</td>
+</tr>
+<tr>
+<td>Ranking and bulk</td>
+<td><code>GET /api/allocations/candidates</code>; <code>POST /api/allocations/bulk-preview</code>, <code>/bulk-commit</code></td>
+<td>Organiser only. Bulk course/time/hours come from stored requirements, with hard eligibility rechecked at write time.</td>
+</tr>
+<tr>
+<td>Reports</td>
+<td><code>GET /api/reports/workload</code>, <code>/payroll-export</code></td>
+<td>Organiser only; read-only aggregated queries.</td>
+</tr>
+<tr>
+<td>Timetable import</td>
+<td><code>POST /api/tutor/time-slots/import/preview</code>, <code>/commit</code></td>
+<td>Tutor&#39;s own schedule; academic-term bounds reloaded on the server.</td>
+</tr>
+<tr>
+<td>Corrections</td>
+<td><code>GET /api/tutor/timesheets/:id/history</code>; <code>PATCH /:id/work-logs/:logId</code>; <code>POST /:id/declaration</code>, <code>/:id/disputes</code></td>
+<td>Owning tutor only; work-log ownership includes both tutor and timesheet.</td>
+</tr>
+<tr>
+<td>Organiser review</td>
+<td><code>GET /api/organiser/approvals</code>, <code>/api/organiser/timesheet-disputes</code>; <code>PATCH /api/timesheets/:id/decision</code>, <code>/api/volunteer-claims/:id/decision</code>, <code>/api/excuses/:id/decision</code>, <code>/api/timesheet-disputes/:id</code></td>
+<td>Organiser only; persisted state controls permitted decisions.</td>
+</tr>
+<tr>
+<td>Organiser overflow</td>
+<td><code>GET/POST /api/organiser/overflow-work</code>; <code>PATCH /:id</code>, <code>/:id/close</code></td>
+<td>Organiser only; edits/close require the last observed version.</td>
+</tr>
+<tr>
+<td>Student overflow</td>
+<td><code>GET /api/student/open-work</code>, <code>/api/student/volunteer-requests</code>, <code>/:id</code>; <code>POST /api/student/volunteer-requests</code>; <code>PATCH /:id/withdraw</code></td>
+<td>Student only; request ownership comes from token subject. Only open, unexpired work can be claimed.</td>
+</tr>
+</tbody></table>
+<p>The public error envelope remains <code>{ &quot;error&quot;: { &quot;code&quot;: &quot;...&quot;, &quot;message&quot;: &quot;...&quot; } }</code>. A shared branded error constructor and sanitiser expose only deliberately public errors. Stack traces, SQL, connection details and forged status-shaped errors are not returned. Import-service errors now use that constructor, preserving intended 400/404/409 responses rather than degrading to 500. Bulk item failures use the same sanitiser. Malformed JSON returns 400; oversized JSON returns a specific 413; rate limiting returns JSON 429. CORS headers are applied before body parsing and rate limiting, including error responses.</p>
+<table>
+<thead>
+<tr>
+<th>Boundary</th>
+<th>Enforced limit</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>JSON writes</td>
+<td>32 KiB request body</td>
+</tr>
+<tr>
+<td>PostgreSQL resource IDs</td>
+<td>Positive decimal integers, at most 2,147,483,647</td>
+</tr>
+<tr>
+<td>Search and notification pages</td>
+<td>1-10,000; page size 1-25; invalid HTTP pagination returns 400</td>
+</tr>
+<tr>
+<td>Search text</td>
+<td>2-100 characters; SQL LIKE wildcards escaped and values parameterised</td>
+</tr>
+<tr>
+<td>Bulk preview/commit</td>
+<td>1-50 items</td>
+</tr>
+<tr>
+<td>Report period</td>
+<td>Monday start; 1-52 weeks</td>
+</tr>
+<tr>
+<td>Workload output</td>
+<td>At most 5,000 course rows and 5,000 tutor rows</td>
+</tr>
+<tr>
+<td>Payroll output</td>
+<td>At most 10,000 grouped lines</td>
+</tr>
+<tr>
+<td>Candidate ranking</td>
+<td>At most 2,000 candidate rows</td>
+</tr>
+<tr>
+<td>Requirement list</td>
+<td>At most 5,000 rows; bulk selection additionally restricts IDs in the database</td>
+</tr>
+<tr>
+<td>Import</td>
+<td>400 rows/events; 30,000 text characters, also subject to the UTF-8 JSON body limit</td>
+</tr>
+<tr>
+<td>Reasons</td>
+<td>At most 1,000 characters</td>
+</tr>
+<tr>
+<td>Idempotency key</td>
+<td>8-128 characters from letters, digits, dots, underscores, colons and hyphens</td>
+</tr>
+</tbody></table>
+<p>Report/ranking/list caps query one extra row and return <code>422 RESULT_LIMIT_EXCEEDED</code> if exceeded. They never silently truncate totals or change the candidate ranking. Request sizes are additionally bounded before service code runs. Shared validators test safe IDs, page/size limits, declaration-version matching and legal transitions.</p>
+<h2>S3-M5-2: retries, transactions and competing writes</h2>
+<p>A durable <code>ApiWriteReceipt</code> table supports import and overflow creation. The receipt owner is the authenticated profile. The stored key incorporates the operation scope, and the validated payload is fingerprinted with deterministic key ordering. The receipt and domain writes use the same serializable transaction: a rollback removes both. A successful retry returns the original result; reusing the key for different content gives <code>409 IDEMPOTENCY_KEY_REUSED</code>. No tokens, imported raw files or request bodies are stored in receipt identity fields. Successful response data is stored to support replay.</p>
+<p>The frontend holds retry keys after uncertain responses and releases them after a confirmed, contract-valid success. This in-memory cache is bounded to 100 attempts and does not survive a page reload. An API client requiring replay across reloads must retain and reuse its own key. Existing unkeyed timetable clients remain protected by the transactional duplicate check. Requirement conversion additionally deducts active overflow hours, so sequential retries cannot invent new slot indexes for the same already-advertised shortage. Manual creation should use a key, as the supplied frontend now does; identical-looking manual postings can otherwise be intentional separate work.</p>
+<p>Concurrent serializable transactions may produce a safe 409 on one competing request. Retrying with the same key then replays the committed outcome. Overflow updates retain their compare-and-set version check, with a monotonically increasing timestamp even within one millisecond. Claim uniqueness and one accepted claim per overflow item continue to use existing database constraints and transitions. Notification delivery uses stable event keys with the database unique index and duplicate-skipping inserts; reminders use the same strategy.</p>
+<p>Bulk allocation deliberately retains item-level commit semantics: each allocation is revalidated inside its own serializable transaction. A failed item is reported safely and successful items remain saved. The existing tutor/session clash rules reject duplicate allocations on retry. The audit does not replace this behaviour with an all-or-nothing batch.</p>
+<p>A returned timesheet previously relied on a best-effort history operation after the review committed. A database trigger now inserts the return revision in the review transaction. The migration also preserves the latest reason on existing returned sheets if that history is missing. If the history write fails, the decision rolls back. The previous idempotent history helper remains compatible and detects the trigger&#39;s record. Correction/revision writes and dispute decisions retain their serializable transactions and ownership guards.</p>
+<h2>S3-M5-3: bounded performance and safe observability</h2>
+<p>Workload reporting previously used correlated aggregates for each course and tutor. It now groups allocated and approved worked hours before joining them to the dimension tables. This retains the existing pricing snapshot and totals but avoids repeated per-row aggregate scans. Two SQL statements produce the workload report; one produces payroll. Bulk loading reads only the selected requirement IDs. Candidate ranking remains one SQL statement per selected requirement because each requirement has a distinct course/time/eligibility window; at most 50 requirement queries are permitted, with one batched requirement-fill query rather than a query per returned row.</p>
+<p>Search ordering now includes stable ID tie-breakers. Request logs contain route templates, status and duration, not concrete resource URLs, query strings, tokens or bodies. Background notification/history failures use fixed safe messages instead of raw database errors. Notification recipient lookup is inside the best-effort notification boundary for submission/dispute workflows, so a failure after a committed write cannot turn its success into a false error response.</p>
+<p>The reusable benchmark is <code>node --import tsx scripts/measure-s3-m5.ts</code>. It applies the actual migrations to a fresh local PGlite database, creates 1,000 tutors, 50 courses, 500 confirmed allocations and 250 approved work logs, checks report totals, and takes seven warm measurements. These measurements exclude production network, Auth0 and hosted database latency.</p>
+<table>
+<thead>
+<tr>
+<th>Operation</th>
+<th align="right">Median ms</th>
+<th align="right">Maximum ms</th>
+<th align="right">SQL queries per call</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Workload report</td>
+<td align="right">15.29</td>
+<td align="right">22.68</td>
+<td align="right">2</td>
+</tr>
+<tr>
+<td>Payroll export</td>
+<td align="right">7.21</td>
+<td align="right">8.91</td>
+<td align="right">1</td>
+</tr>
+<tr>
+<td>Organiser search</td>
+<td align="right">4.00</td>
+<td align="right">6.02</td>
+<td align="right">3</td>
+</tr>
+<tr>
+<td>Candidate ranking</td>
+<td align="right">27.23</td>
+<td align="right">35.09</td>
+<td align="right">1</td>
+</tr>
+<tr>
+<td>400-row import parsing</td>
+<td align="right">10.90</td>
+<td align="right">12.66</td>
+<td align="right">0</td>
+</tr>
+</tbody></table>
+<h2>Verification evidence and boundaries</h2>
+<p>The backend suite passed 1,082 tests and the frontend suite passed 529 tests. Backend coverage passed the existing thresholds: 92.26% statements, 86.12% branches, 94.57% functions and 93.06% lines. The new role/contract matrix covers every listed feature family; existing ownership suites exercise cross-user notification, tutor and student reads/writes. New tests cover error sanitisation, invalid pagination and IDs, 413/CORS handling, real import receipts and rollback, repeated shortage conversion, overlapping bulk requests, notification/reminder deduplication, dispute compare-and-set conflicts and organiser-page recovery.</p>
+<p>PGlite tests execute the real schema, constraints and triggers, including import rollback. PGlite uses a single connection: simultaneous Promise-based tests are not a multi-connection Neon load test. Additional service tests model competing compare-and-set outcomes deterministically. No production credentials were supplied; authenticated live smoke tests and the final combined-main release gate remain the Integration Lead&#39;s responsibility. No production deployment or remote CI result is claimed.</p>
+<p>The approvals screen was rendered in Chromium at 1440px and 390px widths with fixture data. Both had no runtime errors and no page-level horizontal overflow; the mobile work-log table scrolls within its card. Screenshot evidence is in <code>docs/evidence/s3-m5/</code>.</p>
+<p>The production build succeeds. Existing non-blocking notices include one unrelated React lint-disable warning and the frontend bundle-size advisory. Neither is presented as a newly introduced regression.</p>
+<h2>API examples</h2>
+<p>All examples require <code>Authorization: Bearer &lt;access-token&gt;</code>; write examples also use <code>Content-Type: application/json</code>.</p>
+<pre><code class="language-http">GET /api/organiser/timesheet-disputes
+</code></pre>
+<pre><code class="language-http">PATCH /api/timesheet-disputes/71
+
+{&quot;resolutionReason&quot;:&quot;Reviewed the disputed entries with the tutor.&quot;}
+</code></pre>
+<pre><code class="language-http">POST /api/tutor/time-slots/import/commit
+Idempotency-Key: timetable-25sep-attempt-01
+
+{&quot;source&quot;:&quot;CSV&quot;,&quot;text&quot;:&quot;date,start,end,label,repeat\n2026-09-28,09:00,10:00,Lecture,once&quot;,&quot;timeZone&quot;:&quot;Africa/Johannesburg&quot;,&quot;termId&quot;:1}
+</code></pre>
+<p>Use a real term ID covering the imported dates. Retain the same key and body for a retry; generate a new key for changed content.</p>
+<pre><code class="language-http">POST /api/organiser/overflow-work
+Idempotency-Key: overflow-25sep-attempt-01
+
+{&quot;courseId&quot;:3,&quot;startsAt&quot;:&quot;2030-09-04T10:00:00.000Z&quot;,&quot;endsAt&quot;:&quot;2030-09-04T12:00:00.000Z&quot;,&quot;hours&quot;:2,&quot;closesAt&quot;:null,&quot;sourceRequirementId&quot;:null}
+</code></pre>
+<p>Resource IDs and dates above are illustrative. API success data remains inside <code>data</code>; conflicts retain the established safe code/message envelope.</p>
+<h2>Handoff and report use</h2>
+<p>Keep this work on <code>s3/m5/completion</code>. Member 5 hands implementation and local evidence to the Integration Lead; Member 6 starts from updated main only after review and integration. The report should describe the contract mismatch, why the existing architecture was preserved, how database transaction boundaries were strengthened, and what the local evidence can and cannot prove. This page is report evidence, not a claim that remote CI, production migrations or user acceptance testing have already run.</p>
+</main></body></html>

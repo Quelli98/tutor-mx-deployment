@@ -1,3 +1,4 @@
+import { normalizeIdempotencyKey, withWriteReceipt } from "../http/idempotency.js";
 import {
   createRouteError,
   type OrganiserOverflowWorkCloseInput,
@@ -23,6 +24,7 @@ export interface OrganiserOverflowWorkService {
   listOverflowWork(): Promise<OrganiserOverflowWorkSummary[]>;
   createOverflowWork(
     input: OrganiserOverflowWorkCreateInput,
+    retry?: { auth0Id: string; key: string },
   ): Promise<OrganiserOverflowWorkSummary[]>;
   updateOverflowWork(
     overflowWorkId: number,
@@ -132,145 +134,157 @@ export function createOrganiserOverflowWorkService(
      * which tutor slot each item covers, and the composite unique constraint on
      * (sourceRequirementId, slotIndex) prevents duplicate conversions.
      */
-    async createOverflowWork(input) {
+    async createOverflowWork(input, retry) {
       try {
         return await client.$transaction(
           async (transaction) => {
-            const course = await transaction.course.findUnique({
-              where: { id: input.courseId },
-              select: { id: true },
-            });
-            if (!course) {
-              throw createRouteError(
-                404,
-                "COURSE_NOT_FOUND",
-                "The requested course could not be found.",
-              );
-            }
-
-            if (input.sourceRequirementId !== null) {
-              const requirement =
-                await transaction.staffingRequirement.findUnique({
-                  where: { id: input.sourceRequirementId },
-                  select: {
-                    id: true,
-                    courseId: true,
-                    startsAt: true,
-                    endsAt: true,
-                    tutorsNeeded: true,
-                    status: true,
-                  },
-                });
-              if (!requirement) {
+            const key = normalizeIdempotencyKey(retry?.key);
+            const organiser = key ? await transaction.profile.findUnique({ where: { auth0Id: retry!.auth0Id }, select: { id: true, role: true } }) : null;
+            if (key && organiser?.role !== "ORGANISER") throw createRouteError(404, "ORGANISER_PROFILE_NOT_FOUND", "No organiser profile is linked to this account.");
+            return withWriteReceipt(transaction, organiser?.id ?? 0, key, {
+              ...input, startsAt: input.startsAt.toISOString(), endsAt: input.endsAt.toISOString(), closesAt: input.closesAt?.toISOString() ?? null,
+            }, async () => {
+              const course = await transaction.course.findUnique({
+                where: { id: input.courseId },
+                select: { id: true },
+              });
+              if (!course) {
                 throw createRouteError(
                   404,
-                  "STAFFING_REQUIREMENT_NOT_FOUND",
-                  "The staffing requirement could not be found.",
-                );
-              }
-              if (requirement.status !== "OPEN") {
-                throw createRouteError(
-                  409,
-                  "OVERFLOW_SOURCE_NOT_OPEN",
-                  "That staffing requirement is no longer open, so it cannot be sent to overflow.",
-                );
-              }
-              if (
-                requirement.courseId !== input.courseId ||
-                requirement.startsAt.valueOf() !== input.startsAt.valueOf() ||
-                requirement.endsAt.valueOf() !== input.endsAt.valueOf()
-              ) {
-                throw createRouteError(
-                  409,
-                  "OVERFLOW_SOURCE_MISMATCH",
-                  "Overflow work converted from a requirement must keep its course and time window.",
+                  "COURSE_NOT_FOUND",
+                  "The requested course could not be found.",
                 );
               }
 
-              const windowHours = windowHoursFor(
-                requirement.startsAt,
-                requirement.endsAt,
-              );
-              const transactionQueryClient = {
-                async query<Row>(sql: string, parameters: unknown[] = []) {
-                  const rows = await transaction.$queryRawUnsafe<Row[]>(sql, ...parameters);
-                  return { rows };
-                },
-              };
-              const assignedHours =
-                (
-                  await getAssignedHoursForRequirements(transactionQueryClient, [
-                    requirement.id,
-                  ])
-                ).get(requirement.id) ?? 0;
-              const shortageHours = roundHours(
-                Math.max(
-                  0,
-                  requiredHoursFor(
-                    requirement.startsAt,
-                    requirement.endsAt,
-                    requirement.tutorsNeeded,
-                  ) - assignedHours,
-                ),
-              );
-              if (shortageHours <= HOURS_TOLERANCE) {
-                throw createRouteError(
-                  409,
-                  "OVERFLOW_SOURCE_FILLED",
-                  "That staffing requirement is already covered, so it has nothing left to send to overflow.",
+              if (input.sourceRequirementId !== null) {
+                const requirement =
+                  await transaction.staffingRequirement.findUnique({
+                    where: { id: input.sourceRequirementId },
+                    select: {
+                      id: true,
+                      courseId: true,
+                      startsAt: true,
+                      endsAt: true,
+                      tutorsNeeded: true,
+                      status: true,
+                    },
+                  });
+                if (!requirement) {
+                  throw createRouteError(
+                    404,
+                    "STAFFING_REQUIREMENT_NOT_FOUND",
+                    "The staffing requirement could not be found.",
+                  );
+                }
+                if (requirement.status !== "OPEN") {
+                  throw createRouteError(
+                    409,
+                    "OVERFLOW_SOURCE_NOT_OPEN",
+                    "That staffing requirement is no longer open, so it cannot be sent to overflow.",
+                  );
+                }
+                if (
+                  requirement.courseId !== input.courseId ||
+                  requirement.startsAt.valueOf() !== input.startsAt.valueOf() ||
+                  requirement.endsAt.valueOf() !== input.endsAt.valueOf()
+                ) {
+                  throw createRouteError(
+                    409,
+                    "OVERFLOW_SOURCE_MISMATCH",
+                    "Overflow work converted from a requirement must keep its course and time window.",
+                  );
+                }
+
+                const windowHours = windowHoursFor(
+                  requirement.startsAt,
+                  requirement.endsAt,
                 );
-              }
-
-              // Find the next available slotIndex by checking existing overflow items
-              const existingItems = await transaction.overflowWork.findMany({
-                where: { sourceRequirementId: requirement.id },
-                select: { slotIndex: true, status: true },
-              });
-              const maxSlotIndex = existingItems.reduce(
-                (max, item) => Math.max(max, item.slotIndex ?? -1),
-                -1,
-              );
-
-              // Create one overflow item per unfilled tutor slot
-              const createdItems: OverflowWorkRow[] = [];
-              let remainingShortage = shortageHours;
-              let slotIndex = maxSlotIndex + 1;
-
-              while (remainingShortage > HOURS_TOLERANCE) {
-                const hoursForSlot = Math.min(remainingShortage, windowHours);
-                const created = await transaction.overflowWork.create({
-                  data: {
-                    courseId: input.courseId,
-                    startsAt: input.startsAt,
-                    endsAt: input.endsAt,
-                    hours: hoursForSlot,
-                    closesAt: input.closesAt,
-                    sourceRequirementId: input.sourceRequirementId,
-                    slotIndex,
+                const transactionQueryClient = {
+                  async query<Row>(sql: string, parameters: unknown[] = []) {
+                    const rows = await transaction.$queryRawUnsafe<Row[]>(sql, ...parameters);
+                    return { rows };
                   },
-                  include: overflowWorkInclude,
+                };
+                const assignedHours =
+                  (
+                    await getAssignedHoursForRequirements(transactionQueryClient, [
+                      requirement.id,
+                    ])
+                  ).get(requirement.id) ?? 0;
+                const shortageHours = roundHours(
+                  Math.max(
+                    0,
+                    requiredHoursFor(
+                      requirement.startsAt,
+                      requirement.endsAt,
+                      requirement.tutorsNeeded,
+                    ) - assignedHours,
+                  ),
+                );
+                if (shortageHours <= HOURS_TOLERANCE) {
+                  throw createRouteError(
+                    409,
+                    "OVERFLOW_SOURCE_FILLED",
+                    "That staffing requirement is already covered, so it has nothing left to send to overflow.",
+                  );
+                }
+
+                // Find the next available slotIndex by checking existing overflow items
+                const existingItems = await transaction.overflowWork.findMany({
+                  where: { sourceRequirementId: requirement.id },
+                  select: { slotIndex: true, status: true, hours: true },
                 });
-                createdItems.push(created as OverflowWorkRow);
-                remainingShortage = roundHours(remainingShortage - hoursForSlot);
-                slotIndex += 1;
+                const maxSlotIndex = existingItems.reduce(
+                  (max, item) => Math.max(max, item.slotIndex ?? -1),
+                  -1,
+                );
+
+                // Create one overflow item per unfilled tutor slot
+                const createdItems: OverflowWorkRow[] = [];
+                // OPEN listings reserve advertised demand; FILLED listings have
+                // already supplied a student. Repeating conversion must not post
+                // that demand a second time. Closed listings may be replaced.
+                const advertisedHours = existingItems.reduce((sum, item) => sum + (item.status === "OPEN" || item.status === "FILLED" ? Number(item.hours) : 0), 0);
+                let remainingShortage = roundHours(Math.max(0, shortageHours - advertisedHours));
+                if (remainingShortage <= HOURS_TOLERANCE) throw createRouteError(409, "OVERFLOW_SOURCE_ALREADY_POSTED", "The remaining shortage is already covered by active overflow listings.");
+                let slotIndex = maxSlotIndex + 1;
+
+                while (remainingShortage > HOURS_TOLERANCE) {
+                  const hoursForSlot = Math.min(remainingShortage, windowHours);
+                  const created = await transaction.overflowWork.create({
+                    data: {
+                      courseId: input.courseId,
+                      startsAt: input.startsAt,
+                      endsAt: input.endsAt,
+                      hours: hoursForSlot,
+                      closesAt: input.closesAt,
+                      sourceRequirementId: input.sourceRequirementId,
+                      slotIndex,
+                    },
+                    include: overflowWorkInclude,
+                  });
+                  createdItems.push(created as OverflowWorkRow);
+                  remainingShortage = roundHours(remainingShortage - hoursForSlot);
+                  slotIndex += 1;
+                }
+
+                return createdItems.map(toOverflowWorkSummary);
               }
 
-              return createdItems.map(toOverflowWorkSummary);
-            }
-
-            // Manual posting (no source requirement): create a single item
-            const created = await transaction.overflowWork.create({
-              data: {
-                courseId: input.courseId,
-                startsAt: input.startsAt,
-                endsAt: input.endsAt,
-                hours: input.hours,
-                closesAt: input.closesAt,
-                sourceRequirementId: input.sourceRequirementId,
-              },
-              include: overflowWorkInclude,
-            });
-            return [toOverflowWorkSummary(created)];
+              // Manual posting (no source requirement): create a single item
+              const created = await transaction.overflowWork.create({
+                data: {
+                  courseId: input.courseId,
+                  startsAt: input.startsAt,
+                  endsAt: input.endsAt,
+                  hours: input.hours,
+                  closesAt: input.closesAt,
+                  sourceRequirementId: input.sourceRequirementId,
+                },
+                include: overflowWorkInclude,
+              });
+              return [toOverflowWorkSummary(created)];
+            }, "overflow-create");
           },
           { isolationLevel: "Serializable" },
         );
@@ -416,7 +430,7 @@ export function createOrganiserOverflowWorkService(
               endsAt: input.endsAt,
               hours: input.hours,
               closesAt: input.closesAt,
-              updatedAt: new Date(),
+              updatedAt: new Date(Math.max(Date.now(), input.expectedUpdatedAt.valueOf() + 1)),
             },
           });
           if (changed.count !== 1) {
@@ -485,7 +499,7 @@ export function createOrganiserOverflowWorkService(
 
           const changed = await transaction.overflowWork.updateMany({
             where: { id: overflowWorkId, updatedAt: input.expectedUpdatedAt },
-            data: { status: "CLOSED", updatedAt: new Date() },
+            data: { status: "CLOSED", updatedAt: new Date(Math.max(Date.now(), input.expectedUpdatedAt.valueOf() + 1)) },
           });
           if (changed.count !== 1) {
             throw createRouteError(

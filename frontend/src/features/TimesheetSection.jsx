@@ -92,6 +92,7 @@ export default function TimesheetSection({ savedLogs = [], tokenOrGetter, storag
   // sheet that has left the draft state.
   const [histories, setHistories] = useState({})
   const [historyBusy, setHistoryBusy] = useState({})
+  const [historyErrors, setHistoryErrors] = useState({})
   const [declared, setDeclared] = useState({})
   const knownIdsRef = useRef([])
   const loadedHistoryKeysRef = useRef(new Set())
@@ -164,9 +165,13 @@ export default function TimesheetSection({ savedLogs = [], tokenOrGetter, storag
   const loadHistory = useCallback(
     async (timesheetId) => {
       setHistoryBusyFor(timesheetId, true)
+      setHistoryErrors((current) => ({ ...current, [timesheetId]: false }))
       try {
         const history = await fetchTimesheetHistory(timesheetId, tokenOrGetter)
         setHistories((current) => ({ ...current, [timesheetId]: history }))
+        setStatuses((current) => current[timesheetId]?.status === history.timesheet.status
+          ? { ...current, [timesheetId]: { ...current[timesheetId], totalHours: history.timesheet.totalHours } }
+          : current)
         return history
       } catch (error) {
         if (error?.code === 'TIMESHEET_NOT_FOUND') {
@@ -176,6 +181,7 @@ export default function TimesheetSection({ savedLogs = [], tokenOrGetter, storag
             return next
           })
         }
+        setHistoryErrors((current) => ({ ...current, [timesheetId]: true }))
         return null
       } finally {
         setHistoryBusyFor(timesheetId, undefined)
@@ -283,6 +289,7 @@ export default function TimesheetSection({ savedLogs = [], tokenOrGetter, storag
     if (!updated) {
       setMessageFor(timesheetId, 'The timesheet status could not be checked. Try again.')
     }
+    await loadHistory(timesheetId)
     setBusyFor(timesheetId, undefined)
   }
 
@@ -341,7 +348,12 @@ export default function TimesheetSection({ savedLogs = [], tokenOrGetter, storag
                 {messages[card.id] && (
                   <p className="status-note danger" role="alert">{messages[card.id]}</p>
                 )}
-                {(isReturned ||
+                {historyErrors[card.id] && (
+                  <p className="status-note danger" role="alert">
+                    The correction timeline could not be refreshed. Choose Check for decision to retry.
+                  </p>
+                )}
+                {!historyErrors[card.id] && (isReturned ||
                   (history &&
                     (history.revisions.length > 0 ||
                       history.declarations.length > 0 ||

@@ -1,3 +1,4 @@
+import { assertResultLimit, MAX_CANDIDATES } from "../http/limits.js";
 export interface QueryResult<Row> {
   rows: Row[];
 }
@@ -252,7 +253,7 @@ WITH tutor_hours AS (${tutorHoursSql("$2", "$6")}), candidate_data AS (
 )
 SELECT *, ("mark" >= $4 AND NOT "hasClash" AND "remainingHours" >= $5) AS "isEligible"
 FROM candidate_data
-ORDER BY "isEligible" DESC, "mark" DESC, "fullName" ASC;
+ORDER BY "isEligible" DESC, "mark" DESC, "fullName" ASC, "tutorId" ASC LIMIT 2001;
 `;
 
 export const tutorHourSummarySql = `
@@ -428,6 +429,7 @@ export async function findAllocationCandidates(
     input.excludeAllocationId ?? null,
   ]);
 
+  assertResultLimit(result.rows, MAX_CANDIDATES, "Candidate ranking");
   const candidates = result.rows.map((row) => ({
     ...row,
     reasonCodes: allocationReasonCodesFor({

@@ -81,7 +81,7 @@ SELECT "id", "fullName", "role"::text AS "role"
 FROM "Profile"
 WHERE "role" IN ('TUTOR', 'STUDENT')
   AND ("fullName" ILIKE $1 OR "email" ILIKE $1)
-ORDER BY "fullName" ASC
+ORDER BY "fullName" ASC, "id" ASC
 LIMIT $2 OFFSET $3;
 `;
 
@@ -90,7 +90,7 @@ SELECT t."id", t."status"::text AS "status", t."weekStart", p."fullName" AS "tut
 FROM "Timesheet" t
 JOIN "Profile" p ON p."id" = t."tutorId"
 WHERE p."fullName" ILIKE $1 OR t."status"::text ILIKE $1
-ORDER BY t."weekStart" DESC
+ORDER BY t."weekStart" DESC, t."id" DESC
 LIMIT $2 OFFSET $3;
 `;
 
@@ -100,7 +100,7 @@ FROM "Timesheet" t
 JOIN "Profile" p ON p."id" = t."tutorId"
 WHERE t."tutorId" = $4
   AND (t."status"::text ILIKE $1 OR to_char(t."weekStart", 'YYYY-MM-DD') ILIKE $1)
-ORDER BY t."weekStart" DESC
+ORDER BY t."weekStart" DESC, t."id" DESC
 LIMIT $2 OFFSET $3;
 `;
 
@@ -111,7 +111,7 @@ JOIN "OverflowWork" ow ON ow."id" = vc."overflowWorkId"
 JOIN "Course" c ON c."id" = ow."courseId"
 WHERE vc."studentId" = $4
   AND (c."code" ILIKE $1 OR c."name" ILIKE $1 OR vc."status"::text ILIKE $1)
-ORDER BY vc."createdAt" DESC
+ORDER BY vc."createdAt" DESC, vc."id" DESC
 LIMIT $2 OFFSET $3;
 `;
 

@@ -68,6 +68,7 @@ describe('organiser overflow work API contract', () => {
       '/api/organiser/overflow-work',
       {
         method: 'POST',
+        headers: { 'Idempotency-Key': expect.any(String) },
         body: JSON.stringify({ ...writeInput, sourceRequirementId: null }),
       },
       tokenGetter,

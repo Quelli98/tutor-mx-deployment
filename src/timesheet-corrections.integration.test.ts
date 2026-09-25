@@ -434,12 +434,7 @@ describe("timesheet corrections against the real schema", () => {
       "Hours look too high",
       10,
     );
-    await database.query(
-      `INSERT INTO "TimesheetRevision" (
-         "timesheetId", "tutorId", "kind", "authorProfileId", "reason"
-       ) VALUES ($1, $2, 'RETURN', (SELECT "id" FROM "Profile" WHERE "auth0Id" = $3), 'Hours look too high')`,
-      [sheet.timesheetId, tutorId, ORGANISER],
-    );
+    // The return trigger records history atomically.
     await declare(database, sheet.timesheetId, tutorId, 5);
     // Mirrors the workflow service on the way back, which clears the reviewer's
     // fields so the sheet reads as freshly submitted.
@@ -472,12 +467,7 @@ describe("timesheet corrections against the real schema", () => {
 
     // Second cycle, returned just now.
     await returnTimesheet(database, sheet.timesheetId, "Still not right");
-    await database.query(
-      `INSERT INTO "TimesheetRevision" (
-         "timesheetId", "tutorId", "kind", "authorProfileId", "reason"
-       ) VALUES ($1, $2, 'RETURN', (SELECT "id" FROM "Profile" WHERE "auth0Id" = $3), 'Still not right')`,
-      [sheet.timesheetId, tutorId, ORGANISER],
-    );
+    // The return trigger records history atomically.
 
     const reasons = await database.query<{ reason: string }>(
       `SELECT "reason" FROM "TimesheetRevision"
@@ -676,4 +666,16 @@ describe("timesheet corrections against the real schema", () => {
       ),
     ).rejects.toThrow(/TimesheetRevision_timesheetId_tutorId_fkey/);
   });
+  it("rolls back the return decision and its automatic history together", async () => {
+    const sheet = await createSheet(database, { tutorId, weekStart: "2032-01-05" });
+    await submitTimesheet(database, sheet.timesheetId);
+    await expect(database.transaction(async (tx) => {
+      await tx.query(`UPDATE "Timesheet" SET "status"='RETURNED', "reviewReason"='Review hours', "reviewedAt"=now(), "reviewedById"=(SELECT "id" FROM "Profile" WHERE "auth0Id"=$2) WHERE "id"=$1`, [sheet.timesheetId, ORGANISER]);
+      expect((await tx.query(`SELECT * FROM "TimesheetRevision" WHERE "timesheetId"=$1 AND "kind"='RETURN'`, [sheet.timesheetId])).rows).toHaveLength(1);
+      throw new Error("injected failure after return");
+    })).rejects.toThrow("injected failure");
+    expect((await database.query<{status:string}>(`SELECT "status" FROM "Timesheet" WHERE "id"=$1`, [sheet.timesheetId])).rows[0]?.status).toBe('SUBMITTED');
+    expect(await countRevisions(database, sheet.timesheetId, 'RETURN')).toBe(0);
+  });
+
 });

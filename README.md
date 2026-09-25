@@ -176,3 +176,9 @@ Preserve any existing truthful `Assisted-by` trailers for work generated with Co
 If the original Member 1 commit also contains Qoder-generated code, its actual `Qoder[model]` must appear in that commit trailer. Do not invent the model name. Preserve the required unedited assessment transcript or permitted substitute.
 
 The preceding document was generated and reviewed with the assistance of the following: Codex[GPT-5], ChatGPT[GPT-5.6 Sol].
+
+## Sprint 3 Member 5 handoff (25 September 2026)
+
+See [Member 5 handoff](MEMBER5_HANDOFF.md) for setup and the new migration, and [API audit and evidence](docs/sprint3-member5-completion.md) for S3-M5-1/2/3. The documentation website includes [Member 5 evidence](docs-site/member5-sprint3.html). This is a locally verified source handoff; production integration and deployment remain with the Integration Lead.
+
+The revised archive includes a [follow-up bug audit](docs/sprint3-member5-followup-audit.md) covering payroll exports, timesheet history recovery and import refresh errors.

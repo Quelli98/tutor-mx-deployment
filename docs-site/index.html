@@ -18,7 +18,7 @@
     </header>
     <nav aria-label="Documentation sections">
       <a href="#architecture">Architecture</a><a href="#setup">Setup</a><a href="#api">API</a>
-      <a href="#testing">Testing</a><a href="#deployment">Deployment</a><a href="#limitations">Limitations</a>
+      <a href="#testing">Testing</a><a href="#deployment">Deployment</a><a href="#limitations">Limitations</a><a href="member5-sprint3.html">Sprint 3 Member 5</a>
     </nav>
     <main id="content">
       <section id="architecture"><h2>Architecture</h2><p>The React/Vite single-page app is hosted separately from the handwritten Express API. The browser obtains an RS256 access token from Auth0 and sends it only in the Authorization header. Express validates the JWKS signature, issuer, audience, expiry, not-before and subject before accessing Neon PostgreSQL through Prisma. The browser never connects directly to Neon.</p><pre aria-label="Architecture flow">Browser → Cloudflare Pages → Auth0 Universal Login

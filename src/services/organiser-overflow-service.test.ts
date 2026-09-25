@@ -630,3 +630,41 @@ describe("organiser overflow work service", () => {
     });
   });
 });
+
+describe("Member 5 retry and concurrency boundaries", () => {
+  it("does not repost shortage hours already advertised or filled", async () => {
+    const harness = createHarness();
+    harness.transaction.overflowWork.findMany.mockResolvedValue([
+      { slotIndex: 0, status: "OPEN", hours: 4 },
+      { slotIndex: 1, status: "FILLED", hours: 4 },
+    ] as never);
+    await expect(harness.service.createOverflowWork({ ...createInput, sourceRequirementId: 12 }))
+      .rejects.toMatchObject({ status: 409, code: "OVERFLOW_SOURCE_ALREADY_POSTED" });
+    expect(harness.transaction.overflowWork.create).not.toHaveBeenCalled();
+  });
+  it("creates only the unadvertised remainder and may replace closed slots", async () => {
+    const harness = createHarness();
+    harness.transaction.overflowWork.findMany.mockResolvedValue([
+      { slotIndex: 0, status: "OPEN", hours: 4 },
+      { slotIndex: 1, status: "CLOSED", hours: 4 },
+    ] as never);
+    const rows = await harness.service.createOverflowWork({ ...createInput, sourceRequirementId: 12 });
+    expect(rows).toHaveLength(1);
+    expect(harness.transaction.overflowWork.create.mock.calls[0]?.[0].data).toMatchObject({ hours: 4, slotIndex: 2 });
+  });
+  it("competing close operations permit only one compare-and-set winner", async () => {
+    const harness = createHarness();
+    let open = true;
+    harness.transaction.overflowWork.updateMany.mockImplementation(async () => {
+      if (!open) return { count: 0 };
+      open = false;
+      return { count: 1 };
+    });
+    const results = await Promise.allSettled([
+      harness.service.closeOverflowWork(4, { expectedUpdatedAt: VERSION }),
+      harness.service.closeOverflowWork(4, { expectedUpdatedAt: VERSION }),
+    ]);
+    expect(results.filter((result) => result.status === 'fulfilled')).toHaveLength(1);
+    expect(results.filter((result) => result.status === 'rejected')).toHaveLength(1);
+  });
+});
