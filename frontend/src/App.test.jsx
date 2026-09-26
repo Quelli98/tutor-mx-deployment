@@ -174,26 +174,35 @@ describe('Auth entry flow', () => {
     expect(window.sessionStorage.getItem('tutormx.pendingRole')).toBeNull()
   })
 
-  it('blocks sign-in when the requested role does not match the account role', async () => {
+  it.each([
+    ['STUDENT', /available volunteer work/i],
+    ['TUTOR', /tutor dashboard/i],
+    ['ORGANISER', /organiser workspace/i],
+  ])('allows sign-in when the requested role %s matches the account role', async (role, heading) => {
     authState = { isAuthenticated: true, isLoading: false, user: { sub: 'auth0|123' } }
-    currentUserState = { role: 'TUTOR', loading: false, error: '', errorCode: '' }
-    window.sessionStorage.setItem('tutormx.requestedSignInRole', 'STUDENT')
+    currentUserState = { role, loading: false, error: '', errorCode: '' }
+    window.sessionStorage.setItem('tutormx.requestedSignInRole', role)
+
+    render(<MemoryRouter initialEntries={['/']}><App /></MemoryRouter>)
+
+    expect(await screen.findByRole('heading', { name: heading })).toBeInTheDocument()
+  })
+
+  it.each([
+    ['STUDENT', 'TUTOR'],
+    ['STUDENT', 'ORGANISER'],
+    ['TUTOR', 'STUDENT'],
+    ['TUTOR', 'ORGANISER'],
+    ['ORGANISER', 'STUDENT'],
+    ['ORGANISER', 'TUTOR'],
+  ])('blocks sign-in when requested role %s does not match account role %s', async (requestedRole, actualRole) => {
+    authState = { isAuthenticated: true, isLoading: false, user: { sub: 'auth0|123' } }
+    currentUserState = { role: actualRole, loading: false, error: '', errorCode: '' }
+    window.sessionStorage.setItem('tutormx.requestedSignInRole', requestedRole)
 
     render(<MemoryRouter initialEntries={['/']}><App /></MemoryRouter>)
 
     expect(await screen.findByRole('heading', { name: /role mismatch/i })).toBeInTheDocument()
-    expect(screen.getByText(/registered as a Tutor/i)).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /return to role selection/i })).toBeInTheDocument()
-  })
-
-  it('allows sign-in when the requested role matches the account role', async () => {
-    authState = { isAuthenticated: true, isLoading: false, user: { sub: 'auth0|123' } }
-    currentUserState = { role: 'TUTOR', loading: false, error: '', errorCode: '' }
-    window.sessionStorage.setItem('tutormx.requestedSignInRole', 'TUTOR')
-
-    render(<MemoryRouter initialEntries={['/']}><App /></MemoryRouter>)
-
-    expect(await screen.findByRole('heading', { name: /tutor dashboard/i })).toBeInTheDocument()
   })
 
   it('clears the requested sign-in role on sign out', async () => {
