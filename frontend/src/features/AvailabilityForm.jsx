@@ -5,14 +5,19 @@ import { ConfirmationDialog } from '../components/shared/ConfirmationDialog'
 import TimeSlotDetails from './TimeSlotDetails'
 import WeeklySchedule from '../components/shared/WeeklySchedule'
 
-const EMPTY_FORM = { startsAt: '', endsAt: '', weekly: false, label: '', recurrenceUntil: '' }
+const EMPTY_FORM = { startsAt: '', endsAt: '', recurrence: 'ONCE', label: '', recurrenceUntil: '', category: 'UNAVAILABLE' }
 
 function localValue(iso) {
   if (!iso) return ''
   const date = new Date(iso)
-  // datetime-local needs wall-clock time, not a truncated UTC timestamp.
   const local = new Date(date.valueOf() - date.getTimezoneOffset() * 60_000)
   return local.toISOString().slice(0, 16)
+}
+
+function maxDurationMs(recurrence) {
+  if (recurrence === 'FORTNIGHTLY') return 14 * 24 * 60 * 60 * 1000
+  if (recurrence === 'WEEKLY') return 7 * 24 * 60 * 60 * 1000
+  return Number.POSITIVE_INFINITY
 }
 
 function validate(form) {
@@ -22,11 +27,11 @@ function validate(form) {
   if (!form.startsAt || !Number.isFinite(start.valueOf())) errors.startsAt = 'Start time is required.'
   if (!form.endsAt || !Number.isFinite(end.valueOf())) errors.endsAt = 'End time is required.'
   else if (!errors.startsAt && end <= start) errors.endsAt = 'End time must be after the start time.'
-  else if (form.weekly && end - start > 7 * 24 * 60 * 60 * 1000) {
-    errors.endsAt = 'A weekly schedule entry must last no more than 7 days.'
+  else if (form.recurrence !== 'ONCE' && end - start > maxDurationMs(form.recurrence)) {
+    errors.endsAt = `A ${form.recurrence === 'FORTNIGHTLY' ? 'fortnightly' : 'weekly'} entry must last no more than ${form.recurrence === 'FORTNIGHTLY' ? '14' : '7'} days.`
   }
   if (form.label.length > 120) errors.label = 'Use 120 characters or fewer for the description.'
-  if (form.weekly && form.recurrenceUntil) {
+  if (form.recurrence !== 'ONCE' && form.recurrenceUntil) {
     const until = new Date(form.recurrenceUntil)
     if (!Number.isFinite(until.valueOf()) || (!errors.startsAt && until < start)) {
       errors.recurrenceUntil = 'The repeat-until date must be on or after the start date.'
@@ -74,8 +79,10 @@ export default function AvailabilityForm({ tokenOrGetter }) {
   function edit(slot) {
     setForm({
       startsAt: localValue(slot.startsAt), endsAt: localValue(slot.endsAt),
-      weekly: slot.recurrence === 'WEEKLY', label: slot.label ?? '',
+      recurrence: slot.recurrence === 'FORTNIGHTLY' ? 'FORTNIGHTLY' : slot.recurrence === 'WEEKLY' ? 'WEEKLY' : 'ONCE',
+      label: slot.label ?? '',
       recurrenceUntil: localValue(slot.recurrenceUntil),
+      category: 'UNAVAILABLE',
     })
     setEditingId(slot.id)
     setErrors({})
@@ -96,10 +103,11 @@ export default function AvailabilityForm({ tokenOrGetter }) {
       type: 'BUSY',
       startsAt: new Date(form.startsAt).toISOString(),
       endsAt: new Date(form.endsAt).toISOString(),
-      ...(form.weekly ? { recurrence: 'WEEKLY' } : {}),
+      ...(form.recurrence !== 'ONCE' ? { recurrence: form.recurrence } : {}),
       label: form.label.trim() || null,
-      recurrenceUntil: form.weekly && form.recurrenceUntil
+      recurrenceUntil: form.recurrence !== 'ONCE' && form.recurrenceUntil
         ? new Date(form.recurrenceUntil).toISOString() : null,
+      category: form.category,
     }
     setPending(true)
     try {
@@ -138,17 +146,27 @@ export default function AvailabilityForm({ tokenOrGetter }) {
     setForm((current) => ({ ...current, [name]: value }))
   }
 
+  const isRecurring = form.recurrence !== 'ONCE'
+
   return (
     <section className="role-card tutor-form-card" aria-labelledby="own-schedule-heading">
       <div>
         <h2 id="own-schedule-heading">Your schedule (classes, study, unavailable)</h2>
         <p className="helper-text" id="schedule-help">
-          Enter the date and time for the first occurrence. If you repeat weekly, the pattern continues until the repeat-until date (or indefinitely if blank). Schedule entries block allocations during those times.
+          Enter the date and time for the first occurrence. Choose how often it repeats. Schedule entries block allocations during those times.
         </p>
       </div>
-      {loadStatus === 'success' && <WeeklySchedule slots={slots} label="Your weekly unavailable schedule" />}
+      {loadStatus === 'success' && <WeeklySchedule slots={slots} label="Your weekly schedule" />}
       <form className="tutor-form schedule-editor" onSubmit={handleSubmit} noValidate aria-describedby="schedule-help">
         <h3>{editingId ? 'Edit schedule entry' : 'Add schedule entry'}</h3>
+        <div className="field-group">
+          <label htmlFor="slot-category">Category</label>
+          <select id="slot-category" value={form.category} disabled={pending}
+            onChange={(event) => field('category', event.target.value)}>
+            <option value="UNAVAILABLE">Unavailable (personal commitment)</option>
+            <option value="CLASS">Class (lecture, lab, tutorial)</option>
+          </select>
+        </div>
         <div className="field-group">
           <label htmlFor="starts-at">From (date and time)</label>
           <input id="starts-at" type="datetime-local" value={form.startsAt} disabled={pending}
@@ -170,12 +188,16 @@ export default function AvailabilityForm({ tokenOrGetter }) {
             aria-invalid={Boolean(errors.label)} aria-describedby={errors.label ? 'slot-label-error' : undefined} />
           {errors.label && <p id="slot-label-error" className="error-text">{errors.label}</p>}
         </div>
-        <label className="checkbox-field" htmlFor="slot-weekly">
-          <input id="slot-weekly" type="checkbox" checked={form.weekly} disabled={pending}
-            onChange={(event) => field('weekly', event.target.checked)} />
-          Repeat weekly
-        </label>
-        {form.weekly && (
+        <div className="field-group">
+          <label htmlFor="slot-recurrence">Repeat</label>
+          <select id="slot-recurrence" value={form.recurrence} disabled={pending}
+            onChange={(event) => field('recurrence', event.target.value)}>
+            <option value="ONCE">Does not repeat</option>
+            <option value="WEEKLY">Weekly</option>
+            <option value="FORTNIGHTLY">Fortnightly</option>
+          </select>
+        </div>
+        {isRecurring && (
           <div className="field-group">
             <label htmlFor="slot-until">Repeat until (optional)</label>
             <input id="slot-until" type="datetime-local" value={form.recurrenceUntil} disabled={pending}
@@ -211,7 +233,7 @@ export default function AvailabilityForm({ tokenOrGetter }) {
         </ul>)}
       <ConfirmationDialog open={Boolean(slotToDelete)} title="Delete schedule entry?" confirmLabel="Delete schedule entry"
         isPending={pending} onConfirm={remove} onCancel={() => { if (!pending) setSlotToDelete(null) }}>
-        <p>This removes the schedule entry and all of its weekly occurrences. This cannot be undone.</p>
+        <p>This removes the schedule entry and all of its occurrences. This cannot be undone.</p>
       </ConfirmationDialog>
     </section>
   )

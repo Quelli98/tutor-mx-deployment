@@ -17,7 +17,7 @@ export function isAcademicTermSummary(value) {
 
 export function isImportRow(value) {
   return !!value && Number.isInteger(value.sourceRow) && value.sourceRow > 0 &&
-    ['WEEKLY', 'ONCE'].includes(value.recurrence) &&
+    ['WEEKLY', 'FORTNIGHTLY', 'ONCE'].includes(value.recurrence) &&
     typeof value.duplicate === 'boolean' &&
     Array.isArray(value.errors) && value.errors.every((item) => typeof item === 'string') &&
     (value.label == null || typeof value.label === 'string')
@@ -79,6 +79,43 @@ export async function listAcademicTerms(tokenOrGetter) {
     throw new Error('The academic term response did not match the agreed contract.')
   }
   return terms
+}
+
+export async function listPublishedAcademicTerms(tokenOrGetter) {
+  const body = await fetchWithBearerToken('/api/academic-terms/published', {}, tokenOrGetter)
+  const terms = body?.data?.academicTerms
+  if (!Array.isArray(terms) || !terms.every(isAcademicTermSummary)) {
+    throw new Error('The academic term response did not match the agreed contract.')
+  }
+  return terms
+}
+
+export async function createAcademicTerm(input, tokenOrGetter) {
+  const body = await fetchWithBearerToken('/api/organiser/academic-terms', {
+    method: 'POST', body: JSON.stringify(input),
+  }, tokenOrGetter)
+  const term = body?.data?.academicTerm
+  if (!isAcademicTermSummary(term)) {
+    throw new Error('The academic term response did not match the agreed contract.')
+  }
+  return term
+}
+
+export async function updateAcademicTerm(id, input, tokenOrGetter) {
+  if (!Number.isInteger(id) || id <= 0) throw new Error('Invalid term identifier.')
+  const body = await fetchWithBearerToken(`/api/organiser/academic-terms/${id}`, {
+    method: 'PATCH', body: JSON.stringify(input),
+  }, tokenOrGetter)
+  const term = body?.data?.academicTerm
+  if (!isAcademicTermSummary(term)) {
+    throw new Error('The academic term response did not match the agreed contract.')
+  }
+  return term
+}
+
+export async function deleteAcademicTerm(id, tokenOrGetter) {
+  if (!Number.isInteger(id) || id <= 0) throw new Error('Invalid term identifier.')
+  await fetchWithBearerToken(`/api/organiser/academic-terms/${id}`, { method: 'DELETE' }, tokenOrGetter)
 }
 
 export async function previewTimetableImport(input, tokenOrGetter) {

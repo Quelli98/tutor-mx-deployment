@@ -69,6 +69,7 @@ interface ExistingSlotRow {
   endsAt: Date;
   recurrence: string | null;
   label: string | null;
+  category: string;
 }
 
 interface ProfileDelegate {
@@ -97,6 +98,7 @@ interface TimeSlotDelegate {
       endsAt: true;
       recurrence: true;
       label: true;
+      category: true;
     };
   }): Promise<ExistingSlotRow[]>;
   create(args: {
@@ -108,6 +110,9 @@ interface TimeSlotDelegate {
       recurrence: string | null;
       label: string | null;
       recurrenceUntil: Date | null;
+      category: string;
+      seriesId: string | null;
+      termId: number;
     };
     select: { id: true };
   }): Promise<{ id: number }>;
@@ -252,7 +257,7 @@ async function markDuplicates(
   if (window) {
     const existing = await client.timeSlot.findMany({
       where: { tutorId, type: "BUSY", startsAt: window },
-      select: { startsAt: true, endsAt: true, recurrence: true, label: true },
+      select: { startsAt: true, endsAt: true, recurrence: true, label: true, category: true },
     });
     for (const slot of existing) {
       seen.add(
@@ -383,6 +388,9 @@ export function createTimetableImportService(
                   recurrenceUntil: slot.recurrenceUntil
                     ? new Date(slot.recurrenceUntil)
                     : null,
+                  category: slot.category,
+                  seriesId: slot.seriesId,
+                  termId: request.termId,
                 },
                 select: { id: true },
               });

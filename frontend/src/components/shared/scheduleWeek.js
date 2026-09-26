@@ -26,41 +26,46 @@ export function localTime(date) {
 export function scheduleForWeek(slots, weekStart) {
   const weekEnd = addDays(weekStart, 7)
   const days = Array.from({ length: 7 }, (_, index) => ({ date: addDays(weekStart, index), blocks: [] }))
-  for (const slot of slots.filter((entry) => entry.type === 'BUSY')) {
+  for (const slot of slots) {
+    const isAllocation = slot.kind === 'allocation'
+    if (!isAllocation && slot.type !== 'BUSY') continue
     const start = new Date(slot.startsAt)
     const end = new Date(slot.endsAt)
     let occurrenceStart = start
     let occurrenceEnd = end
-    if (slot.recurrence === 'WEEKLY') {
-      // Advance calendar days, not UTC milliseconds, to preserve local time across DST.
-      const weeks = Math.max(0, Math.floor((weekStart - end) / 604800000))
-      occurrenceStart = addDays(start, weeks * 7)
-      occurrenceEnd = addDays(end, weeks * 7)
+    const period = slot.recurrence === 'FORTNIGHTLY' ? 14 : slot.recurrence === 'WEEKLY' ? 7 : 0
+    if (period > 0) {
+      const periodMs = period * 86400000
+      const periods = Math.max(0, Math.floor((weekStart - end) / periodMs))
+      occurrenceStart = addDays(start, periods * period)
+      occurrenceEnd = addDays(end, periods * period)
       while (occurrenceEnd <= weekStart) {
-        occurrenceStart = addDays(occurrenceStart, 7)
-        occurrenceEnd = addDays(occurrenceEnd, 7)
+        occurrenceStart = addDays(occurrenceStart, period)
+        occurrenceEnd = addDays(occurrenceEnd, period)
       }
     }
     while (occurrenceStart < weekEnd) {
-      if (slot.recurrence === 'WEEKLY' && slot.recurrenceUntil && occurrenceStart > new Date(slot.recurrenceUntil)) break
+      if (period > 0 && slot.recurrenceUntil && occurrenceStart > new Date(slot.recurrenceUntil)) break
       for (const day of days) {
         const dayEnd = addDays(day.date, 1)
         if (occurrenceStart < dayEnd && day.date < occurrenceEnd) {
           const clippedStart = new Date(Math.max(day.date, occurrenceStart))
           const clippedEnd = new Date(Math.min(dayEnd, occurrenceEnd))
           day.blocks.push({
-            id: `${slot.id}-${occurrenceStart.valueOf()}-${day.date.valueOf()}`,
-            label: slot.label?.trim() || 'Unavailable',
+            id: `${slot.id ?? 'alloc'}-${occurrenceStart.valueOf()}-${day.date.valueOf()}`,
+            label: slot.label?.trim() || (isAllocation ? 'Tutoring' : 'Unavailable'),
             startsAt: clippedStart,
             endsAt: clippedEnd,
             startMinute: clippedStart.getHours() * 60 + clippedStart.getMinutes(),
             endMinute: clippedEnd.valueOf() === dayEnd.valueOf() ? 1440 : clippedEnd.getHours() * 60 + clippedEnd.getMinutes(),
+            category: slot.category ?? (isAllocation ? 'TUTORING' : 'UNAVAILABLE'),
+            kind: isAllocation ? 'allocation' : 'slot',
           })
         }
       }
-      if (slot.recurrence !== 'WEEKLY') break
-      occurrenceStart = addDays(occurrenceStart, 7)
-      occurrenceEnd = addDays(occurrenceEnd, 7)
+      if (period === 0) break
+      occurrenceStart = addDays(occurrenceStart, period)
+      occurrenceEnd = addDays(occurrenceEnd, period)
     }
   }
   for (const day of days) {

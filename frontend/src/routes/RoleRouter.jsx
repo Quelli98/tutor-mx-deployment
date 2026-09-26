@@ -3,6 +3,8 @@ import { ProtectedRoute } from '../auth/ProtectedRoute'
 import { AccountSettings } from '../features/AccountSettings'
 import TutorDashboard from '../features/TutorDashboard'
 import TutorForms from '../features/TutorForms'
+import MyTimetable from '../features/MyTimetable'
+import AcademicTermManagement from '../features/AcademicTermManagement'
 import { ROLE_ROUTE_MAP } from './roleMap'
 import { StudentOverflow } from '../features/StudentOverflow'
 import CourseManagement from '../features/CourseManagement'
@@ -46,14 +48,24 @@ function RoleNavigation({ currentRole, onSignOut }) {
         </NavLink>
 
         {currentRole === 'TUTOR' && (
-          <NavLink
-            to="/tutor/forms"
-            className={({ isActive }) =>
-              `role-navigation-link${isActive ? ' active' : ''}`
-            }
-          >
-            Tutor forms
-          </NavLink>
+          <>
+            <NavLink
+              to="/tutor/timetable"
+              className={({ isActive }) =>
+                `role-navigation-link${isActive ? ' active' : ''}`
+              }
+            >
+              My timetable
+            </NavLink>
+            <NavLink
+              to="/tutor/forms"
+              className={({ isActive }) =>
+                `role-navigation-link${isActive ? ' active' : ''}`
+              }
+            >
+              Tutor forms
+            </NavLink>
+          </>
         )}
 
         <NavLink
@@ -126,6 +138,10 @@ export function RoleRouter({ currentRole, onSignOut, user = null }) {
         element={protect(currentRole, ['ORGANISER'], <TutorManagement />)}
       />
       <Route
+        path="/organiser/terms"
+        element={protect(currentRole, ['ORGANISER'], <AcademicTermManagement />)}
+      />
+      <Route
         path="/organiser/staffing"
         element={protect(currentRole, ['ORGANISER'], <StaffingRequirements />)}
       />
@@ -152,6 +168,10 @@ export function RoleRouter({ currentRole, onSignOut, user = null }) {
       <Route
         path="/tutor/forms"
         element={protect(currentRole, ['TUTOR'], <TutorForms />)}
+      />
+      <Route
+        path="/tutor/timetable"
+        element={protect(currentRole, ['TUTOR'], <MyTimetable />)}
       />
       <Route
         path="/student"

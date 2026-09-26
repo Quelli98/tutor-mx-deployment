@@ -35,7 +35,7 @@ describe('AvailabilityForm', () => {
 
   it('associates missing-field errors and does not send a request', async () => {
     render(<AvailabilityForm tokenOrGetter={tokenGetter} />)
-    await screen.findByRole('region', { name: 'Your weekly unavailable schedule' })
+    await screen.findByRole('region', { name: 'Your weekly schedule' })
     fireEvent.click(screen.getByRole('button', { name: /add schedule entry/i }))
 
     const start = screen.getByLabelText(/from.*date and time/i)
@@ -47,7 +47,7 @@ describe('AvailabilityForm', () => {
 
   it('rejects an impossible time range before sending a request', async () => {
     render(<AvailabilityForm tokenOrGetter={tokenGetter} />)
-    await screen.findByRole('region', { name: 'Your weekly unavailable schedule' })
+    await screen.findByRole('region', { name: 'Your weekly schedule' })
     fireEvent.change(screen.getByLabelText(/from.*date and time/i), {
       target: { value: '2030-09-04T16:00' },
     })
@@ -68,8 +68,8 @@ describe('AvailabilityForm', () => {
     mockUpdateOwnTimeSlot.mockResolvedValue({ ...slot, label: 'Study group' })
     mockDeleteOwnTimeSlot.mockResolvedValue(undefined)
     render(<AvailabilityForm tokenOrGetter={tokenGetter} />)
-    const calendar = await screen.findByRole('region', { name: 'Your weekly unavailable schedule' })
-    expect(within(calendar).getByText('No unavailable times added')).toBeInTheDocument()
+    const calendar = await screen.findByRole('region', { name: 'Your weekly schedule' })
+    expect(within(calendar).getByText('No times added')).toBeInTheDocument()
     fireEvent.change(screen.getByLabelText(/from.*date and time/i), { target: { value: `${localDate}T08:00` } })
     fireEvent.change(screen.getByLabelText(/until.*date and time/i), { target: { value: `${localDate}T09:45` } })
     fireEvent.change(screen.getByLabelText(/description/i), { target: { value: 'Lecture' } })
@@ -92,14 +92,16 @@ describe('AvailabilityForm', () => {
 
   it('submits ISO dates with the repeat-weekly flag', async () => {
     render(<AvailabilityForm tokenOrGetter={tokenGetter} />)
-    await screen.findByRole('region', { name: 'Your weekly unavailable schedule' })
+    await screen.findByRole('region', { name: 'Your weekly schedule' })
     fireEvent.change(screen.getByLabelText(/from.*date and time/i), {
       target: { value: '2030-09-04T14:00' },
     })
     fireEvent.change(screen.getByLabelText(/until.*date and time/i), {
       target: { value: '2030-09-04T16:00' },
     })
-    fireEvent.click(screen.getByLabelText(/repeat weekly/i))
+    fireEvent.change(screen.getByLabelText(/^repeat$/i), {
+      target: { value: 'WEEKLY' },
+    })
     fireEvent.click(screen.getByRole('button', { name: /add schedule entry/i }))
 
     await waitFor(() => {
@@ -111,6 +113,8 @@ describe('AvailabilityForm', () => {
           recurrence: 'WEEKLY',
           label: null,
           recurrenceUntil: null,
+          category: 'UNAVAILABLE',
+          seriesId: null,
         },
         tokenGetter,
       )

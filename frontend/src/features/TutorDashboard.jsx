@@ -145,14 +145,17 @@ export default function TutorDashboard() {
           <h1>Tutor dashboard</h1>
           <p className="helper-text">Track your assigned sessions and weekly workload.</p>
         </div>
-        <button
-          type="button"
-          className="secondary-button"
-          onClick={refreshDashboard}
-          disabled={isRefreshing}
-        >
-          {isRefreshing ? 'Refreshing...' : 'Refresh'}
-        </button>
+        <div className="button-row">
+          <a className="secondary-button" href="/tutor/timetable">View timetable</a>
+          <button
+            type="button"
+            className="secondary-button"
+            onClick={refreshDashboard}
+            disabled={isRefreshing}
+          >
+            {isRefreshing ? 'Refreshing...' : 'Refresh'}
+          </button>
+        </div>
       </header>
 
       {refreshFailed && (

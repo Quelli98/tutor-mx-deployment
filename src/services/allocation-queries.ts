@@ -139,6 +139,7 @@ export function toNaiveUtcText(value: Date): string {
 }
 
 const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
+const FORTNIGHT_MS = 14 * 24 * 60 * 60 * 1000;
 
 /**
  * Whether a tutor BUSY interval clashes with a requested allocation window.
@@ -147,9 +148,10 @@ const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
  * half-open rule as {@link timeRangesOverlap} (touching intervals do not clash).
  * A WEEKLY slot repeats every seven days from its first occurrence, so it
  * clashes when any occurrence on or after that first week overlaps the window.
+ * A FORTNIGHTLY slot repeats every fourteen days.
  * Occurrences before the slot's own start are never counted, which is what
  * stops a recurring slot from flagging a false clash for a session that
- * predates it. This is the in-process twin of the WEEKLY branch in
+ * predates it. This is the in-process twin of the recurrence branch in
  * {@link candidateQuerySql}; both are pinned to identical verdicts by test.
  */
 export function busySlotClashes(
@@ -175,14 +177,15 @@ export function busySlotClashes(
     return false;
   }
 
-  if (recurrence !== "WEEKLY") {
+  if (recurrence !== "WEEKLY" && recurrence !== "FORTNIGHTLY") {
     return slotStart < windowEnd && slotEnd > windowStart;
   }
 
-  const k = Math.max(0, Math.floor((windowStart - slotEnd) / WEEK_MS) + 1);
-  const occurrenceStart = slotStart + k * WEEK_MS;
+  const periodMs = recurrence === "FORTNIGHTLY" ? FORTNIGHT_MS : WEEK_MS;
+  const k = Math.max(0, Math.floor((windowStart - slotEnd) / periodMs) + 1);
+  const occurrenceStart = slotStart + k * periodMs;
   return occurrenceStart < windowEnd &&
-    slotEnd + k * WEEK_MS > windowStart &&
+    slotEnd + k * periodMs > windowStart &&
     (recurrenceUntil == null || occurrenceStart <= recurrenceUntil.valueOf());
 }
 
@@ -230,7 +233,7 @@ WITH tutor_hours AS (${tutorHoursSql("$2", "$6")}), candidate_data AS (
       FROM "TimeSlot" ts
       CROSS JOIN LATERAL (
         SELECT ts."startsAt" AS starts_at, ts."endsAt" AS ends_at
-        WHERE ts."recurrence" IS DISTINCT FROM 'WEEKLY'
+        WHERE ts."recurrence" IS DISTINCT FROM 'WEEKLY' AND ts."recurrence" IS DISTINCT FROM 'FORTNIGHTLY'
         UNION ALL
         SELECT ts."startsAt" + k * interval '7 days', ts."endsAt" + k * interval '7 days'
         FROM LATERAL (
@@ -238,6 +241,13 @@ WITH tutor_hours AS (${tutorHoursSql("$2", "$6")}), candidate_data AS (
         ) projected
         WHERE ts."recurrence" = 'WEEKLY'
           AND (ts."recurrenceUntil" IS NULL OR ts."startsAt" + k * interval '7 days' <= ts."recurrenceUntil")
+        UNION ALL
+        SELECT ts."startsAt" + k * interval '14 days', ts."endsAt" + k * interval '14 days'
+        FROM LATERAL (
+          SELECT GREATEST(0, floor(extract(epoch FROM ($2::timestamp - ts."endsAt")) / 1209600) + 1)::bigint AS k
+        ) projected
+        WHERE ts."recurrence" = 'FORTNIGHTLY'
+          AND (ts."recurrenceUntil" IS NULL OR ts."startsAt" + k * interval '14 days' <= ts."recurrenceUntil")
       ) occurrence
       WHERE ts."tutorId" = p."id" AND ts."type" = 'BUSY'
         AND occurrence.starts_at < $3::timestamp AND occurrence.ends_at > $2::timestamp

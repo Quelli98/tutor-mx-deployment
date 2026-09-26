@@ -14,15 +14,23 @@
 /** A weekly entry may not span more than one week. */
 export const MAX_WEEKLY_TIME_SLOT_MS = 7 * 24 * 60 * 60 * 1000;
 
+/** A fortnightly entry may not span more than two weeks. */
+export const MAX_FORTNIGHTLY_TIME_SLOT_MS = 14 * 24 * 60 * 60 * 1000;
+
 /** Label length accepted by the manual form and the import alike. */
 export const MAX_TIME_SLOT_LABEL_LENGTH = 120;
 
 /** Kept identical to the message the manual form has always returned. */
 export const TIME_SLOT_RULE_MESSAGE =
-  "Enter a valid schedule interval, label (up to 120 characters) and weekly recurrence end.";
+  "Enter a valid schedule interval, label (up to 120 characters) and recurrence end.";
 
 export type TimeSlotTypeValue = "AVAILABLE" | "BUSY";
-export type TimeSlotRecurrenceValue = "WEEKLY";
+export type TimeSlotRecurrenceValue = "WEEKLY" | "FORTNIGHTLY";
+
+export const RECURRENCE_MAX_MS: Record<TimeSlotRecurrenceValue, number> = {
+  WEEKLY: MAX_WEEKLY_TIME_SLOT_MS,
+  FORTNIGHTLY: MAX_FORTNIGHTLY_TIME_SLOT_MS,
+};
 
 export interface TimeSlotRuleFields {
   type: unknown;
@@ -76,20 +84,23 @@ export function checkTimeSlotRules(
     recurrenceUntil,
   } = fields;
 
+  const isRecurrence = recurrence === "WEEKLY" || recurrence === "FORTNIGHTLY";
+  const maxMs = isRecurrence ? RECURRENCE_MAX_MS[recurrence as TimeSlotRecurrenceValue] : 0;
+
   if (
     (type !== "AVAILABLE" && type !== "BUSY") ||
     !startsAt ||
     !endsAt ||
     endsAt <= startsAt ||
-    (recurrence !== undefined && recurrence !== "WEEKLY") ||
-    (recurrence === "WEEKLY" &&
-      endsAt.valueOf() - startsAt.valueOf() > MAX_WEEKLY_TIME_SLOT_MS) ||
+    (recurrence !== undefined && !isRecurrence) ||
+    (isRecurrence &&
+      endsAt.valueOf() - startsAt.valueOf() > maxMs) ||
     (labelSupplied &&
       label !== null &&
       (typeof label !== "string" || label.length > MAX_TIME_SLOT_LABEL_LENGTH)) ||
     (recurrenceUntilProvided &&
       (!recurrenceUntil ||
-        recurrence !== "WEEKLY" ||
+       !isRecurrence ||
         recurrenceUntil < startsAt))
   ) {
     return { error: TIME_SLOT_RULE_MESSAGE };
@@ -102,7 +113,7 @@ export function checkTimeSlotRules(
       type,
       startsAt,
       endsAt,
-      ...(recurrence === "WEEKLY" ? { recurrence } : {}),
+      ...(isRecurrence ? { recurrence: recurrence as TimeSlotRecurrenceValue } : {}),
       ...(labelSupplied ? { label: label as string | null } : {}),
       ...(recurrenceUntilSupplied ? { recurrenceUntil } : {}),
     },

@@ -40,7 +40,7 @@ describe('weekly schedule', () => {
     expect(screen.getByText('Lecture')).toBeVisible()
     fireEvent.click(screen.getByRole('button', { name: 'Next week' }))
     expect(screen.queryByText('Lecture')).not.toBeInTheDocument()
-    expect(screen.getByText('No unavailable times this week.')).toBeVisible()
+    expect(screen.getByText('No entries this week.')).toBeVisible()
     fireEvent.click(screen.getByRole('button', { name: 'Previous week' }))
     fireEvent.click(screen.getByRole('button', { name: 'Previous week' }))
     expect(screen.queryByText('Lecture')).not.toBeInTheDocument()
@@ -54,7 +54,7 @@ describe('weekly schedule', () => {
 
   it('shows an empty schedule and a keyboard-accessible local scroll container', () => {
     render(<WeeklySchedule slots={[]} />)
-    expect(screen.getByText('No unavailable times added')).toBeVisible()
+    expect(screen.getByText('No times added')).toBeVisible()
     expect(document.querySelector('.calendar-scroll')).toHaveAttribute('tabindex', '0')
   })
 

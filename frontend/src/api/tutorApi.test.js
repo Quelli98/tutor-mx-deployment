@@ -140,6 +140,8 @@ describe('tutor API contract', () => {
           endsAt: '2030-09-04T16:00:00.000Z',
           label: null,
           recurrenceUntil: null,
+          category: 'UNAVAILABLE',
+          seriesId: null,
         }),
       },
       tokenGetter,

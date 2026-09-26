@@ -35,6 +35,8 @@ export type TimetableImportSource = "CSV" | "ICS";
 /** Scheduled busy blocks only. Reaches the same payload shape as the manual form. */
 export const IMPORT_TIME_SLOT_TYPE = "BUSY" as const;
 
+export type ImportedCategory = "CLASS" | "UNAVAILABLE";
+
 /** Enough for any realistic personal timetable, and small enough to stay well
  *  inside the API's 32kb JSON body limit. */
 export const MAX_IMPORT_ROWS = 400;
@@ -56,9 +58,11 @@ export interface ImportedTimeSlotPayload {
   type: typeof IMPORT_TIME_SLOT_TYPE;
   startsAt: string;
   endsAt: string;
-  recurrence?: "WEEKLY";
+  recurrence?: "WEEKLY" | "FORTNIGHTLY";
   label: string | null;
   recurrenceUntil: string | null;
+  category: ImportedCategory;
+  seriesId: string | null;
 }
 
 export interface TimetableImportRow {
@@ -72,7 +76,8 @@ export interface TimetableImportRow {
   /** Last day the weekly pattern repeats, as a local calendar date. */
   localRecurrenceUntil: string | null;
   label: string | null;
-  recurrence: "WEEKLY" | "ONCE";
+  recurrence: "WEEKLY" | "FORTNIGHTLY" | "ONCE";
+  category: ImportedCategory;
   /**
    * True when the schedule already holds this exact entry. Only the persistence
    * layer can know this, so it is always false from the pure parser and is set
@@ -137,10 +142,14 @@ const REPEAT_HEADERS = ["repeat", "recurrence", "frequency", "weekly"];
 const UNTIL_HEADERS = ["until", "repeatuntil", "repeatsuntil", "lastdate"];
 const CATEGORY_HEADERS = ["category", "type", "kind"];
 
+/** Category values that mean "this is a class or lecture". */
+const CLASS_CATEGORIES = new Set(["class", "lecture", "lab", "tutorial", "seminar"]);
+
 /** Category values that all mean "this time is not available". */
-const BUSY_CATEGORIES = new Set(["", "busy", "unavailable", "class", "study"]);
+const BUSY_CATEGORIES = new Set(["", "busy", "unavailable", "study"]);
 
 const WEEKLY_VALUES = new Set(["weekly", "every week", "week", "yes", "true", "1"]);
+const FORTNIGHTLY_VALUES = new Set(["fortnightly", "every 2 weeks", "biweekly", "every other week", "2"]);
 const ONCE_VALUES = new Set(["", "once", "one-off", "oneoff", "no", "false", "0", "single"]);
 
 const HEADER_HINT =
@@ -890,15 +899,25 @@ function mapEvent(
   if (repeatProperty) {
     const rule = repeatProperty.value.toUpperCase();
     const frequency = /(?:^|;)FREQ=([^;]+)/.exec(rule);
+    const intervalMatch = /(?:^|;)INTERVAL=(\d+)/.exec(rule);
+    const interval = intervalMatch ? Number(intervalMatch[1]) : 1;
     if (frequency && frequency[1] === "WEEKLY") {
-      repeat = "weekly";
+      if (interval === 2) {
+        repeat = "fortnightly";
+      } else if (interval === 1) {
+        repeat = "weekly";
+      } else {
+        errors.push(
+          `Only weekly and fortnightly repeats can be imported; this event repeats every ${interval} weeks.`,
+        );
+      }
       const untilMatch = /(?:^|;)UNTIL=([^;]+)/.exec(rule);
       if (untilMatch) {
         until = normalizeIcsUntilText(untilMatch[1]!);
       }
     } else if (frequency) {
       errors.push(
-        `Only weekly repeats can be imported; this event repeats ${frequency[1]!.toLowerCase()}.`,
+        `Only weekly and fortnightly repeats can be imported; this event repeats ${frequency[1]!.toLowerCase()}.`,
       );
     } else {
       errors.push("The repeat rule could not be read.");
@@ -957,6 +976,26 @@ function utcInstantToWallClockText(
 
 const MAX_REPEAT_UNTIL_TEXT_LENGTH = 32;
 
+/**
+ * Generates a stable seriesId for recurring imports. Each call produces a
+ * unique v4 UUID so series can be identified for edit/delete operations.
+ */
+function generateSeriesId(): string {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c) => {
+    const r = (Math.random() * 16) | 0;
+    const v = c === "x" ? r : (r & 0x3) | 0x8;
+    return v.toString(16);
+  });
+}
+
+/** Maps a raw category string to the stored category value. */
+function mapCategory(raw: string): ImportedCategory {
+  return CLASS_CATEGORIES.has(raw) ? "CLASS" : "UNAVAILABLE";
+}
+
 function mapRow(raw: RawRow, term: AcademicTermBounds): TimetableImportRow {
   const errors = [...raw.errors];
   const localDate = parseDateOnly(raw.date);
@@ -991,19 +1030,22 @@ function mapRow(raw: RawRow, term: AcademicTermBounds): TimetableImportRow {
   }
 
   const category = raw.category.trim().toLowerCase();
-  if (!BUSY_CATEGORIES.has(category)) {
+  if (!BUSY_CATEGORIES.has(category) && !CLASS_CATEGORIES.has(category)) {
     errors.push(
-      `"${raw.category}" is not a supported category. Use busy, unavailable, class, study, or leave it blank.`,
+      `"${raw.category}" is not a supported category. Use class, unavailable, busy, study, or leave it blank.`,
     );
   }
 
   const repeatText = raw.repeat.trim().toLowerCase();
   let weekly = false;
+  let fortnightly = false;
   if (WEEKLY_VALUES.has(repeatText)) {
     weekly = true;
+  } else if (FORTNIGHTLY_VALUES.has(repeatText)) {
+    fortnightly = true;
   } else if (!ONCE_VALUES.has(repeatText)) {
     errors.push(
-      `"${raw.repeat}" is not a supported repeat value. Use weekly, once, or leave it blank.`,
+      `"${raw.repeat}" is not a supported repeat value. Use weekly, fortnightly, once, or leave it blank.`,
     );
   }
 
@@ -1013,6 +1055,9 @@ function mapRow(raw: RawRow, term: AcademicTermBounds): TimetableImportRow {
       `The description is longer than ${MAX_TIME_SLOT_LABEL_LENGTH} characters.`,
     );
   }
+
+  const isRecurring = weekly || fortnightly;
+  const resolvedCategory = mapCategory(category);
 
   const base: TimetableImportRow = {
     sourceRow: raw.sourceRow,
@@ -1027,7 +1072,8 @@ function mapRow(raw: RawRow, term: AcademicTermBounds): TimetableImportRow {
         : null,
     localRecurrenceUntil: null,
     label: label || null,
-    recurrence: weekly ? "WEEKLY" : "ONCE",
+    recurrence: weekly ? "WEEKLY" : fortnightly ? "FORTNIGHTLY" : "ONCE",
+    category: resolvedCategory,
     duplicate: false,
     slot: null,
     errors,
@@ -1053,9 +1099,9 @@ function mapRow(raw: RawRow, term: AcademicTermBounds): TimetableImportRow {
   }
 
   let repeatUntilDate: string | null = null;
-  if (weekly) {
+  if (isRecurring) {
     // Repeat to the end of the term unless the row asks to stop sooner, so a
-    // missing repeat-until can never produce an open-ended weekly block.
+    // missing repeat-until can never produce an open-ended recurring block.
     repeatUntilDate = term.endsOn;
     if (raw.until.trim()) {
       const untilText = raw.until.trim().slice(0, MAX_REPEAT_UNTIL_TEXT_LENGTH);
@@ -1074,14 +1120,14 @@ function mapRow(raw: RawRow, term: AcademicTermBounds): TimetableImportRow {
       }
       if (termEnd && untilDateText > formatDateOnly(termEnd)) {
         base.errors.push(
-          `The weekly repeat cannot run past ${term.name}, which ends on ${term.endsOn}.`,
+          `The repeat cannot run past ${term.name}, which ends on ${term.endsOn}.`,
         );
         return base;
       }
       repeatUntilDate = untilDateText;
     }
   } else if (raw.until.trim()) {
-    base.errors.push("A repeat-until date only makes sense with weekly repeats.");
+    base.errors.push("A repeat-until date only makes sense with recurring entries.");
     return base;
   }
 
@@ -1097,11 +1143,13 @@ function mapRow(raw: RawRow, term: AcademicTermBounds): TimetableImportRow {
     ? lastInstantOfLocalDay(repeatUntilDate, raw.timeZone)
     : null;
 
+  const recurrenceValue = weekly ? "WEEKLY" : fortnightly ? "FORTNIGHTLY" : undefined;
+
   const checked = checkTimeSlotRules({
     type: IMPORT_TIME_SLOT_TYPE,
     startsAt,
     endsAt,
-    recurrence: weekly ? "WEEKLY" : undefined,
+    recurrence: recurrenceValue,
     labelSupplied: true,
     label: label || null,
     recurrenceUntilSupplied: true,
@@ -1119,8 +1167,11 @@ function mapRow(raw: RawRow, term: AcademicTermBounds): TimetableImportRow {
     startsAt: startsAt.toISOString(),
     endsAt: endsAt.toISOString(),
     ...(weekly ? { recurrence: "WEEKLY" as const } : {}),
+    ...(fortnightly ? { recurrence: "FORTNIGHTLY" as const } : {}),
     label: label || null,
     recurrenceUntil: recurrenceUntil ? recurrenceUntil.toISOString() : null,
+    category: resolvedCategory,
+    seriesId: isRecurring ? generateSeriesId() : null,
   };
   return base;
 }

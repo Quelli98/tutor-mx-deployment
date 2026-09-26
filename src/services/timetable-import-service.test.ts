@@ -70,10 +70,11 @@ function createImportClient(database: PGlite, failAfter = Number.POSITIVE_INFINI
         endsAt: string;
         recurrence: string | null;
         label: string | null;
+        category: string;
       }>(
         `SELECT ${utcText('"startsAt"')} AS "startsAt",
                 ${utcText('"endsAt"')} AS "endsAt",
-                "recurrence","label"
+                "recurrence","label",COALESCE("category",'UNAVAILABLE') AS "category"
          FROM "TimeSlot"
          WHERE "tutorId" = $1 AND "type" = 'BUSY'
            AND "startsAt" >= $2 AND "startsAt" <= $3`,
@@ -88,6 +89,7 @@ function createImportClient(database: PGlite, failAfter = Number.POSITIVE_INFINI
         endsAt: new Date(row.endsAt),
         recurrence: row.recurrence,
         label: row.label,
+        category: row.category,
       }));
     },
 
@@ -100,6 +102,9 @@ function createImportClient(database: PGlite, failAfter = Number.POSITIVE_INFINI
         recurrence: string | null;
         label: string | null;
         recurrenceUntil: Date | null;
+        category: string;
+        seriesId: string | null;
+        termId: number | null;
       };
     }) {
       inserts += 1;
@@ -109,8 +114,8 @@ function createImportClient(database: PGlite, failAfter = Number.POSITIVE_INFINI
       const { data } = args;
       const result = await executor.query<{ id: number }>(
         `INSERT INTO "TimeSlot"
-           ("tutorId","type","startsAt","endsAt","recurrence","label","recurrenceUntil")
-         VALUES ($1,'BUSY',$2,$3,$4,$5,$6) RETURNING "id"`,
+           ("tutorId","type","startsAt","endsAt","recurrence","label","recurrenceUntil","category","seriesId","termId")
+         VALUES ($1,'BUSY',$2,$3,$4,$5,$6,$7,$8,$9) RETURNING "id"`,
         [
           data.tutorId,
           toNaiveUtcText(data.startsAt),
@@ -118,6 +123,9 @@ function createImportClient(database: PGlite, failAfter = Number.POSITIVE_INFINI
           data.recurrence,
           data.label,
           data.recurrenceUntil ? toNaiveUtcText(data.recurrenceUntil) : null,
+          data.category,
+          data.seriesId,
+          data.termId,
         ],
       );
       return { id: result.rows[0]!.id };

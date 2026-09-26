@@ -18,6 +18,7 @@ function formatLocal(value) {
 }
 
 function formatRecurrence(row) {
+  if (row.recurrence === 'FORTNIGHTLY') return row.localRecurrenceUntil ? `Fortnightly until ${row.localRecurrenceUntil}` : 'Fortnightly'
   if (row.recurrence !== 'WEEKLY') return 'One-off'
   return row.localRecurrenceUntil ? `Weekly until ${row.localRecurrenceUntil}` : 'Weekly'
 }

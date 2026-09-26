@@ -13,6 +13,7 @@ const NAV_ITEMS = [
   { to: '/organiser/command-centre', label: 'Command centre', icon: 'gauge' },
   { to: '/organiser/courses', label: 'Courses', icon: 'book-open' },
   { to: '/organiser/tutors', label: 'Tutors', icon: 'users' },
+  { to: '/organiser/terms', label: 'Academic terms', icon: 'calendar' },
   { to: '/organiser/reports', label: 'Reports', icon: 'chart-column' },
 ]
 

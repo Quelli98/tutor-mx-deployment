@@ -52,7 +52,7 @@ import {
   type NotificationEvent,
 } from "./services/notifications.js";
 import { createSearchService } from "./services/search-service.js";
-import { createAcademicTermService } from "./services/academic-terms.js";
+import { createAcademicTermService, type AcademicTermPrismaClient } from "./services/academic-terms.js";
 import { createTimetableImportService } from "./services/timetable-import-service.js";
 
 const port = Number(process.env.PORT ?? 3000);
@@ -309,7 +309,7 @@ const notificationService = createNotificationService(
   prisma as unknown as NotificationDataClient,
 );
 const searchService = createSearchService(queryClient);
-const academicTermService = createAcademicTermService(prisma);
+const academicTermService = createAcademicTermService(prisma as unknown as AcademicTermPrismaClient);
 
 // Writes only through one serializable transaction, so a half-imported
 // timetable cannot be left behind when a later row fails its checks.
@@ -437,7 +437,10 @@ const app = createApp(
     updateOrganiserOverflowWork: organiserOverflowService.updateOverflowWork,
     closeOrganiserOverflowWork: organiserOverflowService.closeOverflowWork,
     listAcademicTerms: academicTermService.list,
+    listPublishedAcademicTerms: academicTermService.listPublished,
     createAcademicTerm: academicTermService.create,
+    updateAcademicTerm: academicTermService.update,
+    deleteAcademicTerm: academicTermService.remove,
     previewTutorTimetableImport: timetableImportService.preview,
     commitTutorTimetableImport: timetableImportService.commit,
     async onboardUser(auth0Id, role) {

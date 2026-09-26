@@ -123,10 +123,12 @@ export interface TutorTimeSlotWriteInput {
   type: "AVAILABLE" | "BUSY";
   startsAt: Date;
   endsAt: Date;
-  recurrence?: "WEEKLY";
+  recurrence?: "WEEKLY" | "FORTNIGHTLY";
   label?: string | null;
   // Inclusive last occurrence START; null means repeat indefinitely.
   recurrenceUntil?: Date | null;
+  category?: string;
+  seriesId?: string | null;
 }
 
 export interface TutorTimeSlotSummary {
@@ -134,7 +136,7 @@ export interface TutorTimeSlotSummary {
   type: "AVAILABLE" | "BUSY";
   startsAt: string;
   endsAt: string;
-  recurrence: "WEEKLY" | "ONCE" | null;
+  recurrence: "WEEKLY" | "FORTNIGHTLY" | "ONCE" | null;
   label: string | null;
   recurrenceUntil: string | null;
 }
@@ -914,9 +916,15 @@ export interface AppDependencies {
   ) => Promise<OrganiserOverflowWorkSummary>;
   /** Academic terms bound how far an imported recurring schedule entry repeats. */
   listAcademicTerms?: () => Promise<AcademicTermSummary[]>;
+  listPublishedAcademicTerms?: () => Promise<AcademicTermSummary[]>;
   createAcademicTerm?: (
     input: AcademicTermInput,
   ) => Promise<AcademicTermSummary>;
+  updateAcademicTerm?: (
+    id: number,
+    input: AcademicTermInput,
+  ) => Promise<AcademicTermSummary>;
+  deleteAcademicTerm?: (id: number) => Promise<void>;
   previewTutorTimetableImport?: (
     auth0Id: string,
     request: TimetableImportRequest,
@@ -3668,6 +3676,96 @@ export function createApp(
         }
         const academicTerm = await dependencies.createAcademicTerm(parsed.value);
         response.status(201).json({ data: { academicTerm } });
+      } catch (value) {
+        sendRouteError(response, value);
+      }
+    },
+  );
+
+  app.get(
+    "/api/academic-terms/published",
+    authenticate,
+    resolveProfileRole,
+    async (request, response) => {
+      try {
+        if (!dependencies.listPublishedAcademicTerms) {
+          throw createRouteError(
+            503,
+            "ACADEMIC_TERMS_UNAVAILABLE",
+            "Academic terms are not configured.",
+          );
+        }
+        const academicTerms = await dependencies.listPublishedAcademicTerms();
+        response.status(200).json({ data: { academicTerms } });
+      } catch (value) {
+        sendRouteError(response, value);
+      }
+    },
+  );
+
+  app.patch(
+    "/api/organiser/academic-terms/:id",
+    authenticate,
+    resolveProfileRole,
+    requireRole("ORGANISER"),
+    async (request, response) => {
+      const termId = Number.parseInt(request.params.id as string, 10);
+      if (!Number.isInteger(termId) || termId <= 0) {
+        const result = error(400, "VALIDATION_ERROR", "Term id must be a positive integer.");
+        response.status(result.status).json(result.body);
+        return;
+      }
+
+      const parsed = parseAcademicTermInput(request.body);
+      if ("error" in parsed) {
+        const result = error(
+          400,
+          "VALIDATION_ERROR",
+          parsed.error ?? "Enter valid term fields.",
+        );
+        response.status(result.status).json(result.body);
+        return;
+      }
+
+      try {
+        if (!dependencies.updateAcademicTerm) {
+          throw createRouteError(
+            503,
+            "ACADEMIC_TERMS_UNAVAILABLE",
+            "Academic terms are not configured.",
+          );
+        }
+        const academicTerm = await dependencies.updateAcademicTerm(termId, parsed.value);
+        response.status(200).json({ data: { academicTerm } });
+      } catch (value) {
+        sendRouteError(response, value);
+      }
+    },
+  );
+
+  app.delete(
+    "/api/organiser/academic-terms/:id",
+    authenticate,
+    resolveProfileRole,
+    requireRole("ORGANISER"),
+    async (request, response) => {
+      const termId = Number.parseInt(request.params.id as string, 10);
+      if (!Number.isInteger(termId) || termId <= 0) {
+        const result = error(400, "VALIDATION_ERROR", "Term id must be a positive integer.");
+        response.status(result.status).json(result.body);
+        return;
+      }
+
+      try {
+        if (!dependencies.deleteAcademicTerm) {
+          throw createRouteError(
+            503,
+            "ACADEMIC_TERMS_UNAVAILABLE",
+            "Academic terms are not configured.",
+          );
+        }
+        await dependencies.deleteAcademicTerm(termId);
+        response.status(204).end();
       } catch (value) {
         sendRouteError(response, value);
       }

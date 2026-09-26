@@ -1,36 +1,50 @@
 import { fetchWithBearerToken } from './client'
 
 const WEEK_MS = 7 * 24 * 60 * 60 * 1000
+const FORTNIGHT_MS = 14 * 24 * 60 * 60 * 1000
 const isDate = (value) => typeof value === 'string' && Number.isFinite(new Date(value).valueOf())
+
+const RECURRENCE_VALUES = ['WEEKLY', 'FORTNIGHTLY', 'ONCE']
+const CATEGORY_VALUES = ['CLASS', 'UNAVAILABLE']
 
 export function isTimeSlotSummary(value) {
   return !!value && Number.isInteger(value.id) && value.id > 0 &&
     ['BUSY', 'AVAILABLE'].includes(value.type) &&
     isDate(value.startsAt) && isDate(value.endsAt) &&
     new Date(value.endsAt) > new Date(value.startsAt) &&
-    (value.recurrence == null || ['WEEKLY', 'ONCE'].includes(value.recurrence)) &&
+    (value.recurrence == null || RECURRENCE_VALUES.includes(value.recurrence)) &&
     (value.label == null || typeof value.label === 'string') &&
     (value.recurrenceUntil == null || isDate(value.recurrenceUntil))
 }
 
+function maxDuration(recurrence) {
+  if (recurrence === 'FORTNIGHTLY') return FORTNIGHT_MS
+  if (recurrence === 'WEEKLY') return WEEK_MS
+  return Number.POSITIVE_INFINITY
+}
+
 function slotPayload(input) {
   const duration = new Date(input.endsAt) - new Date(input.startsAt)
+  const recurrence = input.recurrence === 'FORTNIGHTLY' ? 'FORTNIGHTLY'
+    : input.recurrence === 'WEEKLY' ? 'WEEKLY' : null
+  const category = CATEGORY_VALUES.includes(input.category) ? input.category : 'UNAVAILABLE'
   if (
     input.type !== 'BUSY' || !isDate(input.startsAt) || !isDate(input.endsAt) || duration <= 0 ||
-    (input.recurrence !== undefined && input.recurrence !== 'WEEKLY') ||
-    (input.recurrence === 'WEEKLY' && duration > WEEK_MS) ||
+    (recurrence && duration > maxDuration(recurrence)) ||
     (input.label != null && (typeof input.label !== 'string' || input.label.length > 120)) ||
-    (input.recurrenceUntil != null && (
-      input.recurrence !== 'WEEKLY' || !isDate(input.recurrenceUntil) ||
+    (recurrence && input.recurrenceUntil != null && (
+      !isDate(input.recurrenceUntil) ||
       new Date(input.recurrenceUntil) < new Date(input.startsAt)
     ))
   ) throw new Error('Check the busy time details.')
 
   return {
     type: 'BUSY', startsAt: input.startsAt, endsAt: input.endsAt,
-    ...(input.recurrence === 'WEEKLY' ? { recurrence: 'WEEKLY' } : {}),
+    ...(recurrence ? { recurrence } : {}),
     label: input.label ?? null,
-    recurrenceUntil: input.recurrenceUntil ?? null,
+    recurrenceUntil: recurrence ? (input.recurrenceUntil ?? null) : null,
+    category,
+    seriesId: input.seriesId ?? null,
   }
 }
 

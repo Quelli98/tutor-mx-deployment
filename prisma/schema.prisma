@@ -165,12 +165,19 @@ model TutorMark {
 /// a term boundary is a calendar day, not an instant, and must not shift with
 /// the reader's timezone.
 model AcademicTerm {
-  id        Int      @id @default(autoincrement())
-  name      String   @unique @db.VarChar(120)
-  startsOn  DateTime @db.Date
-  endsOn    DateTime @db.Date
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id             Int      @id @default(autoincrement())
+  name           String   @unique @db.VarChar(120)
+  startsOn       DateTime @db.Date
+  endsOn         DateTime @db.Date
+  year           Int?
+  termNumber     Int?
+  published      Boolean  @default(false)
+  teachingBreaks Json     @default("[]")
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  timeSlots      TimeSlot[]
+
+  @@unique([year, termNumber])
 }
 
 model TimeSlot {
@@ -182,9 +189,32 @@ model TimeSlot {
   recurrence       String?      @db.VarChar(32)
   label            String?      @db.VarChar(255)
   recurrenceUntil  DateTime?
+  category         String       @default("UNAVAILABLE") @db.VarChar(32)
+  seriesId         String?      @db.VarChar(36)
+  termId           Int?
   tutor            Profile      @relation(fields: [tutorId], references: [id], onDelete: Cascade)
+  term             AcademicTerm? @relation(fields: [termId], references: [id], onDelete: SetNull)
+  exceptions       OccurrenceException[]
 
   @@index([tutorId, type, startsAt, endsAt])
+  @@index([tutorId, category, startsAt])
+  @@index([seriesId])
+}
+
+/// Per-occurrence override for a recurring time slot: cancel one date or move it
+/// to a different time. The parent slot's recurrence is never inferred from its
+/// label; exceptions are the only way to alter individual occurrences.
+model OccurrenceException {
+  id             Int      @id @default(autoincrement())
+  timeSlotId     Int
+  occurrenceDate DateTime @db.Date
+  exceptionType  String   @default("CANCELLED") @db.VarChar(16)
+  newStartsAt    DateTime?
+  newEndsAt      DateTime?
+  createdAt      DateTime @default(now())
+  timeSlot       TimeSlot @relation(fields: [timeSlotId], references: [id], onDelete: Cascade)
+
+  @@index([timeSlotId, occurrenceDate])
 }
 
 model TutorHourLimit {
