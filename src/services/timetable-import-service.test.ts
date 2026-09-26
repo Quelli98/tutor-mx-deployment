@@ -561,7 +561,7 @@ describe("timetable import service", () => {
           sourceRow: 2,
           duplicate: false,
           errors: [
-            "The weekly repeat cannot run past Demo 2030 Semester 2, which ends on 2030-11-29.",
+            "The repeat cannot run past Demo 2030 Semester 2, which ends on 2030-11-29.",
           ],
         },
       ]);

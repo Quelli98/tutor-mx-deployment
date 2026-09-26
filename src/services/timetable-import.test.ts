@@ -83,7 +83,7 @@ describe("timetable import parser: row-level errors", () => {
       '"99:99" is not a valid end time. Use 24-hour HH:MM.',
     ]);
     expect(rowAt(result, 6).errors).toEqual([
-      '"holiday" is not a supported category. Use busy, unavailable, class, study, or leave it blank.',
+      '"holiday" is not a supported category. Use class, unavailable, busy, study, or leave it blank.',
     ]);
 
     // An errored row must never carry a payload, so it cannot be saved by accident.
@@ -155,7 +155,7 @@ describe("timetable import parser: row-level errors", () => {
 
     expect(result.validCount).toBe(0);
     expect(rowAt(result, 2).errors).toEqual([
-      "A repeat-until date only makes sense with weekly repeats.",
+      "A repeat-until date only makes sense with recurring entries.",
     ]);
   });
 });
@@ -176,6 +176,8 @@ describe("timetable import parser: mapping onto the existing TimeSlot payload", 
       recurrence: "WEEKLY",
       label: "Maths tutorial",
       recurrenceUntil: "2030-11-29T23:59:59.999Z",
+      category: "UNAVAILABLE",
+      seriesId: expect.any(String),
     });
   });
 
@@ -192,6 +194,8 @@ describe("timetable import parser: mapping onto the existing TimeSlot payload", 
       endsAt: "2030-09-03T12:00:00.000Z",
       label: "Physics lab",
       recurrenceUntil: null,
+      category: "UNAVAILABLE",
+      seriesId: null,
     });
     expect(row.slot && "recurrence" in row.slot).toBe(false);
   });
@@ -219,7 +223,7 @@ describe("timetable import parser: mapping onto the existing TimeSlot payload", 
 
     expect(result.validCount).toBe(0);
     expect(rowAt(result, 2).errors).toEqual([
-      "The weekly repeat cannot run past Demo 2030 Semester 2, which ends on 2030-11-29.",
+      "The repeat cannot run past Demo 2030 Semester 2, which ends on 2030-11-29.",
     ]);
   });
 
@@ -290,6 +294,8 @@ describe("timetable import parser: mapping onto the existing TimeSlot payload", 
       endsAt: "2030-09-18T10:30:00.000Z",
       label: "Combined form",
       recurrenceUntil: null,
+      category: "UNAVAILABLE",
+      seriesId: null,
     });
   });
 });
@@ -470,6 +476,8 @@ describe("timetable import parser: calendar files", () => {
       recurrence: "WEEKLY",
       label: "Chemistry lecture",
       recurrenceUntil: "2030-10-28T23:59:59.999Z",
+      category: "UNAVAILABLE",
+      seriesId: expect.any(String),
     });
   });
 
