@@ -427,11 +427,11 @@ describe('RoleRouter', () => {
     expect(screen.getByText('Naledi Mokoena')).toBeInTheDocument()
   })
 
-  it('keeps the tutor and student top navigation unchanged', () => {
+  it('wraps tutor and student in the workspace shell with greeting', () => {
     renderRole('TUTOR', '/tutor')
 
     expect(screen.queryByRole('link', { name: /start bulk allocation/i })).not.toBeInTheDocument()
-    expect(screen.queryByText('Welcome back')).not.toBeInTheDocument()
+    expect(screen.getByText('Welcome back')).toBeInTheDocument()
     expect(screen.getByRole('link', { name: /tutor workspace/i })).toBeInTheDocument()
   })
 
