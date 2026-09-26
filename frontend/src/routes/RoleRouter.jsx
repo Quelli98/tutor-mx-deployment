@@ -19,6 +19,7 @@ import { NotificationBell } from '../components/shared/NotificationBell'
 import { CommandPalette } from '../components/shared/CommandPalette'
 import { CsamMark } from '../components/shared/CsamMark'
 import { OrganiserShell } from '../components/organiser/OrganiserShell'
+import { RoleWorkspaceShell } from '../components/shared/RoleWorkspaceShell'
 
 function RoleNavigation({ currentRole, onSignOut }) {
   const roleRoute = ROLE_ROUTE_MAP[currentRole]
@@ -174,6 +175,17 @@ export function RoleRouter({ currentRole, onSignOut, user = null }) {
         <OrganiserShell user={user} onSignOut={onSignOut}>
           {routes}
         </OrganiserShell>
+      </>
+    )
+  }
+
+  if (currentRole === 'TUTOR' || currentRole === 'STUDENT') {
+    return (
+      <>
+        <SkipToContent />
+        <RoleWorkspaceShell role={currentRole} user={user} onSignOut={onSignOut}>
+          {routes}
+        </RoleWorkspaceShell>
       </>
     )
   }
