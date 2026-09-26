@@ -198,7 +198,7 @@ export function Landing({ onCreateAccount, onSignIn, isSubmitting, status }) {
                       type="button"
                       className="landing-signin"
                       disabled={isSubmitting}
-                      onClick={() => start(`login:${role}`, onSignIn)}
+                      onClick={() => start(`login:${role}`, () => onSignIn(role))}
                     >
                       {label(`login:${role}`, 'Sign in')}
                     </button>

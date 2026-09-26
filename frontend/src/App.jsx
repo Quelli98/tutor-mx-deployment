@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { Route, Routes } from 'react-router-dom'
 import { useAuth0 } from '@auth0/auth0-react'
 import { useCurrentUser } from './auth/useCurrentUser'
@@ -10,6 +10,7 @@ import { RoleRouter } from './routes/RoleRouter'
 import './App.css'
 
 const PENDING_ROLE_KEY = 'tutormx.pendingRole'
+const REQUESTED_SIGNIN_ROLE_KEY = 'tutormx.requestedSignInRole'
 
 const ROLE_DETAILS = Object.freeze({
   STUDENT: { title: 'Student', icon: 'student' },
@@ -19,6 +20,11 @@ const ROLE_DETAILS = Object.freeze({
 
 function storedPendingRole() {
   const value = window.sessionStorage.getItem(PENDING_ROLE_KEY)
+  return TUTOR_MX_ROLES.includes(value) ? value : null
+}
+
+function storedRequestedSignInRole() {
+  const value = window.sessionStorage.getItem(REQUESTED_SIGNIN_ROLE_KEY)
   return TUTOR_MX_ROLES.includes(value) ? value : null
 }
 
@@ -34,7 +40,7 @@ function LoadingCard({ message }) {
 }
 
 const ONBOARDING_ERROR_MESSAGES = Object.freeze({
-  EMAIL_NOT_VERIFIED: 'Verify your email using the Auth0 verification email, then click Try again.',
+  EMAIL_NOT_VERIFIED: 'Verify your email using the Auth0 verification email, then click Sign in.',
   ORGANISER_SELF_SIGNUP_DISABLED:
     'Organiser accounts are set up by the School, so one cannot be created here. Contact the School to be given Organiser access.',
 })
@@ -98,7 +104,7 @@ function RoleChoices({ selectedRole, onSelect, heading = 'Choose your role' }) {
   )
 }
 
-function OnboardingCard({ role, onComplete, onSignOut }) {
+function OnboardingCard({ role, onComplete, onSignOut, onSignInAgain }) {
   const { getAccessTokenSilently } = useAuth0()
   const [attempt, setAttempt] = useState(0)
   const [state, setState] = useState({ status: 'loading', message: '', code: '' })
@@ -118,12 +124,13 @@ function OnboardingCard({ role, onComplete, onSignOut }) {
       } catch (error) {
         if (ignore) return
         if (error?.code === 'ROLE_ALREADY_SET') {
-          // The account is already linked to a different role. Drop the stale
-          // selection and continue straight into the existing workspace so a
-          // linked account never returns to role choice.
+          // The account is already linked to a different role. Show a clear mismatch message.
           window.sessionStorage.removeItem(PENDING_ROLE_KEY)
-          setState({ status: 'success', message: 'Your existing CSAM Tutor Hub account is ready.', code: '' })
-          onComplete()
+          setState({
+            status: 'error',
+            code: 'ROLE_MISMATCH',
+            message: `This account is registered as a different role. Please sign in using the correct option.`,
+          })
           return
         }
         setState({
@@ -145,11 +152,14 @@ function OnboardingCard({ role, onComplete, onSignOut }) {
     setResendState({ status: 'loading', message: 'Sending verification email...' })
     try {
       await resendVerificationEmail(getAccessTokenSilently)
-      setResendState({ status: 'success', message: 'Verification email sent. Check your inbox, then click Try again.' })
+      setResendState({ status: 'success', message: 'Verification email sent. Check your inbox, then click Sign in.' })
     } catch {
       setResendState({ status: 'error', message: 'Verification email could not be sent. Please try again later.' })
     }
   }
+
+  const isEmailNotVerified = state.code === 'EMAIL_NOT_VERIFIED'
+  const isRoleMismatch = state.code === 'ROLE_MISMATCH'
 
   return (
     <main className="auth-shell">
@@ -159,13 +169,19 @@ function OnboardingCard({ role, onComplete, onSignOut }) {
         <p className={`status-message ${state.status}`}>{state.message}</p>
         {state.status === 'error' && (
           <div className="auth-actions">
-            {state.code !== 'ORGANISER_SELF_SIGNUP_DISABLED' && (
+            {isEmailNotVerified && (
+              <button type="button" className="primary-button" onClick={onSignInAgain}>Sign in</button>
+            )}
+            {isRoleMismatch && (
+              <button type="button" className="primary-button" onClick={onSignOut}>Return to role selection</button>
+            )}
+            {!isEmailNotVerified && !isRoleMismatch && state.code !== 'ORGANISER_SELF_SIGNUP_DISABLED' && (
               <button type="button" className="primary-button" onClick={() => setAttempt((v) => v + 1)}>Try again</button>
             )}
             <button type="button" className="secondary-button" onClick={onSignOut}>Sign out</button>
           </div>
         )}
-        {state.status === 'error' && state.code === 'EMAIL_NOT_VERIFIED' && (
+        {state.status === 'error' && isEmailNotVerified && (
           <div className="auth-actions">
             <button
               type="button"
@@ -206,9 +222,33 @@ function FinishSetupCard({ onChooseRole, onSignOut }) {
   )
 }
 
+function RoleMismatchCard({ requestedRole, actualRole, onSignOut }) {
+  const requestedTitle = ROLE_DETAILS[requestedRole]?.title || requestedRole
+  const actualTitle = ROLE_DETAILS[actualRole]?.title || actualRole
+
+  return (
+    <main className="auth-shell">
+      <section className="auth-card" aria-live="polite">
+        <Brand />
+        <h1 className="auth-title">Role mismatch</h1>
+        <p className="status-message error">
+          This account is registered as a {actualTitle}. Please sign in using the {actualTitle} option.
+        </p>
+        <p className="auth-subtitle">
+          You selected {requestedTitle} sign-in, but this account has a different role.
+        </p>
+        <div className="auth-actions">
+          <button type="button" className="primary-button" onClick={onSignOut}>Return to role selection</button>
+        </div>
+      </section>
+    </main>
+  )
+}
+
 function App() {
   const { isAuthenticated, loginWithRedirect, logout, isLoading } = useAuth0()
   const [pendingRole, setPendingRole] = useState(() => storedPendingRole())
+  const [requestedSignInRole, setRequestedSignInRole] = useState(() => storedRequestedSignInRole())
   const { user: currentUser, role: currentRole, loading: userLoading, error: userError, errorCode: userErrorCode } = useCurrentUser({ enabled: !pendingRole })
   const [status, setStatus] = useState({ type: 'idle', message: '' })
   const [isSubmitting, setIsSubmitting] = useState(false)
@@ -217,6 +257,18 @@ function App() {
     window.sessionStorage.setItem(PENDING_ROLE_KEY, role)
     setPendingRole(role)
   }
+
+  const rememberRequestedSignInRole = (role) => {
+    if (TUTOR_MX_ROLES.includes(role)) {
+      window.sessionStorage.setItem(REQUESTED_SIGNIN_ROLE_KEY, role)
+      setRequestedSignInRole(role)
+    }
+  }
+
+  const clearRequestedSignInRole = useCallback(() => {
+    window.sessionStorage.removeItem(REQUESTED_SIGNIN_ROLE_KEY)
+    setRequestedSignInRole(null)
+  }, [])
 
   const handleAuthRedirect = async (mode = 'login', role = null) => {
     if (isSubmitting) return
@@ -230,9 +282,15 @@ function App() {
 
     if (mode === 'signup') {
       window.sessionStorage.setItem(PENDING_ROLE_KEY, role)
+      clearRequestedSignInRole()
     } else {
       window.sessionStorage.removeItem(PENDING_ROLE_KEY)
       setPendingRole(null)
+      if (TUTOR_MX_ROLES.includes(role)) {
+        rememberRequestedSignInRole(role)
+      } else {
+        clearRequestedSignInRole()
+      }
     }
 
     try {
@@ -253,9 +311,32 @@ function App() {
     }
   }
 
+  const handleSignInAgain = async () => {
+    // Resume sign-in to obtain fresh authentication/verification state after email verification.
+    // Preserve the pending role so onboarding completes correctly.
+    if (isSubmitting) return
+    setIsSubmitting(true)
+    setStatus({ type: 'loading', message: '' })
+
+    try {
+      await loginWithRedirect({
+        authorizationParams: {
+          screen_hint: 'login',
+          prompt: 'login',
+        },
+        appState: { targetUrl: '/' },
+      })
+    } catch {
+      setStatus({ type: 'error', message: 'Authentication could not be started. Please try again.' })
+    } finally {
+      setIsSubmitting(false)
+    }
+  }
+
   const handleSignOut = () => {
     window.sessionStorage.removeItem(PENDING_ROLE_KEY)
     setPendingRole(null)
+    clearRequestedSignInRole()
     logout({ logoutParams: { returnTo: window.location.origin } })
   }
 
@@ -271,7 +352,7 @@ function App() {
           element={(
             <Landing
               onCreateAccount={(role) => handleAuthRedirect('signup', role)}
-              onSignIn={() => handleAuthRedirect('login')}
+              onSignIn={(role) => handleAuthRedirect('login', role)}
               isSubmitting={isSubmitting}
               status={status}
             />
@@ -281,9 +362,14 @@ function App() {
     )
   }
 
-  if (pendingRole) return <OnboardingCard role={pendingRole} onComplete={() => setPendingRole(null)} onSignOut={handleSignOut} />
+  if (pendingRole) return <OnboardingCard role={pendingRole} onComplete={() => setPendingRole(null)} onSignOut={handleSignOut} onSignInAgain={handleSignInAgain} />
   if (userLoading) return <LoadingCard message="Loading your workspace..." />
   if (userErrorCode === 'PROFILE_NOT_FOUND') return <FinishSetupCard onChooseRole={rememberPendingRole} onSignOut={handleSignOut} />
+
+  // Check for role mismatch: if user selected a specific role for sign-in, compare with actual profile role.
+  if (requestedSignInRole && currentRole && requestedSignInRole !== currentRole) {
+    return <RoleMismatchCard requestedRole={requestedSignInRole} actualRole={currentRole} onSignOut={handleSignOut} />
+  }
 
   if (userError || !currentRole) {
     return (

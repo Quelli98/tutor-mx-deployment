@@ -73,7 +73,7 @@ describe('Auth entry flow', () => {
     expect(screen.getByText(/university of the witwatersrand/i)).toBeInTheDocument()
   })
 
-  it('redirects an existing user to Auth0 sign in and always shows the login form', async () => {
+  it('redirects an existing user to Auth0 sign in, stores the requested role, and always shows the login form', async () => {
     render(<MemoryRouter><App /></MemoryRouter>)
 
     fireEvent.click(screen.getAllByRole('button', { name: /^sign in$/i })[0])
@@ -84,6 +84,7 @@ describe('Auth entry flow', () => {
         appState: { targetUrl: '/' },
       }),
     )
+    expect(window.sessionStorage.getItem('tutormx.requestedSignInRole')).toBe('STUDENT')
   })
 
   it('sends a new Student straight to Auth0 sign up with the role remembered', async () => {
@@ -158,7 +159,7 @@ describe('Auth entry flow', () => {
     })
   })
 
-  it('recovers into the existing workspace when a stale pending role conflicts with a linked account', async () => {
+  it('shows a role mismatch error when onboarding finds a different existing role', async () => {
     authState = { isAuthenticated: true, isLoading: false, user: { sub: 'auth0|123' } }
     currentUserState = { role: 'TUTOR', loading: false, error: '', errorCode: '' }
     window.sessionStorage.setItem('tutormx.pendingRole', 'STUDENT')
@@ -168,9 +169,55 @@ describe('Auth entry flow', () => {
 
     render(<MemoryRouter initialEntries={['/']}><App /></MemoryRouter>)
 
-    expect(await screen.findByRole('heading', { name: /tutor dashboard/i })).toBeInTheDocument()
+    expect(await screen.findByText(/registered as a different role/i)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /return to role selection/i })).toBeInTheDocument()
     expect(window.sessionStorage.getItem('tutormx.pendingRole')).toBeNull()
-    expect(screen.queryByRole('button', { name: /choose your role/i })).not.toBeInTheDocument()
+  })
+
+  it('blocks sign-in when the requested role does not match the account role', async () => {
+    authState = { isAuthenticated: true, isLoading: false, user: { sub: 'auth0|123' } }
+    currentUserState = { role: 'TUTOR', loading: false, error: '', errorCode: '' }
+    window.sessionStorage.setItem('tutormx.requestedSignInRole', 'STUDENT')
+
+    render(<MemoryRouter initialEntries={['/']}><App /></MemoryRouter>)
+
+    expect(await screen.findByRole('heading', { name: /role mismatch/i })).toBeInTheDocument()
+    expect(screen.getByText(/registered as a Tutor/i)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /return to role selection/i })).toBeInTheDocument()
+  })
+
+  it('allows sign-in when the requested role matches the account role', async () => {
+    authState = { isAuthenticated: true, isLoading: false, user: { sub: 'auth0|123' } }
+    currentUserState = { role: 'TUTOR', loading: false, error: '', errorCode: '' }
+    window.sessionStorage.setItem('tutormx.requestedSignInRole', 'TUTOR')
+
+    render(<MemoryRouter initialEntries={['/']}><App /></MemoryRouter>)
+
+    expect(await screen.findByRole('heading', { name: /tutor dashboard/i })).toBeInTheDocument()
+  })
+
+  it('clears the requested sign-in role on sign out', async () => {
+    authState = { isAuthenticated: true, isLoading: false, user: { sub: 'auth0|123' } }
+    currentUserState = { role: 'STUDENT', loading: false, error: '', errorCode: '' }
+    window.sessionStorage.setItem('tutormx.requestedSignInRole', 'STUDENT')
+
+    render(<MemoryRouter><App /></MemoryRouter>)
+
+    fireEvent.click(screen.getByRole('button', { name: /sign out/i }))
+
+    expect(window.sessionStorage.getItem('tutormx.requestedSignInRole')).toBeNull()
+    expect(logoutMock).toHaveBeenCalledWith({
+      logoutParams: { returnTo: window.location.origin },
+    })
+  })
+
+  it('does not enforce a role mismatch when no sign-in role was requested', async () => {
+    authState = { isAuthenticated: true, isLoading: false, user: { sub: 'auth0|123' } }
+    currentUserState = { role: 'ORGANISER', loading: false, error: '', errorCode: '' }
+
+    render(<MemoryRouter initialEntries={['/']}><App /></MemoryRouter>)
+
+    expect(await screen.findByRole('heading', { name: /organiser workspace/i })).toBeInTheDocument()
   })
 
   it('offers verification-email recovery when onboarding is blocked by an unverified email', async () => {
@@ -183,13 +230,15 @@ describe('Auth entry flow', () => {
     render(<MemoryRouter initialEntries={['/']}><App /></MemoryRouter>)
 
     expect(await screen.findByText(/verify your email using the auth0 verification email/i)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /^sign in$/i })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /^try again$/i })).not.toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: /resend verification email/i }))
 
     await waitFor(() => {
       expect(resendVerificationMock).toHaveBeenCalledWith(tokenMock)
     })
-    expect(await screen.findByText(/verification email sent/i)).toBeInTheDocument()
+    expect(await screen.findByText(/verification email sent.*sign in/i)).toBeInTheDocument()
   })
 
   it('explains that Organiser accounts come from the School when self sign-up is disabled', async () => {

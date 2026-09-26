@@ -1,11 +1,14 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
+import { useAuth0 } from '@auth0/auth0-react'
 import { requestPasswordReset } from '../api/client'
 
 export function PasswordResetPage() {
+  const { loginWithRedirect } = useAuth0()
   const [email, setEmail] = useState('')
   const [status, setStatus] = useState({ type: 'idle', message: '' })
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [isSigningIn, setIsSigningIn] = useState(false)
 
   const handleSubmit = async (event) => {
     event.preventDefault()
@@ -29,6 +32,21 @@ export function PasswordResetPage() {
       })
     } finally {
       setIsSubmitting(false)
+    }
+  }
+
+  const handleSignInAgain = async () => {
+    if (isSigningIn) return
+    setIsSigningIn(true)
+    try {
+      await loginWithRedirect({
+        authorizationParams: { screen_hint: 'login', prompt: 'login' },
+        appState: { targetUrl: '/' },
+      })
+    } catch {
+      setStatus({ type: 'error', message: 'Authentication could not be started. Please try again.' })
+    } finally {
+      setIsSigningIn(false)
     }
   }
 
@@ -64,6 +82,15 @@ export function PasswordResetPage() {
             {status.message}
           </p>
         )}
+
+        {status.type === 'success' && (
+          <div className="auth-actions">
+            <button type="button" className="primary-button" onClick={handleSignInAgain} disabled={isSigningIn}>
+              {isSigningIn ? 'Opening...' : 'Sign in again'}
+            </button>
+          </div>
+        )}
+
         <Link className="text-link" to="/">
           Back to sign in
         </Link>
@@ -73,6 +100,24 @@ export function PasswordResetPage() {
 }
 
 export function NewPasswordPage() {
+  const { loginWithRedirect } = useAuth0()
+  const [isSigningIn, setIsSigningIn] = useState(false)
+
+  const handleSignInAgain = async () => {
+    if (isSigningIn) return
+    setIsSigningIn(true)
+    try {
+      await loginWithRedirect({
+        authorizationParams: { screen_hint: 'login', prompt: 'login' },
+        appState: { targetUrl: '/' },
+      })
+    } catch {
+      // Auth0 redirect failed; the user can retry.
+    } finally {
+      setIsSigningIn(false)
+    }
+  }
+
   return (
     <main className="auth-shell">
       <section className="auth-card" aria-labelledby="new-password-heading">
@@ -82,7 +127,15 @@ export function NewPasswordPage() {
           Open the secure link in your reset email to set the new password on Auth0&apos;s hosted
           page. CSAM Tutor Hub never receives or stores it.
         </p>
-        <Link className="primary-link" to="/reset-password">
+        <p className="subtitle">
+          Once you have set your new password on Auth0, sign in again below.
+        </p>
+        <div className="auth-actions">
+          <button type="button" className="primary-button" onClick={handleSignInAgain} disabled={isSigningIn}>
+            {isSigningIn ? 'Opening...' : 'Sign in again'}
+          </button>
+        </div>
+        <Link className="text-link" to="/reset-password">
           Request another reset link
         </Link>
       </section>
