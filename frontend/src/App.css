@@ -6076,3 +6076,42 @@ textarea:focus {
   .member-content .settings-card,
   .member-content .work-card { border-radius: 18px; }
 }
+
+/* Unified timetable tab interface */
+.timetable-tabs {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 20px;
+  border-bottom: 2px solid var(--border, #dbe4ee);
+}
+
+.timetable-tab-button {
+  padding: 10px 20px;
+  border: none;
+  border-bottom: 3px solid transparent;
+  background: transparent;
+  color: var(--text, #56677a);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  margin-bottom: -2px;
+}
+
+.timetable-tab-button:hover {
+  color: var(--text-h, #10233d);
+  background: var(--surface-muted, #f7f9fc);
+}
+
+.timetable-tab-button.active {
+  color: var(--accent, #1268e8);
+  border-bottom-color: var(--accent, #1268e8);
+}
+
+.timetable-tab-panel {
+  display: none;
+}
+
+.timetable-tab-panel.active {
+  display: block;
+}
