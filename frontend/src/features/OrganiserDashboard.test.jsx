@@ -3,6 +3,7 @@ import { MemoryRouter } from 'react-router-dom'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import OrganiserDashboard from './OrganiserDashboard'
+import { addDays, localMonday } from '../components/shared/scheduleWeek'
 import { allocationReasonCodesFor, busySlotClashes } from '../../../src/services/allocation-queries'
 
 const listCourses = vi.fn()
@@ -72,6 +73,8 @@ const ineligibleCandidate = {
     },
   ],
 }
+// Home opens on the current week, so the allocation is on this week's Wednesday afternoon.
+const thisWednesday = addDays(localMonday(new Date()), 2)
 const allocation = {
   id: 11,
   tutorId: 7,
@@ -80,8 +83,8 @@ const allocation = {
   courseId: 3,
   courseCode: 'COMS3011',
   courseName: 'Software Design Project',
-  startsAt: '2030-09-04T14:00:00.000Z',
-  endsAt: '2030-09-04T16:00:00.000Z',
+  startsAt: new Date(thisWednesday.valueOf() + 14 * 3_600_000).toISOString(),
+  endsAt: new Date(thisWednesday.valueOf() + 16 * 3_600_000).toISOString(),
   allocatedHours: 2,
   status: 'CONFIRMED',
 }
@@ -399,7 +402,7 @@ describe('OrganiserDashboard', () => {
     listAllocationCandidates.mockResolvedValue([eligibleCandidate])
 
     render(<OrganiserDashboard />, { wrapper: MemoryRouter })
-    fireEvent.click(await screen.findByRole('button', { name: /edit allocation/i }))
+    fireEvent.click(await screen.findByRole('button', { name: /^boundary tutor, COMS3011.*edit or remove$/i }))
     fireEvent.click(screen.getByRole('button', { name: /check candidates/i }))
 
     await waitFor(() => {
@@ -419,12 +422,21 @@ describe('OrganiserDashboard', () => {
     })
   })
 
-  it('removes an allocation after confirmation and refreshes the list', async () => {
+  it('removes an allocation from its panel after confirmation and refreshes the list', async () => {
     listCourses.mockResolvedValue(courses)
     listAllocations.mockResolvedValueOnce([allocation]).mockResolvedValueOnce([])
 
     render(<OrganiserDashboard />, { wrapper: MemoryRouter })
-    fireEvent.click(await screen.findByRole('button', { name: /^remove$/i }))
+    fireEvent.click(await screen.findByRole('button', { name: /^boundary tutor, COMS3011.*edit or remove$/i }))
+    const panel = screen.getByRole('dialog', { name: /edit allocation/i })
+    const current = within(panel).getByRole('region', { name: /this allocation/i })
+    expect(current).toHaveTextContent('boundary@tutormx.example')
+    expect(within(current).getByText(/^COMS3011 · .*, 14:00 – 16:00$/)).toBeInTheDocument()
+    expect(within(current).getByText(/^2\sh · Confirmed$/)).toBeInTheDocument()
+
+    // The panel closes, so the confirmation opens over Home rather than behind the panel.
+    fireEvent.click(within(current).getByRole('button', { name: /remove allocation/i }))
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: /edit allocation/i })).not.toBeInTheDocument())
     expect(screen.getByRole('dialog')).toHaveTextContent(/weekly hours will be released/i)
     fireEvent.click(screen.getByRole('button', { name: /remove allocation/i }))
 
@@ -486,7 +498,7 @@ describe('OrganiserDashboard', () => {
     listAllocationCandidates.mockResolvedValue([eligibleCandidate])
 
     render(<OrganiserDashboard />, { wrapper: MemoryRouter })
-    fireEvent.click(await screen.findByRole('button', { name: /edit allocation/i }))
+    fireEvent.click(await screen.findByRole('button', { name: /^boundary tutor, COMS3011.*edit or remove$/i }))
     fireEvent.click(screen.getByRole('button', { name: /check candidates/i }))
     fireEvent.click(await screen.findByRole('button', { name: /update allocation/i }))
 

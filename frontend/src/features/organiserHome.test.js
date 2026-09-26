@@ -1,11 +1,14 @@
 import { describe, expect, it } from 'vitest'
 import {
   budgetUsed,
+  courseAccents,
   courseCards,
   initials,
   money,
+  neighbouringWeeks,
   requirementsForWeek,
   sumHours,
+  timetableWeek,
   toIsoDate,
   tutorLoads,
   yearToDatePeriod,
@@ -113,5 +116,54 @@ describe('organiser Home figures', () => {
     expect(initials('Naledi Mokoena')).toBe('NM')
     expect(initials('thabo.nkosi@wits.ac.za')).toBe('TN')
     expect(initials('Zanele')).toBe('ZA')
+  })
+
+  it('lays a week out by day, with tutors on the same session together and weekends only when used', () => {
+    const allocation = (id, courseId, day, hour, tutorName, hours = 2.75) => ({
+      id,
+      courseId,
+      courseCode: `COMS${courseId}`,
+      courseName: `Course ${courseId}`,
+      tutorName,
+      startsAt: new Date(2026, 8, day, hour, 15).toISOString(),
+      endsAt: new Date(2026, 8, day, hour + 2, 45).toISOString(),
+      allocatedHours: hours,
+    })
+    const week = timetableWeek(
+      [
+        allocation(1, 3, 22, 14, 'Thabo Nkosi'),
+        allocation(2, 3, 22, 14, 'Lerato Dlamini'),
+        allocation(3, 5, 22, 9, 'Aisha Patel', 1.5),
+        allocation(4, 3, 26, 10, 'Pieter van Wyk'),
+        allocation(5, 3, 29, 14, 'Thabo Nkosi'),
+      ],
+      monday,
+    )
+
+    expect(week.days.map((day) => toIsoDate(day.date))).toEqual([
+      '2026-09-21', '2026-09-22', '2026-09-23', '2026-09-24', '2026-09-25', '2026-09-26',
+    ])
+    const tuesday = week.days[1].sessions
+    expect(tuesday.map((session) => session.courseCode)).toEqual(['COMS5', 'COMS3'])
+    expect(tuesday[1].allocations.map((entry) => entry.tutorName)).toEqual(['Lerato Dlamini', 'Thabo Nkosi'])
+    expect(week.count).toBe(4)
+    expect(week.hours).toBe(9.75)
+  })
+
+  it('finds the nearest earlier and later weeks that have allocations', () => {
+    const on = (id, month, day) => ({ id, courseId: 1, startsAt: new Date(2026, month, day, 10).toISOString() })
+    const allocations = [on(1, 8, 2), on(2, 8, 22), on(3, 9, 13), on(4, 9, 14)]
+
+    const { previous, next } = neighbouringWeeks(allocations, monday)
+    expect(toIsoDate(previous.weekStart)).toBe('2026-08-31')
+    expect(previous.count).toBe(1)
+    expect(toIsoDate(next.weekStart)).toBe('2026-10-12')
+    expect(next.count).toBe(2)
+    expect(neighbouringWeeks([on(2, 8, 22)], monday)).toEqual({ previous: null, next: null })
+  })
+
+  it('gives each course one colour that does not depend on the week shown', () => {
+    const accents = courseAccents([{ courseId: 9 }, { courseId: 2 }, { courseId: 9 }, { courseId: 4 }])
+    expect([...accents]).toEqual([[2, 'pink'], [4, 'blue'], [9, 'orchid']])
   })
 })

@@ -30,6 +30,7 @@ import { HoursChart } from '../components/organiser/HoursChart'
 import { HomeTutors } from '../components/organiser/HomeTutors'
 import { useOrganiserApprovals } from './useOrganiserApprovals'
 import { useOrganiserWeek } from './useOrganiserWeek'
+import { timeRange } from './organiserHome'
 
 const EMPTY_FORM = {
   courseId: '',
@@ -401,6 +402,13 @@ export default function OrganiserDashboard() {
     setPanelOpen(false)
   }
 
+  // Remove is offered in the panel; the panel closes first so the confirmation opens over Home.
+  function requestRemoval(allocation) {
+    if (isMutating) return
+    closePanel()
+    setRemovingAllocation(allocation)
+  }
+
   function cancelEditing() {
     setEditingAllocation(null)
     setForm(EMPTY_FORM)
@@ -575,9 +583,10 @@ export default function OrganiserDashboard() {
         allocations={allocations}
         error={allocationsError}
         isMutating={isMutating}
+        weekStart={weekStart}
+        onWeekChange={setWeekStart}
         onRefresh={loadAllocations}
         onEdit={startEditing}
-        onRemove={setRemovingAllocation}
       >
         {!panelOpen && statusNotes}
       </HomeAllocations>
@@ -604,6 +613,28 @@ export default function OrganiserDashboard() {
         closeDisabled={isMutating}
         returnFocusRef={panelOpenerRef}
       >
+        {editingAllocation && (
+          <section className="panel-current" aria-labelledby="allocation-current-heading">
+            <div className="panel-current-words">
+              <h3 id="allocation-current-heading">This allocation</h3>
+              <p className="panel-current-name">{editingAllocation.tutorName}</p>
+              <p className="panel-current-meta">{editingAllocation.tutorEmail}</p>
+              <p className="panel-current-meta">
+                {editingAllocation.courseCode} ·{' '}
+                {new Date(editingAllocation.startsAt).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' })},{' '}
+                {timeRange(editingAllocation.startsAt, editingAllocation.endsAt)}
+              </p>
+              <p className="panel-current-meta">
+                {`${editingAllocation.allocatedHours}\u00a0h`} ·{' '}
+                {editingAllocation.status.charAt(0) + editingAllocation.status.slice(1).toLowerCase()}
+              </p>
+            </div>
+            <button type="button" className="danger-button" onClick={() => requestRemoval(editingAllocation)} disabled={isMutating}>
+              Remove allocation
+            </button>
+          </section>
+        )}
+
         <section className="panel-step" aria-labelledby="allocation-session-heading">
           <h3 id="allocation-session-heading">
             <span className="panel-step-number" aria-hidden="true">1</span>

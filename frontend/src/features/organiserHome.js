@@ -104,6 +104,68 @@ export function courseCards(courses, allocations, weekReport, yearReport, weekSt
     .map((card, index) => ({ ...card, accent: ACCENTS[index % ACCENTS.length] }))
 }
 
+const TIMETABLE_ACCENTS = ['pink', 'blue', 'orchid', 'coral', 'navy', 'purple']
+
+/** One colour per course (in course id order), so a course keeps its colour from week to week. */
+export function courseAccents(allocations) {
+  const ids = [...new Set(allocations.map((allocation) => allocation.courseId))].sort((a, b) => a - b)
+  return new Map(ids.map((id, index) => [id, TIMETABLE_ACCENTS[index % TIMETABLE_ACCENTS.length]]))
+}
+
+function bySession(a, b) {
+  return (
+    new Date(a.startsAt) - new Date(b.startsAt) ||
+    String(a.courseCode).localeCompare(String(b.courseCode)) ||
+    String(a.tutorName).localeCompare(String(b.tutorName))
+  )
+}
+
+/**
+ * The week's allocations as a timetable: Monday to Friday always, and Saturday or Sunday only
+ * when a session falls on it. Tutors booked on the same course at the same time share a session.
+ */
+export function timetableWeek(allocations, weekStart) {
+  const inWeek = allocations.filter((allocation) => isInWeek(allocation.startsAt, weekStart)).sort(bySession)
+  const days = Array.from({ length: 7 }, (_, index) => {
+    const date = addDays(weekStart, index)
+    const sessions = []
+    for (const allocation of inWeek.filter((entry) => toIsoDate(new Date(entry.startsAt)) === toIsoDate(date))) {
+      const key = `${allocation.courseId}|${allocation.startsAt}|${allocation.endsAt}`
+      let session = sessions.find((entry) => entry.key === key)
+      if (!session) {
+        session = {
+          key,
+          courseId: allocation.courseId,
+          courseCode: allocation.courseCode,
+          courseName: allocation.courseName,
+          startsAt: allocation.startsAt,
+          endsAt: allocation.endsAt,
+          allocations: [],
+        }
+        sessions.push(session)
+      }
+      session.allocations.push(allocation)
+    }
+    return { date, sessions }
+  }).filter((day, index) => index < 5 || day.sessions.length > 0)
+
+  return { days, count: inWeek.length, hours: sumHours(inWeek, 'allocatedHours') }
+}
+
+/** The nearest week before and after the selected one that has allocations, with how many. */
+export function neighbouringWeeks(allocations, weekStart) {
+  const weekEnd = addDays(weekStart, 7)
+  const starts = allocations.map((allocation) => new Date(allocation.startsAt))
+  const before = starts.filter((time) => time < weekStart).sort((a, b) => b - a)[0]
+  const after = starts.filter((time) => time >= weekEnd).sort((a, b) => a - b)[0]
+  const describe = (time) => {
+    if (!time) return null
+    const start = localMonday(time)
+    return { weekStart: start, count: allocations.filter((allocation) => isInWeek(allocation.startsAt, start)).length }
+  }
+  return { previous: describe(before), next: describe(after) }
+}
+
 /** Tutors with the fullest week first; tutors without a weekly limit go last. */
 export function tutorLoads(tutors, limit = 5) {
   return tutors
