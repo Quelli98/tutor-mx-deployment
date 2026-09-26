@@ -26,7 +26,9 @@ export default function WeeklySchedule({
 }) {
   const headingId = useId()
   const [weekStart, setWeekStart] = useState(() => localMonday(initialDate))
+  // Sync with initialDate prop changes while preserving user navigation
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setWeekStart(localMonday(initialDate))
   }, [initialDate])
   const days = useMemo(() => scheduleForWeek(slots, weekStart), [slots, weekStart])
