@@ -58,6 +58,36 @@ export async function fetchNotifications(options, tokenOrGetter) {
   return parseNotificationListResponse(body)
 }
 
+/**
+ * Every page of the list, for a caller that needs the whole store rather than
+ * the first screenful (the Command Centre's Needs Attention feed does: the
+ * reminders it folds in are not guaranteed to sit on page one). It walks the
+ * same paginated read the bell pages through, one page at a time, passing the
+ * page size the server reported so the pages line up, and stops once the rows
+ * read add up to the total the server reported. That total is the count of the
+ * whole filtered store the endpoint took alongside page one, so it bounds the
+ * walk on its own: the last page is fixed from it before the walk starts, a
+ * page that comes back empty ends the walk early, and a page past the
+ * endpoint's own page maximum is refused, failing the read the way any other
+ * failed page does. A failed page rejects the whole read, so the caller can
+ * degrade as it already does when the list is unavailable rather than working
+ * from half the store.
+ */
+export async function fetchAllNotifications(options = {}, tokenOrGetter) {
+  const first = await fetchNotifications({ ...options, page: 1 }, tokenOrGetter)
+  const pageSize = first.pageSize > 0 ? first.pageSize : MAX_NOTIFICATION_PAGE_SIZE
+  const lastPage = Math.ceil(first.total / pageSize)
+  const items = [...first.items]
+
+  for (let page = 2; page <= lastPage && items.length < first.total; page += 1) {
+    const next = await fetchNotifications({ ...options, page, pageSize }, tokenOrGetter)
+    if (next.items.length === 0) break
+    items.push(...next.items)
+  }
+
+  return { ...first, items }
+}
+
 export async function fetchUnreadCount(tokenOrGetter) {
   const body = await fetchWithBearerToken('/api/notifications/unread-count', {}, tokenOrGetter)
   const unreadCount = body?.data?.unreadCount

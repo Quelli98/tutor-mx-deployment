@@ -27,6 +27,7 @@ import { createStaffingRequirementService } from "./services/staffing-requiremen
 import { createOrganiserOverflowWorkService } from "./services/organiser-overflow-service.js";
 import { createBulkAllocationService } from "./services/bulk-allocation-service.js";
 import { createReportingService } from "./services/reporting-service.js";
+import { createCommandCentreService } from "./services/command-centre-service.js";
 import { payrollFilename, toPayrollCsv } from "./services/payroll-export.js";
 import { createExcuseWorkflowService } from "./services/excuse-workflows.js";
 import { createOrganiserService } from "./services/organiser-service.js";
@@ -290,6 +291,19 @@ const bulkAllocationService = createBulkAllocationService(
     return allocation;
   },
 );
+
+// Reads only, and reads the same services the screens behind it do: the
+// Command Centre owns no figure of its own, it just puts them side by side for
+// one period.
+const commandCentreService = createCommandCentreService({
+  listOpenStaffingRequirements: () =>
+    staffingRequirementService.listStaffingRequirements({ status: "OPEN" }),
+  workloadReport: reportingService.workloadReport,
+  listApprovals: organiserService.listApprovals,
+  listOverflowWork: organiserOverflowService.listOverflowWork,
+  listOpenDisputes: timesheetCorrectionsService.listDisputes,
+});
+
 const publicHolidayService = createSouthAfricaPublicHolidayService();
 const notificationService = createNotificationService(
   prisma as unknown as NotificationDataClient,
@@ -411,6 +425,7 @@ const app = createApp(
         csv: toPayrollCsv(exportRows.rows),
       };
     },
+    commandCentreSummary: commandCentreService.summary,
     previewBulkAllocations: bulkAllocationService.preview,
     commitBulkAllocations: bulkAllocationService.commit,
     listStaffingRequirements: staffingRequirementService.listStaffingRequirements,

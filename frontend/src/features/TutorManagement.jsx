@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useParams } from 'react-router-dom'
 import { useAuth0 } from '@auth0/auth0-react'
 import { listTutors } from '../api/organiser'
 import { EmptyState, ErrorState, LoadingState } from '../components/shared/StatusMessage'
@@ -34,6 +35,7 @@ function toIsoDate(date) {
 
 export default function TutorManagement() {
   const { getAccessTokenSilently } = useAuth0()
+  const { tutorId } = useParams()
   const [status, setStatus] = useState('loading')
   const [tutors, setTutors] = useState([])
   const [errorMessage, setErrorMessage] = useState('')
@@ -74,6 +76,19 @@ export default function TutorManagement() {
     loadTutors(() => active)
     return () => { active = false }
   }, [loadTutors])
+
+  // A link from the command centre names the tutor it was about. This screen is
+  // what carries a tutor's week, so the details open once that week has been
+  // read, and only once, so closing them leaves them closed.
+  const deepLinkOpened = useRef(false)
+  useEffect(() => {
+    if (deepLinkOpened.current || !tutorId || status !== 'success') return
+    const match = tutors.find((tutor) => String(tutor.id) === String(tutorId))
+    if (!match) return
+    deepLinkOpened.current = true
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setDetailsTutor(match)
+  }, [status, tutorId, tutors])
 
   const filteredTutors = useMemo(() => {
     const query = searchText.trim().toLowerCase()

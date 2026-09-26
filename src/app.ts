@@ -546,6 +546,71 @@ export interface WorkloadReportQuery {
 }
 
 /**
+ * One day of the period, summed from the requirements that start on it. The
+ * fill state is the staffing service's own rule applied to the day's totals,
+ * and it is absent when the day has no requirements at all.
+ */
+export interface CommandCentreStaffingDay {
+  /** The day itself, as YYYY-MM-DD. */
+  date: string;
+  requiredHours: number;
+  assignedHours: number;
+  unfilledHours: number;
+  /** How many requirements start on this day. */
+  requirements: number;
+  fillState: StaffingRequirementFillState | null;
+}
+
+/**
+ * The Organiser Command Centre's one read: everything the dashboard shows for a
+ * single period, assembled by the command-centre service from the reads that
+ * already own each figure. Totals are worked out on the server, so no screen
+ * ever adds a business figure of its own.
+ */
+export interface CommandCentreSummary {
+  /** The same period contract as the reports, so both measure identical weeks. */
+  period: { weekStart: string; weekEnd: string; weeks: number };
+  staffing: {
+    /** Summed from the requirement rows below, which all start in the period. */
+    requiredHours: number;
+    assignedHours: number;
+    unfilledHours: number;
+    openRequirements: number;
+    unfilledRequirements: number;
+    requirements: StaffingRequirementSummary[];
+    /**
+     * Every day of the period in order, for the shortage heatmap. A day with
+     * nothing starting on it carries zeros and no fill state at all, so an
+     * empty day never reads as a filled one.
+     */
+    days: CommandCentreStaffingDay[];
+  };
+  finance: {
+    /** Null means nothing could be priced. It never stands for zero. */
+    budget: number | null;
+    spend: number | null;
+    committed: number | null;
+    remaining: number | null;
+    overBudgetCourses: number;
+    unpricedCourses: number;
+    courses: CourseReportRow[];
+  };
+  workload: { tutors: TutorReportRow[] };
+  actions: {
+    pendingTimesheets: number;
+    pendingVolunteerClaims: number;
+    pendingExcuses: number;
+    openDisputes: number;
+    total: number;
+  };
+  overflow: {
+    openItems: number;
+    openHours: number;
+    unclaimedItems: number;
+  };
+}
+
+/**
  * One line of a payroll run: what one tutor did on one course in one week. The
  * period is the week of the timesheet that was signed off, so every line can be
  * traced back to the sheet behind it.
@@ -802,6 +867,15 @@ export interface AppDependencies {
   payrollExportCsv?: (
     query: WorkloadReportQuery,
   ) => Promise<PayrollExportCsv>;
+  /**
+   * The Command Centre's single aggregate read. Optional, so an environment
+   * that has not wired it answers 503 rather than showing a dashboard of
+   * blanks.
+   */
+  commandCentreSummary?: (
+    auth0Id: string,
+    query: WorkloadReportQuery,
+  ) => Promise<CommandCentreSummary>;
   previewBulkAllocations?: (
     query: BulkAllocationPreviewQuery,
   ) => Promise<BulkAllocationPreviewItem[]>;
@@ -2938,6 +3012,46 @@ export function createApp(
             parsed.value,
           );
         response.status(200).json({ data: { staffingRequirement } });
+      } catch (value) {
+        sendRouteError(response, value);
+      }
+    },
+  );
+
+  app.get(
+    "/api/organiser/command-centre",
+    authenticate,
+    resolveProfileRole,
+    requireRole("ORGANISER"),
+    async (request, response) => {
+      // The same period contract as the reports, so the totals on this screen
+      // and the report it drills into are measured over identical weeks.
+      const parsed = parseWorkloadReportQuery(request.query);
+      if ("error" in parsed) {
+        const result = error(
+          400,
+          "VALIDATION_ERROR",
+          parsed.error ??
+            "Choose a week starting on a Monday and a length of 1 to 52 weeks.",
+        );
+        response.status(result.status).json(result.body);
+        return;
+      }
+
+      try {
+        if (!dependencies.commandCentreSummary) {
+          throw createRouteError(
+            503,
+            "COMMAND_CENTRE_UNAVAILABLE",
+            "The command centre is not configured.",
+          );
+        }
+        const summary = await dependencies.commandCentreSummary(
+          // The organiser who is asking, so the dispute queue is read for them.
+          (request as AuthenticatedRequest).auth!.subject,
+          parsed.value,
+        );
+        response.status(200).json({ data: summary });
       } catch (value) {
         sendRouteError(response, value);
       }

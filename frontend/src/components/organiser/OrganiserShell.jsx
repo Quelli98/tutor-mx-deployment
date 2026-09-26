@@ -10,6 +10,7 @@ import bulkAllocationArt from '../../assets/organiser/group-project.svg'
 
 const NAV_ITEMS = [
   { to: '/organiser', label: 'Home', icon: 'house' },
+  { to: '/organiser/command-centre', label: 'Command centre', icon: 'gauge' },
   { to: '/organiser/courses', label: 'Courses', icon: 'book-open' },
   { to: '/organiser/tutors', label: 'Tutors', icon: 'users' },
   { to: '/organiser/reports', label: 'Reports', icon: 'chart-column' },
@@ -28,7 +29,7 @@ function profileName(user) {
 function pageKey(pathname) {
   if (pathname === '/organiser') return 'home'
   if (pathname.startsWith('/organiser/staffing/bulk')) return 'bulk'
-  const match = pathname.match(/^\/organiser\/([a-z]+)/)
+  const match = pathname.match(/^\/organiser\/([a-z-]+)/)
   if (match) return match[1]
   if (pathname.startsWith('/settings')) return 'settings'
   return 'other'
@@ -63,7 +64,7 @@ function useHashTarget(location) {
 }
 
 /**
- * The organiser's frame: a navy sidebar (Home, Courses, Tutors, Reports, bulk allocation,
+ * The organiser's frame: a navy sidebar (Home, Command centre, Courses, Tutors, Reports, bulk allocation,
  * account settings and sign out) and a top bar with the greeting, search and notifications.
  * On narrow screens the sidebar becomes a menu that opens over the page.
  */

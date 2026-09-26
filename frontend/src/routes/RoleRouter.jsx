@@ -13,6 +13,7 @@ import StaffingRequirements from '../features/StaffingRequirements'
 import BulkAllocation from '../features/BulkAllocation'
 import OrganiserReports from '../features/OrganiserReports'
 import OrganiserOverflow from '../features/OrganiserOverflow'
+import CommandCentre from '../features/CommandCentre'
 import { SkipToContent } from '../components/shared/SkipToContent'
 import { NotificationBell } from '../components/shared/NotificationBell'
 import { CommandPalette } from '../components/shared/CommandPalette'
@@ -100,11 +101,27 @@ export function RoleRouter({ currentRole, onSignOut, user = null }) {
         element={protect(currentRole, ['ORGANISER'], <OrganiserDashboard />)}
       />
       <Route
+        path="/organiser/command-centre"
+        element={protect(currentRole, ['ORGANISER'], <CommandCentre />)}
+      />
+      <Route
         path="/organiser/courses"
+        element={protect(currentRole, ['ORGANISER'], <CourseManagement />)}
+      />
+      {/* The same screen, opened on one course: the path the search results
+          and the command centre already publish for a course. */}
+      <Route
+        path="/organiser/courses/:courseId"
         element={protect(currentRole, ['ORGANISER'], <CourseManagement />)}
       />
       <Route
         path="/organiser/tutors"
+        element={protect(currentRole, ['ORGANISER'], <TutorManagement />)}
+      />
+      {/* The same screen, opened on one tutor: the path the search results
+          and the command centre already publish for a person. */}
+      <Route
+        path="/organiser/tutors/:tutorId"
         element={protect(currentRole, ['ORGANISER'], <TutorManagement />)}
       />
       <Route

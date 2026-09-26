@@ -7,6 +7,7 @@ import {
   deleteTutorMark,
   decideTimesheet,
   decideVolunteerClaim,
+  getCommandCentreSummary,
   listAllocationCandidates,
   listAllocations,
   listCourses,
@@ -593,5 +594,158 @@ describe('Member 5 organiser dispute contract', () => {
     expect(fetchWithBearerToken).toHaveBeenLastCalledWith('/api/timesheet-disputes/71', {
       method: 'PATCH', body: JSON.stringify({ resolutionReason: 'Reviewed with the tutor.' }),
     }, tokenGetter)
+  })
+})
+
+/**
+ * The Command Centre is one payload covering staffing, money, workload and the
+ * queues, so the contract is checked as a whole: a summary missing a panel is
+ * refused rather than half drawn with figures that came from nowhere.
+ */
+describe('Member 6 command centre contract', () => {
+  function commandCentreSummary(overrides = {}) {
+    return {
+      period: {
+        weekStart: '2030-09-02T00:00:00.000Z',
+        weekEnd: '2030-09-30T00:00:00.000Z',
+        weeks: 4,
+      },
+      staffing: {
+        requiredHours: 8,
+        assignedHours: 0,
+        unfilledHours: 8,
+        openRequirements: 1,
+        unfilledRequirements: 1,
+        requirements: [
+          {
+            id: 12,
+            courseId: 3,
+            courseCode: 'COMS3011',
+            courseName: 'Software Design Project',
+            startsAt: '2030-09-04T14:00:00.000Z',
+            endsAt: '2030-09-04T18:00:00.000Z',
+            tutorsNeeded: 2,
+            windowHours: 4,
+            requiredHours: 8,
+            assignedHours: 0,
+            shortageHours: 8,
+            shortageTutors: 2,
+            fillState: 'unfilled',
+            status: 'OPEN',
+            notes: null,
+            createdById: 8,
+            createdAt: '2026-09-21T09:00:00.000Z',
+            updatedAt: '2026-09-21T09:00:00.000Z',
+          },
+        ],
+        days: [
+          {
+            date: '2030-09-02',
+            requiredHours: 8,
+            assignedHours: 0,
+            unfilledHours: 8,
+            requirements: 1,
+            fillState: 'unfilled',
+          },
+          {
+            date: '2030-09-03',
+            requiredHours: 0,
+            assignedHours: 0,
+            unfilledHours: 0,
+            requirements: 0,
+            fillState: null,
+          },
+        ],
+      },
+      finance: {
+        budget: null,
+        spend: null,
+        committed: null,
+        remaining: null,
+        overBudgetCourses: 0,
+        unpricedCourses: 1,
+        courses: [
+          {
+            courseId: 3,
+            courseCode: 'COMS3011',
+            courseName: 'Software Design Project',
+            allocatedHours: 0,
+            approvedWorkedHours: 0,
+            hourlyRate: null,
+            budget: null,
+            spend: null,
+            committed: null,
+            budgetRemaining: null,
+          },
+        ],
+      },
+      workload: {
+        tutors: [
+          {
+            tutorId: 7,
+            fullName: 'Ada Tutor',
+            capacityHours: 40,
+            allocatedHours: 0,
+            approvedWorkedHours: 0,
+            shareOfAllocatedHours: 0,
+          },
+        ],
+      },
+      actions: {
+        pendingTimesheets: 0,
+        pendingVolunteerClaims: 0,
+        pendingExcuses: 0,
+        openDisputes: 0,
+        total: 0,
+      },
+      overflow: { openItems: 0, openHours: 0, unclaimedItems: 0 },
+      ...overrides,
+    }
+  }
+
+  beforeEach(() => {
+    fetchWithBearerToken.mockReset()
+    tokenGetter.mockReset()
+  })
+
+  it('asks for the period in one call and returns the whole summary', async () => {
+    const summary = commandCentreSummary()
+    fetchWithBearerToken.mockResolvedValue({ data: summary })
+
+    await expect(
+      getCommandCentreSummary({ weekStart: '2030-09-02', weeks: 4 }, tokenGetter),
+    ).resolves.toEqual(summary)
+    expect(fetchWithBearerToken).toHaveBeenCalledWith(
+      '/api/organiser/command-centre?weekStart=2030-09-02&weeks=4',
+      {},
+      tokenGetter,
+    )
+  })
+
+  it('accepts a day with no requirements and a state that says so', async () => {
+    fetchWithBearerToken.mockResolvedValue({ data: commandCentreSummary() })
+
+    const summary = await getCommandCentreSummary({ weekStart: '2030-09-02', weeks: 4 }, tokenGetter)
+    expect(summary.staffing.days[1].fillState).toBeNull()
+  })
+
+  it('refuses a summary that is missing a panel', async () => {
+    const incomplete = commandCentreSummary()
+    delete incomplete.overflow
+    fetchWithBearerToken.mockResolvedValue({ data: incomplete })
+
+    await expect(
+      getCommandCentreSummary({ weekStart: '2030-09-02', weeks: 4 }, tokenGetter),
+    ).rejects.toThrow(/did not match the agreed contract/i)
+  })
+
+  it('refuses a figure that is not a number', async () => {
+    const summary = commandCentreSummary()
+    summary.staffing.unfilledHours = '8'
+    fetchWithBearerToken.mockResolvedValue({ data: summary })
+
+    await expect(
+      getCommandCentreSummary({ weekStart: '2030-09-02', weeks: 4 }, tokenGetter),
+    ).rejects.toThrow(/did not match the agreed contract/i)
   })
 })

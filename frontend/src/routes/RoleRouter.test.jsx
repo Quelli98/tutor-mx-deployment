@@ -2,6 +2,7 @@ import { fireEvent, render, screen, within } from '@testing-library/react'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { describe, expect, it, vi } from 'vitest'
 import { RoleRouter } from './RoleRouter'
+import { getCommandCentreSummary, listTutors } from '../api/organiser'
 
 const getAccessTokenSilently = vi.fn()
 
@@ -54,11 +55,50 @@ vi.mock('../api/organiser', () => ({
     courses: [],
     tutors: [],
   }),
+  getCommandCentreSummary: vi.fn().mockResolvedValue({
+    period: { weekStart: '2026-09-14T00:00:00.000Z', weekEnd: '2026-10-12T00:00:00.000Z', weeks: 4 },
+    staffing: {
+      requiredHours: 0,
+      assignedHours: 0,
+      unfilledHours: 0,
+      openRequirements: 0,
+      unfilledRequirements: 0,
+      requirements: [],
+      days: [],
+    },
+    finance: {
+      budget: null,
+      spend: null,
+      committed: null,
+      remaining: null,
+      overBudgetCourses: 0,
+      unpricedCourses: 0,
+      courses: [],
+    },
+    workload: { tutors: [] },
+    actions: {
+      pendingTimesheets: 0,
+      pendingVolunteerClaims: 0,
+      pendingExcuses: 0,
+      openDisputes: 0,
+      total: 0,
+    },
+    overflow: { openItems: 0, openHours: 0, unclaimedItems: 0 },
+  }),
 }))
 
 vi.mock('../api/tutorDashboard', () => ({
   fetchTutorDashboard: () =>
     Promise.resolve({ allocations: [], weeklyLimit: 10, usedHours: 0, remainingHours: 10 }),
+}))
+
+vi.mock('../api/notifications', () => ({
+  fetchNotifications: vi
+    .fn()
+    .mockResolvedValue({ items: [], page: 1, pageSize: 25, total: 0, unreadCount: 0 }),
+  fetchAllNotifications: vi
+    .fn()
+    .mockResolvedValue({ items: [], page: 1, pageSize: 25, total: 0, unreadCount: 0 }),
 }))
 
 function renderRole(currentRole, path = '/', onSignOut = vi.fn()) {
@@ -233,6 +273,107 @@ describe('RoleRouter', () => {
     expect(screen.queryByRole('heading', { name: 'Reports' })).not.toBeInTheDocument()
   })
 
+  it('offers the command centre in the organiser navigation', () => {
+    renderRole('ORGANISER')
+
+    expect(screen.getByRole('link', { name: 'Command centre' })).toHaveAttribute(
+      'href',
+      '/organiser/command-centre',
+    )
+  })
+
+  it('hides the command centre link from a tutor', () => {
+    renderRole('TUTOR', '/tutor')
+
+    expect(screen.queryByRole('link', { name: 'Command centre' })).not.toBeInTheDocument()
+  })
+
+  it('opens the command centre for an organiser', async () => {
+    renderRole('ORGANISER', '/organiser/command-centre')
+
+    expect(await screen.findByRole('heading', { name: 'Command centre' })).toBeInTheDocument()
+  })
+
+  it('keeps the command centre away from a tutor', () => {
+    renderRole('TUTOR', '/organiser/command-centre')
+
+    expect(screen.getByRole('heading', { name: /access denied/i })).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: 'Command centre' })).not.toBeInTheDocument()
+  })
+
+  it('rechecks the destination screen on entry when an attention card is clicked', async () => {
+    // The tutor the card names is over their stated capacity, so the feed offers
+    // a link to the screen that already handles them.
+    getCommandCentreSummary.mockResolvedValueOnce({
+      period: {
+        weekStart: '2026-09-14T00:00:00.000Z',
+        weekEnd: '2026-10-12T00:00:00.000Z',
+        weeks: 4,
+      },
+      staffing: {
+        requiredHours: 0,
+        assignedHours: 0,
+        unfilledHours: 0,
+        openRequirements: 0,
+        unfilledRequirements: 0,
+        requirements: [],
+        days: [],
+      },
+      finance: {
+        budget: null,
+        spend: null,
+        committed: null,
+        remaining: null,
+        overBudgetCourses: 0,
+        unpricedCourses: 0,
+        courses: [],
+      },
+      workload: {
+        tutors: [
+          {
+            tutorId: 7,
+            fullName: 'Ada Tutor',
+            capacityHours: 40,
+            allocatedHours: 40,
+            approvedWorkedHours: 0,
+            shareOfAllocatedHours: 1,
+          },
+        ],
+      },
+      actions: {
+        pendingTimesheets: 0,
+        pendingVolunteerClaims: 0,
+        pendingExcuses: 0,
+        openDisputes: 0,
+        total: 0,
+      },
+      overflow: { openItems: 0, openHours: 0, unclaimedItems: 0 },
+    })
+
+    renderRole('ORGANISER', '/organiser/command-centre')
+
+    // The feed's own link for the tutor, not the workload panel's: clicking an
+    // attention item is what has to land somewhere that rechecks it.
+    const feed = (await screen.findByRole('heading', { name: 'Needs attention' })).closest(
+      'section',
+    )
+    const link = within(feed).getByRole('link', { name: 'Open Ada Tutor' })
+    expect(link).toHaveAttribute('href', '/organiser/tutors/7')
+
+    // The click is where the current permission and state settle: the tutor
+    // screen reads its own week then, behind the organiser guard, and opens a
+    // tutor only from what that fresh read still carries.
+    listTutors.mockClear()
+    fireEvent.click(link)
+
+    expect(await screen.findByRole('heading', { name: 'Tutor management' })).toBeInTheDocument()
+    expect(listTutors).toHaveBeenCalledWith(getAccessTokenSilently, expect.any(String))
+    // The tutor the card named is not in what the fresh read carries, so the
+    // stale item opens nothing.
+    expect(await screen.findByText('No tutors available')).toBeVisible()
+    expect(screen.queryByRole('heading', { name: 'Marks & schedule' })).not.toBeInTheDocument()
+  })
+
   it('puts Reports in the organiser sidebar', () => {
     renderRole('ORGANISER', '/organiser')
 
@@ -299,6 +440,34 @@ describe('RoleRouter', () => {
 
     expect(screen.getByRole('heading', { name: /access denied/i })).toBeInTheDocument()
     expect(screen.queryByRole('heading', { name: 'Course management' })).not.toBeInTheDocument()
+  })
+
+  it('opens course management on the course a link named', async () => {
+    renderRole('ORGANISER', '/organiser/courses/2')
+
+    expect(await screen.findByRole('heading', { name: 'Course management' })).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: /access denied/i })).not.toBeInTheDocument()
+  })
+
+  it('opens tutor management on the tutor a link named', async () => {
+    renderRole('ORGANISER', '/organiser/tutors/7')
+
+    expect(await screen.findByRole('heading', { name: 'Tutor management' })).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: /access denied/i })).not.toBeInTheDocument()
+  })
+
+  it('keeps the course deep link away from a tutor', () => {
+    renderRole('TUTOR', '/organiser/courses/2')
+
+    expect(screen.getByRole('heading', { name: /access denied/i })).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: 'Course management' })).not.toBeInTheDocument()
+  })
+
+  it('keeps the tutor deep link away from a student', () => {
+    renderRole('STUDENT', '/organiser/tutors/7')
+
+    expect(screen.getByRole('heading', { name: /access denied/i })).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: 'Tutor management' })).not.toBeInTheDocument()
   })
 
   it('provides a skip link to the shared main-content target', () => {

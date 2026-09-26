@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
+  fetchAllNotifications,
   fetchNotifications,
   fetchUnreadCount,
   markAllNotificationsRead,
@@ -82,6 +83,143 @@ describe('fetchNotifications', () => {
     expect(url).toContain('status=all')
     expect(url).toContain('page=3')
     expect(url).toContain('pageSize=10')
+  })
+})
+
+describe('fetchAllNotifications', () => {
+  function pageOfItems(ids) {
+    return ids.map((id) => ({ ...VALID_ITEM, id }))
+  }
+
+  it('reads every page, so a reminder past the first page is still surfaced', async () => {
+    const token = vi.fn().mockResolvedValue('token-1')
+    const firstPage = pageOfItems(Array.from({ length: 25 }, (_, index) => index + 1))
+    const secondPage = pageOfItems(Array.from({ length: 25 }, (_, index) => index + 26))
+    const reminderBeyondFirstPage = {
+      ...VALID_ITEM,
+      id: 60,
+      type: 'TIMESHEET_REVIEW_DUE',
+      title: 'A timesheet has waited two days for review',
+      targetType: 'timesheet',
+      targetId: 501,
+    }
+    globalThis.fetch = vi
+      .fn()
+      .mockResolvedValueOnce(
+        okResponse({ data: { items: firstPage, page: 1, pageSize: 25, total: 51, unreadCount: 3 } }),
+      )
+      .mockResolvedValueOnce(
+        okResponse({ data: { items: secondPage, page: 2, pageSize: 25, total: 51, unreadCount: 3 } }),
+      )
+      .mockResolvedValueOnce(
+        okResponse({
+          data: { items: [reminderBeyondFirstPage], page: 3, pageSize: 25, total: 51, unreadCount: 3 },
+        }),
+      )
+
+    const result = await fetchAllNotifications({ status: 'all' }, token)
+
+    expect(result.items).toHaveLength(51)
+    expect(result.items.at(-1)).toMatchObject({
+      id: 60,
+      type: 'TIMESHEET_REVIEW_DUE',
+      targetType: 'timesheet',
+      targetId: 501,
+    })
+    expect(globalThis.fetch).toHaveBeenCalledTimes(3)
+    const urls = globalThis.fetch.mock.calls.map(([url]) => url)
+    expect(urls[0]).toContain('status=all')
+    expect(urls[1]).toContain('page=2')
+    expect(urls[1]).toContain('pageSize=25')
+    expect(urls[2]).toContain('page=3')
+  })
+
+  it('reads once when the reported total fits on the first page', async () => {
+    const token = vi.fn().mockResolvedValue('token-1')
+    globalThis.fetch = vi
+      .fn()
+      .mockResolvedValue(
+        okResponse({ data: { items: [VALID_ITEM], page: 1, pageSize: 25, total: 1, unreadCount: 1 } }),
+      )
+
+    const result = await fetchAllNotifications({ status: 'all' }, token)
+
+    expect(result.items).toHaveLength(1)
+    expect(globalThis.fetch).toHaveBeenCalledTimes(1)
+  })
+
+  it('stops at the total the first page reported rather than a later, larger one', async () => {
+    const token = vi.fn().mockResolvedValue('token-1')
+    globalThis.fetch = vi.fn().mockImplementation((url) => {
+      const page = Number(new URL(url, 'http://localhost').searchParams.get('page'))
+      return okResponse({
+        data: {
+          items: pageOfItems(Array.from({ length: 25 }, (_, index) => (page - 1) * 25 + index + 1)),
+          page,
+          pageSize: 25,
+          // Only the total the first page reported bounds the walk; a later
+          // page claiming the store has grown cannot stretch it.
+          total: page === 1 ? 50 : 100000,
+          unreadCount: 0,
+        },
+      })
+    })
+
+    const result = await fetchAllNotifications({}, token)
+
+    expect(globalThis.fetch).toHaveBeenCalledTimes(2)
+    expect(result.items).toHaveLength(50)
+  })
+
+  it('reads past a thousand rows, so a reminder on the last page is still surfaced', async () => {
+    const token = vi.fn().mockResolvedValue('token-1')
+    const finalReminder = {
+      ...VALID_ITEM,
+      id: 1001,
+      type: 'TIMESHEET_REVIEW_DUE',
+      title: 'A timesheet has waited two days for review',
+      targetType: 'timesheet',
+      targetId: 901,
+    }
+    const rows = [
+      ...pageOfItems(Array.from({ length: 1000 }, (_, index) => index + 1)),
+      finalReminder,
+    ]
+    globalThis.fetch = vi.fn().mockImplementation((url) => {
+      const page = Number(new URL(url, 'http://localhost').searchParams.get('page'))
+      return okResponse({
+        data: {
+          items: rows.slice((page - 1) * 25, page * 25),
+          page,
+          pageSize: 25,
+          total: 1001,
+          unreadCount: 0,
+        },
+      })
+    })
+
+    const result = await fetchAllNotifications({}, token)
+
+    expect(globalThis.fetch).toHaveBeenCalledTimes(41)
+    expect(result.items).toHaveLength(1001)
+    expect(result.items.at(-1)).toMatchObject({
+      id: 1001,
+      type: 'TIMESHEET_REVIEW_DUE',
+      targetType: 'timesheet',
+      targetId: 901,
+    })
+  })
+
+  it('rejects when a later page fails, so the caller degrades rather than working from half the store', async () => {
+    const token = vi.fn().mockResolvedValue('token-1')
+    globalThis.fetch = vi
+      .fn()
+      .mockResolvedValueOnce(
+        okResponse({ data: { items: [VALID_ITEM], page: 1, pageSize: 1, total: 2, unreadCount: 1 } }),
+      )
+      .mockRejectedValueOnce(new Error('page two unavailable'))
+
+    await expect(fetchAllNotifications({}, token)).rejects.toThrow(/page two unavailable/)
   })
 })
 

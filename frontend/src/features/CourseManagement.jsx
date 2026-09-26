@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { useParams } from 'react-router-dom'
 import { useAuth0 } from '@auth0/auth0-react'
 import { createCourse, deleteCourse, listCourses, updateCourse } from '../api/organiser'
 import { EmptyState, ErrorState, LoadingState } from '../components/shared/StatusMessage'
@@ -95,6 +96,7 @@ function moneyFieldValue(value) {
 
 export default function CourseManagement() {
   const { getAccessTokenSilently } = useAuth0()
+  const { courseId } = useParams()
   const [status, setStatus] = useState('loading')
   const [courses, setCourses] = useState([])
   const [errorMessage, setErrorMessage] = useState('')
@@ -151,7 +153,7 @@ export default function CourseManagement() {
     setFormError('')
   }
 
-  function startEditing(course) {
+  const startEditing = useCallback((course) => {
     setEditingCourse(course)
     setForm({
       code: course.code,
@@ -162,7 +164,20 @@ export default function CourseManagement() {
     setFieldErrors({})
     setFormError('')
     setSuccessMessage('')
-  }
+  }, [])
+
+  // A link from the command centre names the course it was about. This screen is
+  // what carries a course's details, so its form opens on that course once the
+  // list has arrived, and only once, so cancelling the edit leaves it cancelled.
+  const deepLinkOpened = useRef(false)
+  useEffect(() => {
+    if (deepLinkOpened.current || !courseId || status !== 'success') return
+    const match = courses.find((course) => String(course.id) === String(courseId))
+    if (!match) return
+    deepLinkOpened.current = true
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    startEditing(match)
+  }, [courseId, courses, startEditing, status])
 
   async function handleSubmit(event) {
     event.preventDefault()

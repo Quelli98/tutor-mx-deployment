@@ -640,6 +640,71 @@ function isTutorReportRow(value) {
   )
 }
 
+const COMMAND_CENTRE_ACTION_FIELDS = Object.freeze([
+  'pendingTimesheets',
+  'pendingVolunteerClaims',
+  'pendingExcuses',
+  'openDisputes',
+  'total',
+])
+
+function isCommandCentreDay(value) {
+  return (
+    !!value &&
+    typeof value === 'object' &&
+    typeof value.date === 'string' &&
+    Number.isFinite(value.requiredHours) &&
+    Number.isFinite(value.assignedHours) &&
+    Number.isFinite(value.unfilledHours) &&
+    Number.isInteger(value.requirements) &&
+    (value.fillState === null || STAFFING_REQUIREMENT_FILL_STATES.includes(value.fillState))
+  )
+}
+
+/**
+ * The Command Centre arrives as one summary, so it is checked as one: a payload
+ * missing a panel is refused rather than half drawn, and every figure on the
+ * screen is one the server worked out.
+ */
+function isCommandCentreSummary(value) {
+  return (
+    !!value &&
+    typeof value === 'object' &&
+    !!value.period &&
+    isDate(value.period.weekStart) &&
+    isDate(value.period.weekEnd) &&
+    Number.isInteger(value.period.weeks) &&
+    !!value.staffing &&
+    Number.isFinite(value.staffing.requiredHours) &&
+    Number.isFinite(value.staffing.assignedHours) &&
+    Number.isFinite(value.staffing.unfilledHours) &&
+    Number.isInteger(value.staffing.openRequirements) &&
+    Number.isInteger(value.staffing.unfilledRequirements) &&
+    Array.isArray(value.staffing.requirements) &&
+    value.staffing.requirements.every(isStaffingRequirement) &&
+    Array.isArray(value.staffing.days) &&
+    value.staffing.days.every(isCommandCentreDay) &&
+    !!value.finance &&
+    isMoneyOrUnset(value.finance.budget) &&
+    isMoneyOrUnset(value.finance.spend) &&
+    isMoneyOrUnset(value.finance.committed) &&
+    isMoneyOrUnset(value.finance.remaining) &&
+    Number.isInteger(value.finance.overBudgetCourses) &&
+    Number.isInteger(value.finance.unpricedCourses) &&
+    Array.isArray(value.finance.courses) &&
+    value.finance.courses.every(isCourseReportRow) &&
+    !!value.workload &&
+    Array.isArray(value.workload.tutors) &&
+    value.workload.tutors.every(isTutorReportRow) &&
+    !!value.actions &&
+    COMMAND_CENTRE_ACTION_FIELDS.every((field) => Number.isInteger(value.actions[field])) &&
+    !!value.overflow &&
+    Number.isInteger(value.overflow.openItems) &&
+    Number.isFinite(value.overflow.openHours) &&
+    Number.isInteger(value.overflow.unclaimedItems)
+  )
+}
+
 export async function getWorkloadReport(input, tokenOrGetter) {
   const query = new URLSearchParams({
     weekStart: input.weekStart,
@@ -663,6 +728,28 @@ export async function getWorkloadReport(input, tokenOrGetter) {
     throw new Error('The report response did not match the agreed contract.')
   }
   return report
+}
+
+/**
+ * The whole Command Centre for one period, in a single call: the staffing,
+ * money, workload and queue panels are all measured over the same weeks, so
+ * they cannot disagree with each other by being read at different moments.
+ */
+export async function getCommandCentreSummary(input, tokenOrGetter) {
+  const query = new URLSearchParams({
+    weekStart: input.weekStart,
+    weeks: String(input.weeks),
+  })
+  const body = await fetchWithBearerToken(
+    `/api/organiser/command-centre?${query.toString()}`,
+    {},
+    tokenOrGetter,
+  )
+  const summary = body?.data
+  if (!isCommandCentreSummary(summary)) {
+    throw new Error('The command centre response did not match the agreed contract.')
+  }
+  return summary
 }
 
 export async function downloadPayrollExport(input, tokenOrGetter) {
