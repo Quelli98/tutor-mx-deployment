@@ -234,3 +234,249 @@ describe('TutorForms accessibility', () => {
     expect(fetchExcuseStatus).toHaveBeenCalledWith(7, tokenGetter)
   })
 })
+
+describe('TutorForms unified timetable', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    window.sessionStorage.clear()
+    fetchTutorDashboard.mockResolvedValue(dashboard)
+    listOwnTimeSlots.mockResolvedValue([])
+    listAcademicTerms.mockResolvedValue(academicTerms)
+  })
+
+  it('renders the unified "Add to my timetable" section with both options', async () => {
+    render(<TutorForms />)
+    await screen.findByRole('heading', { name: /add to my timetable/i })
+    expect(screen.getByRole('tab', { name: /add manually/i })).toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: /import timetable/i })).toBeInTheDocument()
+  })
+
+  it('shows only the selected tab panel', async () => {
+    render(<TutorForms />)
+    await screen.findByRole('heading', { name: /add to my timetable/i })
+
+    const manualTab = screen.getByRole('tab', { name: /add manually/i })
+    const importTab = screen.getByRole('tab', { name: /import timetable/i })
+
+    expect(manualTab).toHaveAttribute('aria-selected', 'true')
+    expect(importTab).toHaveAttribute('aria-selected', 'false')
+
+    const manualPanel = document.getElementById('tab-panel-manual')
+    const importPanel = document.getElementById('tab-panel-import')
+
+    expect(manualPanel).not.toHaveAttribute('hidden')
+    expect(importPanel).toHaveAttribute('hidden')
+
+    fireEvent.click(importTab)
+
+    expect(manualTab).toHaveAttribute('aria-selected', 'false')
+    expect(importTab).toHaveAttribute('aria-selected', 'true')
+    expect(manualPanel).toHaveAttribute('hidden')
+    expect(importPanel).not.toHaveAttribute('hidden')
+  })
+
+  it('preserves manual form state when switching tabs', async () => {
+    const user = userEvent.setup()
+    render(<TutorForms />)
+    await screen.findByRole('heading', { name: /add to my timetable/i })
+
+    const labelInput = screen.getByLabelText(/description \(optional\)/i)
+    await user.type(labelInput, 'Maths lecture')
+    expect(labelInput).toHaveValue('Maths lecture')
+
+    fireEvent.click(screen.getByRole('tab', { name: /import timetable/i }))
+    await waitFor(() => {
+      expect(screen.getByLabelText(/academic term/i)).not.toBeDisabled()
+    })
+
+    fireEvent.click(screen.getByRole('tab', { name: /add manually/i }))
+
+    expect(screen.getByLabelText(/description \(optional\)/i)).toHaveValue('Maths lecture')
+  })
+
+  it('preserves import form state when switching tabs', async () => {
+    const user = userEvent.setup()
+    render(<TutorForms />)
+    await screen.findByRole('heading', { name: /add to my timetable/i })
+    await waitFor(() => {
+      expect(screen.getByLabelText(/academic term/i)).not.toBeDisabled()
+    })
+
+    fireEvent.click(screen.getByRole('tab', { name: /import timetable/i }))
+
+    const textarea = screen.getByLabelText(/timetable rows/i)
+    await user.type(textarea, 'date,start,end,label')
+    expect(textarea).toHaveValue('date,start,end,label')
+
+    fireEvent.click(screen.getByRole('tab', { name: /add manually/i }))
+    await waitFor(() => {
+      expect(screen.getByLabelText(/description \(optional\)/i)).toBeInTheDocument()
+    })
+
+    fireEvent.click(screen.getByRole('tab', { name: /import timetable/i }))
+
+    expect(screen.getByLabelText(/timetable rows/i)).toHaveValue('date,start,end,label')
+  })
+
+  it('does not submit forms when switching tabs', async () => {
+    render(<TutorForms />)
+    await screen.findByRole('heading', { name: /add to my timetable/i })
+
+    fireEvent.click(screen.getByRole('tab', { name: /import timetable/i }))
+    await waitFor(() => {
+      expect(screen.getByLabelText(/academic term/i)).not.toBeDisabled()
+    })
+
+    expect(submitTimeSlot).not.toHaveBeenCalled()
+
+    fireEvent.click(screen.getByRole('tab', { name: /add manually/i }))
+
+    expect(submitTimeSlot).not.toHaveBeenCalled()
+  })
+
+  it('creates a manual Class entry with correct category', async () => {
+    submitTimeSlot.mockResolvedValueOnce({
+      id: 10,
+      type: 'BUSY',
+      startsAt: new Date('2030-09-05T09:00').toISOString(),
+      endsAt: new Date('2030-09-05T11:00').toISOString(),
+      recurrence: null,
+      label: 'CSAM101 Lecture',
+      recurrenceUntil: null,
+      category: 'CLASS',
+    })
+
+    render(<TutorForms />)
+    await screen.findByRole('heading', { name: /add to my timetable/i })
+
+    fireEvent.change(screen.getByLabelText(/category/i), { target: { value: 'CLASS' } })
+    fireEvent.change(screen.getByLabelText(/from.*date and time/i), { target: { value: '2030-09-05T09:00' } })
+    fireEvent.change(screen.getByLabelText(/until.*date and time/i), { target: { value: '2030-09-05T11:00' } })
+    fireEvent.change(screen.getByLabelText(/description \(optional\)/i), { target: { value: 'CSAM101 Lecture' } })
+
+    fireEvent.click(screen.getByRole('button', { name: /add schedule entry/i }))
+
+    await waitFor(() => {
+      expect(screen.getByText(/schedule entry added/i)).toBeInTheDocument()
+    })
+
+    expect(submitTimeSlot).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'BUSY',
+        category: 'CLASS',
+        label: 'CSAM101 Lecture',
+      }),
+      tokenGetter,
+    )
+  })
+
+  it('creates a manual Unavailable entry with correct category', async () => {
+    submitTimeSlot.mockResolvedValueOnce({
+      id: 11,
+      type: 'BUSY',
+      startsAt: new Date('2030-09-06T14:00').toISOString(),
+      endsAt: new Date('2030-09-06T16:00').toISOString(),
+      recurrence: null,
+      label: 'Doctor appointment',
+      recurrenceUntil: null,
+      category: 'UNAVAILABLE',
+    })
+
+    render(<TutorForms />)
+    await screen.findByRole('heading', { name: /add to my timetable/i })
+
+    fireEvent.change(screen.getByLabelText(/from.*date and time/i), { target: { value: '2030-09-06T14:00' } })
+    fireEvent.change(screen.getByLabelText(/until.*date and time/i), { target: { value: '2030-09-06T16:00' } })
+    fireEvent.change(screen.getByLabelText(/description \(optional\)/i), { target: { value: 'Doctor appointment' } })
+
+    fireEvent.click(screen.getByRole('button', { name: /add schedule entry/i }))
+
+    await waitFor(() => {
+      expect(screen.getByText(/schedule entry added/i)).toBeInTheDocument()
+    })
+
+    expect(submitTimeSlot).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'BUSY',
+        category: 'UNAVAILABLE',
+        label: 'Doctor appointment',
+      }),
+      tokenGetter,
+    )
+  })
+
+  it('supports weekly recurrence for manual entries', async () => {
+    submitTimeSlot.mockResolvedValueOnce({
+      id: 12,
+      type: 'BUSY',
+      startsAt: new Date('2030-09-05T09:00').toISOString(),
+      endsAt: new Date('2030-09-05T11:00').toISOString(),
+      recurrence: 'WEEKLY',
+      label: 'Weekly tutorial',
+      recurrenceUntil: new Date('2030-11-29').toISOString(),
+      category: 'CLASS',
+    })
+
+    render(<TutorForms />)
+    await screen.findByRole('heading', { name: /add to my timetable/i })
+
+    fireEvent.change(screen.getByLabelText(/category/i), { target: { value: 'CLASS' } })
+    fireEvent.change(screen.getByLabelText(/from.*date and time/i), { target: { value: '2030-09-05T09:00' } })
+    fireEvent.change(screen.getByLabelText(/until.*date and time/i), { target: { value: '2030-09-05T11:00' } })
+    fireEvent.change(screen.getByLabelText(/description \(optional\)/i), { target: { value: 'Weekly tutorial' } })
+    fireEvent.change(screen.getByLabelText(/repeat/i), { target: { value: 'WEEKLY' } })
+    fireEvent.change(screen.getByLabelText(/repeat until/i), { target: { value: '2030-11-29T00:00' } })
+
+    fireEvent.click(screen.getByRole('button', { name: /add schedule entry/i }))
+
+    await waitFor(() => {
+      expect(screen.getByText(/schedule entry added/i)).toBeInTheDocument()
+    })
+
+    expect(submitTimeSlot).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'BUSY',
+        category: 'CLASS',
+        recurrence: 'WEEKLY',
+        recurrenceUntil: expect.any(String),
+      }),
+      tokenGetter,
+    )
+  })
+
+  it('supports fortnightly recurrence for manual entries', async () => {
+    submitTimeSlot.mockResolvedValueOnce({
+      id: 13,
+      type: 'BUSY',
+      startsAt: new Date('2030-09-05T09:00').toISOString(),
+      endsAt: new Date('2030-09-05T11:00').toISOString(),
+      recurrence: 'FORTNIGHTLY',
+      label: 'Fortnightly lab',
+      recurrenceUntil: new Date('2030-11-29').toISOString(),
+      category: 'CLASS',
+    })
+
+    render(<TutorForms />)
+    await screen.findByRole('heading', { name: /add to my timetable/i })
+
+    fireEvent.change(screen.getByLabelText(/category/i), { target: { value: 'CLASS' } })
+    fireEvent.change(screen.getByLabelText(/from.*date and time/i), { target: { value: '2030-09-05T09:00' } })
+    fireEvent.change(screen.getByLabelText(/until.*date and time/i), { target: { value: '2030-09-05T11:00' } })
+    fireEvent.change(screen.getByLabelText(/repeat/i), { target: { value: 'FORTNIGHTLY' } })
+
+    fireEvent.click(screen.getByRole('button', { name: /add schedule entry/i }))
+
+    await waitFor(() => {
+      expect(screen.getByText(/schedule entry added/i)).toBeInTheDocument()
+    })
+
+    expect(submitTimeSlot).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'BUSY',
+        category: 'CLASS',
+        recurrence: 'FORTNIGHTLY',
+      }),
+      tokenGetter,
+    )
+  })
+})

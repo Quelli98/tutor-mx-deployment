@@ -115,7 +115,7 @@ export default function TutorForms() {
           role="tabpanel"
           id="tab-panel-manual"
           aria-labelledby="tab-manual"
-          className={`timetable-tab-panel${activeTab === 'manual' ? ' active' : ''}`}
+          hidden={activeTab !== 'manual'}
         >
           <AvailabilityForm key={`schedule-${scheduleVersion}`} tokenOrGetter={getAccessTokenSilently} />
         </div>
@@ -123,10 +123,10 @@ export default function TutorForms() {
           role="tabpanel"
           id="tab-panel-import"
           aria-labelledby="tab-import"
-          className={`timetable-tab-panel${activeTab === 'import' ? ' active' : ''}`}
+          hidden={activeTab !== 'import'}
         >
           <TimetableImport
-            key={`import-${activeTab}-${scheduleVersion}`}
+            key={`import-${scheduleVersion}`}
             tokenOrGetter={getAccessTokenSilently}
             onImported={() => setScheduleVersion((current) => current + 1)}
           />
