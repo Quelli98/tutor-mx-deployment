@@ -10,7 +10,9 @@ const CATEGORY_LABELS = {
   volunteer: 'Volunteer work',
 }
 
-export function CommandPalette() {
+// variant="field" draws the opener as a wide search box (the organiser's top bar); the default
+// is the compact button the tutor and student navigation use.
+export function CommandPalette({ variant = 'button' }) {
   const { getAccessTokenSilently } = useAuth0()
   const navigate = useNavigate()
   const openerRef = useRef(null)
@@ -90,9 +92,20 @@ export function CommandPalette() {
 
   return (
     <>
-      <button ref={openerRef} type="button" className="command-palette-trigger" onClick={() => setOpen(true)} aria-keyshortcuts="Control+K Meta+K">
-        Search <kbd>Ctrl K</kbd>
-      </button>
+      {variant === 'field' ? (
+        <button ref={openerRef} type="button" className="command-palette-trigger command-palette-field" onClick={() => setOpen(true)} aria-keyshortcuts="Control+K Meta+K">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true" focusable="false">
+            <circle cx="11" cy="11" r="8" />
+            <path d="m21 21-4.3-4.3" />
+          </svg>
+          <span>Search courses, people or timesheets</span>
+          <kbd>Ctrl K</kbd>
+        </button>
+      ) : (
+        <button ref={openerRef} type="button" className="command-palette-trigger" onClick={() => setOpen(true)} aria-keyshortcuts="Control+K Meta+K">
+          Search <kbd>Ctrl K</kbd>
+        </button>
+      )}
       {open && (
         <div className="command-palette-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) close() }}>
           <section className="command-palette" role="dialog" aria-modal="true" aria-label="Search CSAM Tutor Hub">

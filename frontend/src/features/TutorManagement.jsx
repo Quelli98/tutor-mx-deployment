@@ -4,6 +4,11 @@ import { listTutors } from '../api/organiser'
 import { EmptyState, ErrorState, LoadingState } from '../components/shared/StatusMessage'
 import TutorAllocationDetails from './TutorAllocationDetails'
 import { addDays, localMonday, weekRangeLabel } from '../components/shared/scheduleWeek'
+import { initials } from './organiserHome'
+import { photoAt } from '../components/organiser/coverPhotos'
+import { OrganiserIcon } from '../components/organiser/OrganiserIcon'
+
+const AVATAR_ACCENTS = ['blue', 'pink', 'orchid', 'coral']
 
 const CAPACITY_TEXT = {
   available: 'Available for more work',
@@ -90,6 +95,22 @@ export default function TutorManagement() {
       {status === 'error' && <ErrorState title="Tutors unavailable" message={errorMessage} onRetry={() => loadTutors()} />}
       {status === 'success' && tutors.length === 0 && <EmptyState title="No tutors available" message="Tutor accounts will appear here after registration." />}
       {status === 'success' && tutors.length > 0 && (
+        <ul className="tutor-summary" aria-label="This week's tutors at a glance">
+          {[
+            ['Tutors', tutors.length, 'users', 'blue'],
+            ['Available', tutors.filter((tutor) => tutor.capacityStatus === 'available').length, 'check', 'pink'],
+            ['Near or at their limit', tutors.filter((tutor) => ['near-limit', 'limit-reached'].includes(tutor.capacityStatus)).length, 'clock', 'coral'],
+            ['Limit not set yet', tutors.filter((tutor) => tutor.capacityStatus === 'not-set').length, 'settings', 'orchid'],
+          ].map(([label, count, icon, accent]) => (
+            <li className={`tutor-summary-tile accent-${accent}`} key={label}>
+              <span className="card-title-icon"><OrganiserIcon name={icon} size={18} /></span>
+              <span className="tutor-summary-label">{label}</span>
+              <strong className="tutor-summary-count">{count}</strong>
+            </li>
+          ))}
+        </ul>
+      )}
+      {status === 'success' && tutors.length > 0 && (
         <section className="role-card tutor-list-card" aria-labelledby="tutor-list-heading">
           <div className="tutor-list-header">
             <div>
@@ -120,17 +141,32 @@ export default function TutorManagement() {
           </div>
           {filteredTutors.length === 0 ? <p className="empty-inline" role="status">No tutors found.</p> : (
             <div className="tutor-workload-grid">
-              {filteredTutors.map((tutor) => (
-                <article className="tutor-workload-card" key={tutor.id} aria-labelledby={`tutor-${tutor.id}`}>
-                  <div>
-                    <h3 id={`tutor-${tutor.id}`}>{tutor.fullName?.trim() || tutor.email}</h3>
-                    {tutor.fullName?.trim() && tutor.fullName.trim() !== tutor.email && <p>{tutor.email}</p>}
+              {filteredTutors.map((tutor, index) => (
+                <article className={`tutor-workload-card capacity-card-${tutor.capacityStatus} accent-${AVATAR_ACCENTS[index % AVATAR_ACCENTS.length]}`} key={tutor.id} aria-labelledby={`tutor-${tutor.id}`}>
+                  <span className="tutor-card-cover" style={{ backgroundImage: `url(${photoAt(index)})` }} aria-hidden="true" />
+                  <div className="tutor-card-head">
+                    <span className="tutor-avatar" aria-hidden="true">
+                      {initials(tutor.fullName?.trim() || tutor.email)}
+                    </span>
+                    <div>
+                      <h3 id={`tutor-${tutor.id}`}>{tutor.fullName?.trim() || tutor.email}</h3>
+                      {tutor.fullName?.trim() && tutor.fullName.trim() !== tutor.email && <p>{tutor.email}</p>}
+                    </div>
+                  </div>
+                  {/* How full the week is; the figures below say the same in words. */}
+                  <div className="tutor-card-usage-row" aria-hidden="true">
+                    <span className="tutor-card-usage">
+                      <span style={{ width: `${tutor.weeklyHours ? Math.min(1, tutor.usedHours / tutor.weeklyHours) * 100 : 0}%` }} />
+                    </span>
+                    <span className="tutor-card-usage-label">
+                      {tutor.weeklyHours ? `${Math.round(Math.min(1, tutor.usedHours / tutor.weeklyHours) * 100)}% booked` : 'No limit'}
+                    </span>
                   </div>
                   <dl className="workload-facts">
-                    <div><dt>Weekly capacity</dt><dd>{tutor.weeklyHours == null ? 'Not set — setup incomplete' : `${tutor.weeklyHours} h`}</dd></div>
-                    <div><dt>Allocated</dt><dd>{tutor.usedHours} h</dd></div>
-                    <div><dt>Remaining</dt><dd>{tutor.remainingHours == null ? 'Not set' : `${tutor.remainingHours} h`}</dd></div>
-                    <div><dt>Worked this week</dt><dd>{tutor.workedHours} h</dd></div>
+                    <div className="fact-capacity"><dt>Weekly capacity</dt><dd className={tutor.weeklyHours == null ? 'not-set' : undefined}>{tutor.weeklyHours == null ? 'Not set — setup incomplete' : `${tutor.weeklyHours} h`}</dd></div>
+                    <div className="fact-allocated"><dt>Allocated</dt><dd>{tutor.usedHours} h</dd></div>
+                    <div className="fact-remaining"><dt>Remaining</dt><dd className={tutor.remainingHours == null ? 'not-set' : undefined}>{tutor.remainingHours == null ? 'Not set' : `${tutor.remainingHours} h`}</dd></div>
+                    <div className="fact-worked"><dt>Worked this week</dt><dd>{tutor.workedHours} h</dd></div>
                     <div className="workload-status"><dt>Status</dt><dd className={`capacity-status capacity-${tutor.capacityStatus}`}>{CAPACITY_TEXT[tutor.capacityStatus]}</dd></div>
                   </dl>
                   <button className="secondary-button" type="button" onClick={() => setDetailsTutor(tutor)}

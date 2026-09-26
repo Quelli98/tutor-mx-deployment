@@ -209,7 +209,7 @@ function FinishSetupCard({ onChooseRole, onSignOut }) {
 function App() {
   const { isAuthenticated, loginWithRedirect, logout, isLoading } = useAuth0()
   const [pendingRole, setPendingRole] = useState(() => storedPendingRole())
-  const { role: currentRole, loading: userLoading, error: userError, errorCode: userErrorCode } = useCurrentUser({ enabled: !pendingRole })
+  const { user: currentUser, role: currentRole, loading: userLoading, error: userError, errorCode: userErrorCode } = useCurrentUser({ enabled: !pendingRole })
   const [status, setStatus] = useState({ type: 'idle', message: '' })
   const [isSubmitting, setIsSubmitting] = useState(false)
 
@@ -300,7 +300,7 @@ function App() {
 
   return (
     <div className="app-shell">
-      <RoleRouter currentRole={currentRole} onSignOut={handleSignOut} />
+      <RoleRouter currentRole={currentRole} onSignOut={handleSignOut} user={currentUser} />
     </div>
   )
 }
