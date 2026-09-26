@@ -60,12 +60,12 @@ describe('CourseManagement', () => {
     expect(screen.getByRole('heading', { name: /course management/i })).toBeInTheDocument()
   })
 
-  it('renders the returned courses in a table', async () => {
+  it('renders the returned courses as cards', async () => {
     listCourses.mockResolvedValue(courses)
 
     renderPage()
 
-    const table = await screen.findByRole('table')
+    const table = await screen.findByRole('list', { name: /courses currently set up/i })
     expect(within(table).getByText('DEMO101')).toBeInTheDocument()
     expect(within(table).getByText('Demo Course')).toBeInTheDocument()
     expect(within(table).getByText('COMS3011')).toBeInTheDocument()
@@ -79,7 +79,7 @@ describe('CourseManagement', () => {
     renderPage()
 
     expect(await screen.findByRole('heading', { name: /no courses yet/i })).toBeInTheDocument()
-    expect(screen.queryByRole('table')).not.toBeInTheDocument()
+    expect(screen.queryByRole('list', { name: /courses currently set up/i })).not.toBeInTheDocument()
   })
 
   it('shows a safe generic message and retries the load', async () => {
@@ -97,7 +97,7 @@ describe('CourseManagement', () => {
     await waitFor(() => {
       expect(listCourses).toHaveBeenCalledTimes(2)
     })
-    expect(await screen.findByRole('table')).toBeInTheDocument()
+    expect(await screen.findByRole('list', { name: /courses currently set up/i })).toBeInTheDocument()
   })
 
   it('explains a missing organiser profile', async () => {
@@ -136,7 +136,7 @@ describe('CourseManagement create, edit and delete', () => {
     createCourse.mockResolvedValue({ id: 3, code: 'NEW100', name: 'New Course' })
 
     renderPage()
-    await screen.findByRole('table')
+    await screen.findByRole('list', { name: /courses currently set up/i })
 
     fireEvent.change(screen.getByLabelText(/course code/i), { target: { value: '  NEW100  ' } })
     fireEvent.change(screen.getByLabelText(/course name/i), { target: { value: '  New Course  ' } })
@@ -160,7 +160,7 @@ describe('CourseManagement create, edit and delete', () => {
     listCourses.mockResolvedValue(courses)
 
     renderPage()
-    await screen.findByRole('table')
+    await screen.findByRole('list', { name: /courses currently set up/i })
 
     fireEvent.change(screen.getByLabelText(/course code/i), { target: { value: '   ' } })
     fireEvent.change(screen.getByLabelText(/course name/i), { target: { value: 'New Course' } })
@@ -177,7 +177,7 @@ describe('CourseManagement create, edit and delete', () => {
     listCourses.mockResolvedValue(courses)
 
     renderPage()
-    await screen.findByRole('table')
+    await screen.findByRole('list', { name: /courses currently set up/i })
 
     fireEvent.change(screen.getByLabelText(/course code/i), { target: { value: 'NEW100' } })
     fireEvent.change(screen.getByLabelText(/course name/i), { target: { value: 'x'.repeat(121) } })
@@ -194,7 +194,7 @@ describe('CourseManagement create, edit and delete', () => {
     updateCourse.mockResolvedValue({ id: 1, code: 'DEMO101', name: 'Renamed Course' })
 
     renderPage()
-    await screen.findByRole('table')
+    await screen.findByRole('list', { name: /courses currently set up/i })
 
     fireEvent.click(screen.getByRole('button', { name: /edit DEMO101/i }))
 
@@ -222,7 +222,7 @@ describe('CourseManagement create, edit and delete', () => {
     deleteCourse.mockResolvedValue(undefined)
 
     renderPage()
-    await screen.findByRole('table')
+    await screen.findByRole('list', { name: /courses currently set up/i })
 
     fireEvent.click(screen.getByRole('button', { name: /delete DEMO101/i }))
 
@@ -244,7 +244,7 @@ describe('CourseManagement create, edit and delete', () => {
     listCourses.mockResolvedValue(courses)
 
     renderPage()
-    await screen.findByRole('table')
+    await screen.findByRole('list', { name: /courses currently set up/i })
 
     fireEvent.click(screen.getByRole('button', { name: /delete DEMO101/i }))
 
@@ -269,7 +269,7 @@ describe('CourseManagement create, edit and delete', () => {
     )
 
     renderPage()
-    await screen.findByRole('table')
+    await screen.findByRole('list', { name: /courses currently set up/i })
 
     fireEvent.click(screen.getByRole('button', { name: /delete DEMO101/i }))
     fireEvent.click(
@@ -298,7 +298,7 @@ describe('CourseManagement create, edit and delete', () => {
     createCourse.mockRejectedValue(errorWithCode('COURSE_CODE_CONFLICT'))
 
     renderPage()
-    await screen.findByRole('table')
+    await screen.findByRole('list', { name: /courses currently set up/i })
 
     fireEvent.change(screen.getByLabelText(/course code/i), { target: { value: 'DEMO101' } })
     fireEvent.change(screen.getByLabelText(/course name/i), { target: { value: 'Duplicate' } })
@@ -319,7 +319,7 @@ describe('CourseManagement create, edit and delete', () => {
     deleteCourse.mockRejectedValueOnce(conflict)
 
     renderPage()
-    await screen.findByRole('table')
+    await screen.findByRole('list', { name: /courses currently set up/i })
 
     fireEvent.click(screen.getByRole('button', { name: /delete DEMO101/i }))
     fireEvent.click(
@@ -348,7 +348,7 @@ describe('CourseManagement create, edit and delete', () => {
     )
 
     renderPage()
-    await screen.findByRole('table')
+    await screen.findByRole('list', { name: /courses currently set up/i })
 
     fireEvent.click(screen.getByRole('button', { name: /delete DEMO101/i }))
     const dialog = await screen.findByRole('dialog')
@@ -379,16 +379,17 @@ describe('CourseManagement money fields', () => {
 
   it('shows the rate and budget, and says when they are not set', async () => {
     renderPage()
-    const rows = within(await screen.findByRole('table')).getAllByRole('row')
+    const cards = within(await screen.findByRole('list', { name: /courses currently set up/i })).getAllByRole('listitem')
+    const figure = (card, label) => within(card).getByText(label).nextElementSibling
 
-    expect(rows[1].querySelectorAll('td')[2]).toHaveTextContent('Not set')
-    expect(rows[2].querySelectorAll('td')[2]).toHaveTextContent('R30.00')
-    expect(rows[2].querySelectorAll('td')[3]).toHaveTextContent('R5000.00')
+    expect(figure(cards[0], 'Hourly rate')).toHaveTextContent('Not set')
+    expect(figure(cards[1], 'Hourly rate')).toHaveTextContent('R30.00')
+    expect(figure(cards[1], 'Budget')).toHaveTextContent('R5000.00')
   })
 
   it('sends the rate and budget entered on a new course', async () => {
     renderPage()
-    await screen.findByRole('table')
+    await screen.findByRole('list', { name: /courses currently set up/i })
 
     fireEvent.change(screen.getByLabelText(/course code/i), { target: { value: 'NEW100' } })
     fireEvent.change(screen.getByLabelText(/course name/i), { target: { value: 'New Course' } })
@@ -406,7 +407,7 @@ describe('CourseManagement money fields', () => {
 
   it('pre-fills the stored money when editing and clears it when emptied', async () => {
     renderPage()
-    await screen.findByRole('table')
+    await screen.findByRole('list', { name: /courses currently set up/i })
 
     fireEvent.click(screen.getByRole('button', { name: /edit COMS3011/i }))
     expect(screen.getByLabelText(/hourly rate/i)).toHaveValue(30)
@@ -438,7 +439,7 @@ describe('CourseManagement money fields', () => {
     )
 
     renderPage()
-    await screen.findByRole('table')
+    await screen.findByRole('list', { name: /courses currently set up/i })
 
     fireEvent.change(screen.getByLabelText(/course code/i), { target: { value: 'NEW100' } })
     fireEvent.change(screen.getByLabelText(/course name/i), { target: { value: 'New Course' } })
@@ -460,7 +461,7 @@ describe('CourseManagement deep links from the command centre', () => {
 
   it('opens the course a link named once that course has been read', async () => {
     renderPage('/organiser/courses/2')
-    await screen.findByRole('table')
+    await screen.findByRole('list', { name: /courses currently set up/i })
 
     expect(
       await screen.findByRole('heading', { name: 'Edit COMS3011' }),
@@ -471,7 +472,7 @@ describe('CourseManagement deep links from the command centre', () => {
 
   it('stays on a new course when the link names a course that is not there', async () => {
     renderPage('/organiser/courses/999')
-    await screen.findByRole('table')
+    await screen.findByRole('list', { name: /courses currently set up/i })
 
     expect(screen.getByRole('heading', { name: 'Add a course' })).toBeInTheDocument()
     expect(screen.getByLabelText(/course code/i)).toHaveValue('')

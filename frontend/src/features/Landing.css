@@ -1,0 +1,708 @@
+.landing {
+  --landing-ink: #080815;
+  --landing-body: #2a2a38;
+  --landing-navy: #17406e;
+  --landing-navy-hover: #10304f;
+  --landing-magenta: #fc4c95;
+  --landing-violet: #b82fe2;
+  --landing-indigo: #2a0cd8;
+  --landing-indigo-hover: #2109b0;
+  --landing-doodle: #9ca3b8;
+  --landing-footer-muted: #c5d0e0;
+  --landing-danger: #b4233b;
+  --landing-display: 'Poppins', 'Plus Jakarta Sans', system-ui, sans-serif;
+  --landing-text: 'Plus Jakarta Sans', Inter, system-ui, sans-serif;
+  --landing-ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+
+  position: relative;
+  isolation: isolate;
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+  overflow: hidden;
+  background:
+    radial-gradient(620px circle at 92% 0%, rgba(252, 76, 149, 0.08), transparent 70%),
+    #ffffff;
+  color: var(--landing-body);
+  font-family: var(--landing-text);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  html:has(.landing) {
+    scroll-behavior: smooth;
+  }
+}
+
+.landing-container {
+  width: min(100% - 48px, 1170px);
+  margin-inline: auto;
+}
+
+.landing a:focus-visible,
+.landing button:focus-visible {
+  outline: 3px solid var(--landing-indigo);
+  outline-offset: 3px;
+}
+
+/* ---- header */
+
+.landing-header {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  padding-top: 30px;
+}
+
+.landing-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  justify-self: start;
+  color: inherit;
+  text-decoration: none;
+}
+
+.landing-brand-mark {
+  flex: none;
+  width: 35px;
+  height: 40px;
+  transition: transform 0.4s var(--landing-ease);
+}
+
+.landing-brand:hover .landing-brand-mark {
+  transform: rotate(-10deg) scale(1.08);
+}
+
+.landing-brand-text {
+  display: grid;
+  gap: 2px;
+}
+
+.landing-brand-name {
+  color: var(--landing-navy);
+  font-family: var(--landing-display);
+  font-size: 20px;
+  font-weight: 700;
+  line-height: 1.15;
+  letter-spacing: -0.01em;
+}
+
+.landing-brand-tagline {
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1.3;
+  white-space: nowrap;
+}
+
+.landing-nav {
+  display: flex;
+  gap: clamp(24px, 3vw, 44px);
+}
+
+/* The underline grows from the left on hover. */
+.landing-nav a {
+  padding-bottom: 4px;
+  background: linear-gradient(currentColor, currentColor) 0 100% / 0 2px no-repeat;
+  color: var(--landing-body);
+  font-size: 16px;
+  text-decoration: none;
+  transition: background-size 0.25s ease, color 0.2s ease;
+}
+
+.landing-nav a[aria-current='page'] {
+  color: var(--landing-ink);
+  font-weight: 500;
+}
+
+.landing-nav a:hover {
+  background-size: 100% 2px;
+  color: var(--landing-ink);
+}
+
+/* ---- hero */
+
+.landing-hero {
+  position: relative;
+  padding-top: 72px;
+}
+
+.landing-title {
+  position: relative;
+  margin: 0;
+  color: var(--landing-ink);
+  font-family: var(--landing-display);
+  font-size: clamp(2.5rem, 4.2vw + 0.5rem, 4.5rem);
+  font-weight: 700;
+  line-height: 1.04;
+  letter-spacing: -0.02em;
+}
+
+.landing-title span {
+  display: block;
+}
+
+.landing-intro {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: clamp(28px, 5vw, 72px);
+  margin-top: 32px;
+}
+
+.landing-intro p {
+  max-width: 637px;
+  margin: 0;
+  font-size: 18px;
+  line-height: 30px;
+}
+
+.landing-intro-actions {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 40px;
+}
+
+/* Buttons share the design's signature: fully rounded except a square top-right corner. */
+.landing-cta {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: clamp(240px, 22vw, 316px);
+  height: 69px;
+  padding-inline: 32px;
+  white-space: nowrap;
+  border-radius: 34.5px 0 34.5px 34.5px;
+  background: var(--landing-indigo);
+  box-shadow: 0 12px 26px -14px rgba(42, 12, 216, 0.7);
+  color: #ffffff;
+  font-size: 19px;
+  font-weight: 500;
+  text-decoration: none;
+  transition: transform 0.2s ease, box-shadow 0.2s ease, background 0.2s ease;
+}
+
+.landing-cta:hover {
+  background: var(--landing-indigo-hover);
+  box-shadow: 0 20px 34px -14px rgba(42, 12, 216, 0.75);
+  transform: translateY(-3px);
+}
+
+.landing-cta:active {
+  transform: translateY(0);
+}
+
+.landing-scroll-hint {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--landing-ink);
+  font-size: 15px;
+  font-weight: 500;
+  line-height: 20px;
+}
+
+.landing-scroll-hint svg {
+  width: 14px;
+  height: 41px;
+}
+
+/* ---- faint line illustrations */
+
+.landing-doodles {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.landing-doodle {
+  position: absolute;
+  top: var(--y);
+  left: calc(var(--x) * 100%);
+  width: var(--size);
+  height: var(--size);
+  margin-left: calc(var(--size) / -2);
+  color: var(--landing-doodle);
+  opacity: 0.6;
+  transform: rotate(var(--rotate));
+}
+
+/* In the roles area, y is a share of the photo height (photos are 0.3931 of the column wide). */
+.landing-doodles.is-roles .landing-doodle {
+  top: calc(var(--y) * 100cqw * 0.3931 + var(--offset, 0px) - var(--size) / 2);
+}
+
+.landing-doodle svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.landing-doodle path {
+  stroke-width: 1.5;
+  vector-effect: non-scaling-stroke;
+}
+
+.landing-doodle.is-magenta {
+  color: var(--landing-magenta);
+  opacity: 0.4;
+}
+
+.landing-doodle.is-violet {
+  color: var(--landing-violet);
+  opacity: 0.4;
+}
+
+.landing-doodle.is-indigo {
+  color: var(--landing-indigo);
+  opacity: 0.3;
+}
+
+/* ---- large thin rings sweeping through the corners, as in the reference */
+
+.landing-rings {
+  position: absolute;
+  z-index: -1;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+/* Centred --cx from the middle of the page and --cy from the top, with radius --r. */
+.landing-ring {
+  position: absolute;
+  top: calc(var(--cy) - var(--r));
+  left: calc(50% + var(--cx) - var(--r));
+  width: calc(var(--r) * 2);
+  height: calc(var(--r) * 2);
+  border: 1.5px solid;
+  border-radius: 50%;
+}
+
+.landing-ring.is-a {
+  --cx: 620px;
+  --cy: -120px;
+  --r: 400px;
+
+  border-color: rgba(252, 76, 149, 0.3);
+}
+
+.landing-ring.is-b {
+  --cx: -760px;
+  --cy: 1080px;
+  --r: 560px;
+
+  border-color: rgba(42, 12, 216, 0.18);
+}
+
+.landing-ring.is-c {
+  --cx: 760px;
+  --cy: 640px;
+  --r: 240px;
+
+  border-color: rgba(184, 47, 226, 0.25);
+}
+
+/* ---- roles */
+
+.landing-roles-section {
+  position: relative;
+  padding: 72px 0 96px;
+}
+
+.landing-roles-stage {
+  position: relative;
+  container-type: inline-size;
+}
+
+.landing-roles {
+  display: flex;
+  justify-content: space-between;
+  margin-block: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* 300 of the design's 1170px column, so photos and gaps shrink together on narrower screens. */
+.landing-role {
+  --tilt-x: 0deg;
+  --tilt-y: 0deg;
+  --lift: 0px;
+
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 25.641%;
+}
+
+.landing-role.is-student {
+  --role-shadow: rgba(252, 76, 149, 0.45);
+}
+
+.landing-role.is-tutor {
+  --role-shadow: rgba(184, 47, 226, 0.45);
+}
+
+.landing-role.is-organiser {
+  --role-shadow: rgba(42, 12, 216, 0.4);
+}
+
+.landing-role:hover,
+.landing-role:focus-within {
+  --lift: -10px;
+}
+
+.landing-role-shape {
+  width: 100%;
+  aspect-ratio: 300 / 460;
+  overflow: hidden;
+  box-shadow: 0 22px 40px -22px var(--role-shadow);
+  transform: perspective(900px) rotateX(var(--tilt-x)) rotateY(var(--tilt-y)) translateY(var(--lift));
+  transition: transform 0.4s var(--landing-ease), box-shadow 0.4s ease;
+}
+
+.landing-role:hover .landing-role-shape,
+.landing-role:focus-within .landing-role-shape {
+  box-shadow: 0 38px 60px -24px var(--role-shadow);
+}
+
+/* Radii are 50% of the width and 150/460 of the height, so the shape keeps its form at any size. */
+.landing-role.is-student .landing-role-shape {
+  border-radius: 50% 0 50% 50% / 32.61% 0 32.61% 32.61%;
+  background: var(--landing-magenta);
+}
+
+.landing-role.is-tutor .landing-role-shape {
+  border-radius: 50% 50% 50% 0 / 32.61% 32.61% 32.61% 0;
+  background: var(--landing-violet);
+}
+
+.landing-role.is-organiser .landing-role-shape {
+  border-radius: 0 50% 50% 50% / 0 32.61% 32.61% 32.61%;
+  background: var(--landing-indigo);
+}
+
+.landing-role-shape img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.landing-role-name {
+  margin: 20px 0 0;
+  color: var(--landing-ink);
+  font-family: var(--landing-display);
+  font-size: 28px;
+  font-weight: 600;
+  line-height: 1.2;
+  letter-spacing: -0.01em;
+}
+
+.landing-role-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: min(184px, 100%);
+  margin-top: 20px;
+  white-space: nowrap;
+}
+
+.landing-create,
+.landing-signin {
+  font-family: var(--landing-text);
+  font-size: 16px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.landing-create,
+.landing-signin {
+  height: 48px;
+  padding: 0 20px;
+  border-radius: 24px 0 24px 24px;
+  transition: transform 0.2s ease, box-shadow 0.2s ease, background 0.2s ease;
+}
+
+.landing-create {
+  border: 0;
+  background: var(--landing-navy);
+  box-shadow: 0 8px 18px -12px rgba(23, 64, 110, 0.8);
+  color: #ffffff;
+}
+
+.landing-create:hover:not(:disabled) {
+  background: var(--landing-navy-hover);
+  box-shadow: 0 14px 24px -12px rgba(23, 64, 110, 0.85);
+  transform: translateY(-2px);
+}
+
+/* The secondary action: same shape, outlined. */
+.landing-signin {
+  border: 1.5px solid var(--landing-navy);
+  background: #ffffff;
+  box-shadow: 0 8px 18px -14px rgba(23, 64, 110, 0.5);
+  color: var(--landing-navy);
+}
+
+.landing-signin:hover:not(:disabled) {
+  background: #eef2f8;
+  box-shadow: 0 14px 24px -14px rgba(23, 64, 110, 0.55);
+  transform: translateY(-2px);
+}
+
+.landing-create:disabled,
+.landing-signin:disabled {
+  cursor: wait;
+  opacity: 0.6;
+}
+
+.landing-forgot {
+  margin: 40px 0 0;
+  font-size: 15px;
+  text-align: center;
+}
+
+.landing-forgot a {
+  color: var(--landing-navy);
+  font-weight: 600;
+}
+
+.landing-status {
+  max-width: 520px;
+  margin: 16px auto 0;
+  padding-inline: 24px;
+  color: var(--landing-danger);
+  font-weight: 600;
+  text-align: center;
+}
+
+/* ---- footer */
+
+.landing-footer {
+  margin-top: auto;
+  background: var(--landing-navy);
+  color: var(--landing-footer-muted);
+}
+
+.landing-footer-inner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  min-height: 104px;
+  padding-block: 24px;
+  font-size: 15px;
+  line-height: 1.5;
+}
+
+.landing-footer strong {
+  color: #ffffff;
+  font-weight: 600;
+}
+
+/* ---- motion (skipped for people who ask their device to reduce motion) */
+
+@keyframes landing-rise {
+  from {
+    opacity: 0;
+    transform: translateY(18px);
+  }
+}
+
+@keyframes landing-float {
+  0%,
+  100% {
+    transform: translateY(0) rotate(var(--rotate));
+  }
+
+  50% {
+    transform: translateY(-8px) rotate(var(--rotate));
+  }
+}
+
+@keyframes landing-nudge {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+
+  50% {
+    transform: translateY(6px);
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .landing-title,
+  .landing-intro,
+  .landing-role {
+    animation: landing-rise 0.7s var(--landing-ease) backwards;
+  }
+
+  .landing-intro {
+    animation-delay: 0.1s;
+  }
+
+  .landing-role:nth-child(1) {
+    animation-delay: 0.2s;
+  }
+
+  .landing-role:nth-child(2) {
+    animation-delay: 0.3s;
+  }
+
+  .landing-role:nth-child(3) {
+    animation-delay: 0.4s;
+  }
+
+  .landing-doodle {
+    animation: landing-float 8s ease-in-out var(--delay) infinite;
+  }
+
+  .landing-scroll-hint svg {
+    animation: landing-nudge 1.8s ease-in-out infinite;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .landing-role:hover,
+  .landing-role:focus-within {
+    --lift: 0px;
+  }
+
+  .landing-role-shape,
+  .landing-brand-mark,
+  .landing-cta,
+  .landing-create,
+  .landing-signin {
+    transition: none;
+  }
+}
+
+/* ---- smaller screens: below 900px the layout stacks and the illustrations are dropped */
+
+/* Illustrations in the side margins need the margins to be wide enough to hold them. */
+@media (max-width: 1299px) {
+  .landing-doodle.is-wide {
+    display: none;
+  }
+}
+
+/* Just above that, the School name folds onto two lines so it clears the centred links. */
+@media (min-width: 900px) and (max-width: 1099px) {
+  .landing-brand-tagline {
+    max-width: 170px;
+    white-space: normal;
+  }
+}
+
+@media (max-width: 899px) {
+  .landing-doodles,
+  .landing-rings {
+    display: none;
+  }
+
+  .landing-header {
+    grid-template-columns: auto 1fr;
+    gap: 24px;
+  }
+
+  .landing-nav {
+    justify-self: end;
+    gap: 28px;
+  }
+
+  .landing-intro {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 28px;
+  }
+
+  .landing-roles {
+    gap: 24px;
+  }
+
+  .landing-role {
+    flex: 1 1 0;
+    width: auto;
+    max-width: 300px;
+  }
+
+  .landing-footer-inner {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 4px;
+  }
+
+  .landing-footer-separator {
+    display: none;
+  }
+}
+
+@media (max-width: 760px) {
+  .landing-container {
+    width: min(100% - 32px, 1170px);
+  }
+
+  .landing-header {
+    grid-template-columns: 1fr;
+    gap: 16px;
+  }
+
+  .landing-nav {
+    justify-self: start;
+    gap: 24px;
+  }
+
+  .landing-brand-tagline {
+    white-space: normal;
+  }
+
+  .landing-hero {
+    padding-top: 48px;
+  }
+
+  .landing-title span {
+    display: inline;
+  }
+
+  .landing-intro-actions {
+    width: 100%;
+  }
+
+  .landing-cta {
+    width: 100%;
+    max-width: 316px;
+    height: 60px;
+    border-radius: 30px 0 30px 30px;
+  }
+
+  .landing-scroll-hint {
+    display: none;
+  }
+
+  .landing-roles-section {
+    padding: 56px 0 64px;
+  }
+
+  .landing-roles {
+    flex-direction: column;
+    align-items: center;
+    gap: 48px;
+  }
+
+  .landing-role {
+    flex: none;
+    width: min(300px, 100%);
+  }
+
+  .landing-footer-inner {
+    font-size: 14px;
+  }
+}

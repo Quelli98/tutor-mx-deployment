@@ -3,6 +3,7 @@ import { useAuth0 } from '@auth0/auth0-react'
 import { downloadPayrollExport, getWorkloadReport } from '../api/organiser'
 import { EmptyState, ErrorState, LoadingState } from '../components/shared/StatusMessage'
 import { addDays, localMonday, weekRangeLabel } from '../components/shared/scheduleWeek'
+import { ReportCharts } from '../components/organiser/ReportCharts'
 
 /**
  * Every number on this screen is worked out by the server and shown as it
@@ -230,6 +231,10 @@ export default function OrganiserReports() {
           title="Nothing to report yet"
           message="Add courses and tutors, and this period will have figures to show."
         />
+      )}
+
+      {status === 'success' && (courses.length > 0 || tutors.length > 0) && (
+        <ReportCharts courses={courses} tutors={tutors} />
       )}
 
       {status === 'success' && courses.length > 0 && (

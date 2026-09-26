@@ -110,7 +110,7 @@ export function AccountSettings() {
           <h2>Delete account</h2>
           {deleteState.step === 0 && (
             <>
-              <p>This permanently deletes your Tutor Mx profile data and Auth0 login.</p>
+              <p>This permanently deletes your CSAM Tutor Hub profile data and Auth0 login.</p>
               <button type="button" className="danger-button" onClick={handleDeleteStart}>
                 Delete my account
               </button>
@@ -156,7 +156,7 @@ export function AccountSettings() {
 
           {deleteState.step === 2 && !deleteState.error && (
             <p className="status-note" role="status">
-              Account deleted. Signing you out of Tutor Mx...
+              Account deleted. Signing you out of CSAM Tutor Hub...
             </p>
           )}
           {deleteState.error && (

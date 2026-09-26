@@ -4,6 +4,8 @@ import { useAuth0 } from '@auth0/auth0-react'
 import { createCourse, deleteCourse, listCourses, updateCourse } from '../api/organiser'
 import { EmptyState, ErrorState, LoadingState } from '../components/shared/StatusMessage'
 import { ConfirmationDialog } from '../components/shared/ConfirmationDialog'
+import { OrganiserIcon } from '../components/organiser/OrganiserIcon'
+import { coverPhotoFor } from '../components/organiser/coverPhotos'
 
 const MAX_CODE_LENGTH = 50
 const MAX_NAME_LENGTH = 120
@@ -82,6 +84,8 @@ function moneyValue(text) {
 
 // Plain and the same everywhere, rather than a locale format that would read
 // differently on each organiser's machine.
+const CARD_ACCENTS = ['blue', 'pink', 'orchid', 'coral']
+
 function moneyText(value) {
   return value === null || value === undefined ? 'Not set' : `R${value.toFixed(2)}`
 }
@@ -247,198 +251,215 @@ export default function CourseManagement() {
         <div>
           <p className="eyebrow">Organiser workspace</p>
           <h1>Course management</h1>
-          <p className="helper-text">Create and maintain the courses used across Tutor Mx.</p>
+          <p className="helper-text">Create and maintain the courses used across CSAM Tutor Hub.</p>
         </div>
       </header>
 
-      <section className="role-card" aria-labelledby="course-form-heading">
-        <form onSubmit={handleSubmit} noValidate>
-          <h2 id="course-form-heading">
-            {editingCourse ? `Edit ${editingCourse.code}` : 'Add a course'}
-          </h2>
+      <div className="course-layout">
+        <section className="role-card course-form-card" aria-labelledby="course-form-heading">
+          <form onSubmit={handleSubmit} noValidate>
+            <h2 id="course-form-heading" className="card-title">
+              <span className="card-title-icon accent-magenta">
+                <OrganiserIcon name={editingCourse ? 'pencil' : 'plus'} size={18} />
+              </span>
+              {editingCourse ? `Edit ${editingCourse.code}` : 'Add a course'}
+            </h2>
 
-          <div className="field-group">
-            <label htmlFor="course-code">Course code</label>
-            <input
-              id="course-code"
-              type="text"
-              value={form.code}
-              onChange={(event) => updateField('code', event.target.value)}
-              aria-invalid={Boolean(fieldErrors.code)}
-              aria-describedby={fieldErrors.code ? 'course-code-error' : undefined}
-            />
-            {fieldErrors.code && (
-              <p id="course-code-error" className="error-text">
-                {fieldErrors.code}
+            <div className="field-group">
+              <label htmlFor="course-code">Course code</label>
+              <input
+                id="course-code"
+                type="text"
+                value={form.code}
+                onChange={(event) => updateField('code', event.target.value)}
+                aria-invalid={Boolean(fieldErrors.code)}
+                aria-describedby={fieldErrors.code ? 'course-code-error' : undefined}
+              />
+              {fieldErrors.code && (
+                <p id="course-code-error" className="error-text">
+                  {fieldErrors.code}
+                </p>
+              )}
+            </div>
+
+            <div className="field-group">
+              <label htmlFor="course-name">Course name</label>
+              <input
+                id="course-name"
+                type="text"
+                value={form.name}
+                onChange={(event) => updateField('name', event.target.value)}
+                aria-invalid={Boolean(fieldErrors.name)}
+                aria-describedby={fieldErrors.name ? 'course-name-error' : undefined}
+              />
+              {fieldErrors.name && (
+                <p id="course-name-error" className="error-text">
+                  {fieldErrors.name}
+                </p>
+              )}
+            </div>
+
+            <div className="field-group">
+              <label htmlFor="course-rate">Hourly rate</label>
+              <input
+                id="course-rate"
+                type="number"
+                min="0"
+                step="0.01"
+                value={form.hourlyRate}
+                onChange={(event) => updateField('hourlyRate', event.target.value)}
+                aria-invalid={Boolean(fieldErrors.hourlyRate)}
+                aria-describedby={
+                  fieldErrors.hourlyRate ? 'course-rate-error' : 'course-rate-hint'
+                }
+              />
+              <p id="course-rate-hint" className="helper-text">
+                What one tutor hour costs on this course. Leave blank if there is no rate yet.
               </p>
-            )}
-          </div>
+              {fieldErrors.hourlyRate && (
+                <p id="course-rate-error" className="error-text">
+                  {fieldErrors.hourlyRate}
+                </p>
+              )}
+            </div>
 
-          <div className="field-group">
-            <label htmlFor="course-name">Course name</label>
-            <input
-              id="course-name"
-              type="text"
-              value={form.name}
-              onChange={(event) => updateField('name', event.target.value)}
-              aria-invalid={Boolean(fieldErrors.name)}
-              aria-describedby={fieldErrors.name ? 'course-name-error' : undefined}
-            />
-            {fieldErrors.name && (
-              <p id="course-name-error" className="error-text">
-                {fieldErrors.name}
+            <div className="field-group">
+              <label htmlFor="course-budget">Budget</label>
+              <input
+                id="course-budget"
+                type="number"
+                min="0"
+                step="0.01"
+                value={form.budget}
+                onChange={(event) => updateField('budget', event.target.value)}
+                aria-invalid={Boolean(fieldErrors.budget)}
+                aria-describedby={
+                  fieldErrors.budget ? 'course-budget-error' : 'course-budget-hint'
+                }
+              />
+              <p id="course-budget-hint" className="helper-text">
+                What this course has to spend on tutoring. Leave blank if there is no budget yet.
               </p>
-            )}
-          </div>
+              {fieldErrors.budget && (
+                <p id="course-budget-error" className="error-text">
+                  {fieldErrors.budget}
+                </p>
+              )}
+            </div>
 
-          <div className="field-group">
-            <label htmlFor="course-rate">Hourly rate</label>
-            <input
-              id="course-rate"
-              type="number"
-              min="0"
-              step="0.01"
-              value={form.hourlyRate}
-              onChange={(event) => updateField('hourlyRate', event.target.value)}
-              aria-invalid={Boolean(fieldErrors.hourlyRate)}
-              aria-describedby={
-                fieldErrors.hourlyRate ? 'course-rate-error' : 'course-rate-hint'
-              }
-            />
-            <p id="course-rate-hint" className="helper-text">
-              What one tutor hour costs on this course. Leave blank if there is no rate yet.
-            </p>
-            {fieldErrors.hourlyRate && (
-              <p id="course-rate-error" className="error-text">
-                {fieldErrors.hourlyRate}
-              </p>
-            )}
-          </div>
-
-          <div className="field-group">
-            <label htmlFor="course-budget">Budget</label>
-            <input
-              id="course-budget"
-              type="number"
-              min="0"
-              step="0.01"
-              value={form.budget}
-              onChange={(event) => updateField('budget', event.target.value)}
-              aria-invalid={Boolean(fieldErrors.budget)}
-              aria-describedby={
-                fieldErrors.budget ? 'course-budget-error' : 'course-budget-hint'
-              }
-            />
-            <p id="course-budget-hint" className="helper-text">
-              What this course has to spend on tutoring. Leave blank if there is no budget yet.
-            </p>
-            {fieldErrors.budget && (
-              <p id="course-budget-error" className="error-text">
-                {fieldErrors.budget}
-              </p>
-            )}
-          </div>
-
-          <div className="button-row">
-            <button className="primary-button" type="submit" disabled={isSaving}>
-              {isSaving ? 'Saving...' : editingCourse ? 'Save changes' : 'Add course'}
-            </button>
-
-            {editingCourse && (
-              <button
-                className="secondary-button"
-                type="button"
-                onClick={resetForm}
-                disabled={isSaving}
-              >
-                Cancel edit
+            <div className="button-row">
+              <button className="primary-button" type="submit" disabled={isSaving}>
+                {isSaving ? 'Saving...' : editingCourse ? 'Save changes' : 'Add course'}
               </button>
-            )}
-          </div>
 
-          {formError && (
-            <p className="status-note danger" role="alert">
-              {formError}
+              {editingCourse && (
+                <button
+                  className="secondary-button"
+                  type="button"
+                  onClick={resetForm}
+                  disabled={isSaving}
+                >
+                  Cancel edit
+                </button>
+              )}
+            </div>
+
+            {formError && (
+              <p className="status-note danger" role="alert">
+                {formError}
+              </p>
+            )}
+          </form>
+        </section>
+
+        <div className="course-list-column">
+          {successMessage && (
+            <p className="status-note" role="status">
+              {successMessage}
             </p>
           )}
-        </form>
-      </section>
 
-      {successMessage && (
-        <p className="status-note" role="status">
-          {successMessage}
-        </p>
-      )}
+          {status === 'loading' && (
+            <LoadingState
+              title="Loading courses..."
+              message="Please wait while we load the course list."
+            />
+          )}
 
-      {status === 'loading' && (
-        <LoadingState
-          title="Loading courses..."
-          message="Please wait while we load the course list."
-        />
-      )}
+          {status === 'error' && (
+            <ErrorState
+              title="Courses unavailable"
+              message={errorMessage}
+              onRetry={() => loadCourses()}
+            />
+          )}
 
-      {status === 'error' && (
-        <ErrorState
-          title="Courses unavailable"
-          message={errorMessage}
-          onRetry={() => loadCourses()}
-        />
-      )}
+          {status === 'success' && courses.length === 0 && (
+            <EmptyState
+              title="No courses yet"
+              message="No courses have been set up for CSAM Tutor Hub yet."
+            />
+          )}
 
-      {status === 'success' && courses.length === 0 && (
-        <EmptyState
-          title="No courses yet"
-          message="No courses have been set up for Tutor Mx yet."
-        />
-      )}
-
-      {status === 'success' && courses.length > 0 && (
-        <section className="role-card" aria-labelledby="course-list-heading">
-          <h2 id="course-list-heading">Courses</h2>
-          <div className="table-scroll" tabIndex="0" aria-label="Course list table">
-            <table className="tutor-table">
-              <caption>Courses currently set up for Tutor Mx</caption>
-              <thead>
-                <tr>
-                  <th scope="col">Course code</th>
-                  <th scope="col">Course name</th>
-                  <th scope="col">Hourly rate</th>
-                  <th scope="col">Budget</th>
-                  <th scope="col">Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {courses.map((course) => (
-                  <tr key={course.id}>
-                    <td>{course.code}</td>
-                    <td>{course.name}</td>
-                    <td>{moneyText(course.hourlyRate)}</td>
-                    <td>{moneyText(course.budget)}</td>
-                    <td>
-                      <div className="button-row">
+          {status === 'success' && courses.length > 0 && (
+            <section className="role-card course-list-card" aria-labelledby="course-list-heading">
+              <div className="course-list-heading">
+                <h2 id="course-list-heading" className="card-title">
+                  <span className="card-title-icon accent-violet">
+                    <OrganiserIcon name="book-open" size={18} />
+                  </span>
+                  Courses
+                </h2>
+                <span className="count-chip">
+                  {courses.length} {courses.length === 1 ? 'course' : 'courses'}
+                </span>
+              </div>
+              <ul className="course-tiles" aria-label="Courses currently set up for CSAM Tutor Hub">
+                {courses.map((course, index) => (
+                  <li className={`course-tile accent-${CARD_ACCENTS[index % CARD_ACCENTS.length]}`} key={course.id}>
+                    <div className="course-tile-cover" style={{ backgroundImage: `url(${coverPhotoFor(course, index)})` }}>
+                      <span className="course-code-chip">{course.code}</span>
+                      <div className="course-tile-actions">
                         <button
-                          className="secondary-button"
+                          className="round-icon-button"
                           type="button"
                           onClick={() => startEditing(course)}
+                          aria-label={`Edit ${course.code}`}
+                          title="Edit"
                         >
-                          Edit {course.code}
+                          <OrganiserIcon name="pencil" size={16} />
                         </button>
                         <button
-                          className="danger-button"
+                          className="round-icon-button danger"
                           type="button"
                           onClick={() => setCourseToDelete(course)}
+                          aria-label={`Delete ${course.code}`}
+                          title="Delete"
                         >
-                          Delete {course.code}
+                          <OrganiserIcon name="trash" size={16} />
                         </button>
                       </div>
-                    </td>
-                  </tr>
+                    </div>
+                    <div className="course-tile-body">
+                      <h3>{course.name}</h3>
+                      <dl className="course-tile-facts">
+                        <div className="fact-rate">
+                          <dt>Hourly rate</dt>
+                          <dd className={course.hourlyRate === null ? 'not-set' : undefined}>{moneyText(course.hourlyRate)}</dd>
+                        </div>
+                        <div className="fact-budget">
+                          <dt>Budget</dt>
+                          <dd className={course.budget === null ? 'not-set' : undefined}>{moneyText(course.budget)}</dd>
+                        </div>
+                      </dl>
+                    </div>
+                  </li>
                 ))}
-              </tbody>
-            </table>
-          </div>
-        </section>
-      )}
+              </ul>
+            </section>
+          )}
+        </div>
+      </div>
 
       <ConfirmationDialog
         open={Boolean(courseToDelete)}

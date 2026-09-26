@@ -17,7 +17,8 @@ function formatWhen(iso) {
   return date.toLocaleString()
 }
 
-export function NotificationBell() {
+// icon replaces the default bell emoji (the organiser top bar passes a line icon).
+export function NotificationBell({ icon } = {}) {
   const { getAccessTokenSilently } = useAuth0()
   const navigate = useNavigate()
   const bellRef = useRef(null)
@@ -165,7 +166,7 @@ export function NotificationBell() {
         }
       >
         <span aria-hidden="true" className="notification-bell-icon">
-          🔔
+          {icon ?? '🔔'}
         </span>
         {unreadCount > 0 && (
           <span className="notification-bell-badge" aria-hidden="true">

@@ -2192,7 +2192,7 @@ function currentProfileRoute(
       const result = error(
         404,
         "PROFILE_NOT_FOUND",
-        "No Tutor Mx profile is linked to this account.",
+        "No CSAM Tutor Hub profile is linked to this account.",
       );
       response.status(result.status).json(result.body);
       return;

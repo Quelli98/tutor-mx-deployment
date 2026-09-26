@@ -17,15 +17,8 @@ import CommandCentre from '../features/CommandCentre'
 import { SkipToContent } from '../components/shared/SkipToContent'
 import { NotificationBell } from '../components/shared/NotificationBell'
 import { CommandPalette } from '../components/shared/CommandPalette'
-
-const ORGANISER_LINKS = Object.freeze([
-  { path: '/organiser/command-centre', label: 'Command centre' },
-  { path: '/organiser/courses', label: 'Courses' },
-  { path: '/organiser/tutors', label: 'Tutors' },
-  { path: '/organiser/staffing', label: 'Staffing' },
-  { path: '/organiser/overflow', label: 'Overflow' },
-  { path: '/organiser/approvals', label: 'Approvals' },
-])
+import { CsamMark } from '../components/shared/CsamMark'
+import { OrganiserShell } from '../components/organiser/OrganiserShell'
 
 function RoleNavigation({ currentRole, onSignOut }) {
   const roleRoute = ROLE_ROUTE_MAP[currentRole]
@@ -34,12 +27,12 @@ function RoleNavigation({ currentRole, onSignOut }) {
   return (
     <nav
       className="role-navigation"
-      aria-label="Tutor Mx primary navigation"
+      aria-label="CSAM Tutor Hub primary navigation"
     >
       <div className="role-navigation-inner">
-        <span className="role-navigation-brand" aria-label="Tutor Mx">
-          <span className="brand-mark" aria-hidden="true">TM</span>
-          <span>Tutor Mx</span>
+        <span className="role-navigation-brand">
+          <CsamMark className="brand-mark" />
+          <span>CSAM Tutor Hub</span>
         </span>
         <NavLink
           to={roleRoute.path}
@@ -61,19 +54,6 @@ function RoleNavigation({ currentRole, onSignOut }) {
             Tutor forms
           </NavLink>
         )}
-
-        {currentRole === 'ORGANISER' &&
-          ORGANISER_LINKS.map((link) => (
-            <NavLink
-              key={link.path}
-              to={link.path}
-              className={({ isActive }) =>
-                `role-navigation-link${isActive ? ' active' : ''}`
-              }
-            >
-              {link.label}
-            </NavLink>
-          ))}
 
         <NavLink
           to="/settings"
@@ -109,84 +89,100 @@ function protect(currentRole, allowedRoles, children) {
   )
 }
 
-export function RoleRouter({ currentRole, onSignOut }) {
+export function RoleRouter({ currentRole, onSignOut, user = null }) {
   const entryPath = ROLE_ROUTE_MAP[currentRole]?.path
+
+  const routes = (
+    <Routes>
+      <Route path="/" element={<Navigate to={entryPath || '/access-denied'} replace />} />
+      <Route path="/dashboard" element={<Navigate to={entryPath || '/access-denied'} replace />} />
+      <Route
+        path="/organiser"
+        element={protect(currentRole, ['ORGANISER'], <OrganiserDashboard />)}
+      />
+      <Route
+        path="/organiser/command-centre"
+        element={protect(currentRole, ['ORGANISER'], <CommandCentre />)}
+      />
+      <Route
+        path="/organiser/courses"
+        element={protect(currentRole, ['ORGANISER'], <CourseManagement />)}
+      />
+      {/* The same screen, opened on one course: the path the search results
+          and the command centre already publish for a course. */}
+      <Route
+        path="/organiser/courses/:courseId"
+        element={protect(currentRole, ['ORGANISER'], <CourseManagement />)}
+      />
+      <Route
+        path="/organiser/tutors"
+        element={protect(currentRole, ['ORGANISER'], <TutorManagement />)}
+      />
+      {/* The same screen, opened on one tutor: the path the search results
+          and the command centre already publish for a person. */}
+      <Route
+        path="/organiser/tutors/:tutorId"
+        element={protect(currentRole, ['ORGANISER'], <TutorManagement />)}
+      />
+      <Route
+        path="/organiser/staffing"
+        element={protect(currentRole, ['ORGANISER'], <StaffingRequirements />)}
+      />
+      <Route
+        path="/organiser/staffing/bulk"
+        element={protect(currentRole, ['ORGANISER'], <BulkAllocation />)}
+      />
+      <Route
+        path="/organiser/reports"
+        element={protect(currentRole, ['ORGANISER'], <OrganiserReports />)}
+      />
+      <Route
+        path="/organiser/approvals"
+        element={protect(currentRole, ['ORGANISER'], <OrganiserApprovals />)}
+      />
+      <Route
+        path="/organiser/overflow"
+        element={protect(currentRole, ['ORGANISER'], <OrganiserOverflow />)}
+      />
+      <Route
+        path="/tutor"
+        element={protect(currentRole, ['TUTOR'], <TutorDashboard />)}
+      />
+      <Route
+        path="/tutor/forms"
+        element={protect(currentRole, ['TUTOR'], <TutorForms />)}
+      />
+      <Route
+        path="/student"
+        element={protect(currentRole, ['STUDENT'], <StudentOverflow />)}
+      />
+      <Route
+        path="/settings"
+        element={protect(currentRole, ['ORGANISER', 'TUTOR', 'STUDENT'], <AccountSettings />)}
+      />
+
+      <Route path="/access-denied" element={<AccessDeniedPage />} />
+      <Route path="*" element={<Navigate to={entryPath || '/access-denied'} replace />} />
+    </Routes>
+  )
+
+  // The organiser works inside a sidebar layout; tutors and students keep the top navigation.
+  if (currentRole === 'ORGANISER') {
+    return (
+      <>
+        <SkipToContent />
+        <OrganiserShell user={user} onSignOut={onSignOut}>
+          {routes}
+        </OrganiserShell>
+      </>
+    )
+  }
 
   return (
     <>
       <SkipToContent />
       <RoleNavigation currentRole={currentRole} onSignOut={onSignOut} />
-      <Routes>
-        <Route path="/" element={<Navigate to={entryPath || '/access-denied'} replace />} />
-        <Route path="/dashboard" element={<Navigate to={entryPath || '/access-denied'} replace />} />
-        <Route
-          path="/organiser"
-          element={protect(currentRole, ['ORGANISER'], <OrganiserDashboard />)}
-        />
-        <Route
-          path="/organiser/command-centre"
-          element={protect(currentRole, ['ORGANISER'], <CommandCentre />)}
-        />
-        <Route
-          path="/organiser/courses"
-          element={protect(currentRole, ['ORGANISER'], <CourseManagement />)}
-        />
-        {/* The same screen, opened on one course: the path the search results
-            and the command centre already publish for a course. */}
-        <Route
-          path="/organiser/courses/:courseId"
-          element={protect(currentRole, ['ORGANISER'], <CourseManagement />)}
-        />
-        <Route
-          path="/organiser/tutors"
-          element={protect(currentRole, ['ORGANISER'], <TutorManagement />)}
-        />
-        {/* The same screen, opened on one tutor: the path the search results
-            and the command centre already publish for a person. */}
-        <Route
-          path="/organiser/tutors/:tutorId"
-          element={protect(currentRole, ['ORGANISER'], <TutorManagement />)}
-        />
-        <Route
-          path="/organiser/staffing"
-          element={protect(currentRole, ['ORGANISER'], <StaffingRequirements />)}
-        />
-        <Route
-          path="/organiser/staffing/bulk"
-          element={protect(currentRole, ['ORGANISER'], <BulkAllocation />)}
-        />
-        <Route
-          path="/organiser/reports"
-          element={protect(currentRole, ['ORGANISER'], <OrganiserReports />)}
-        />
-        <Route
-          path="/organiser/approvals"
-          element={protect(currentRole, ['ORGANISER'], <OrganiserApprovals />)}
-        />
-        <Route
-          path="/organiser/overflow"
-          element={protect(currentRole, ['ORGANISER'], <OrganiserOverflow />)}
-        />
-        <Route
-          path="/tutor"
-          element={protect(currentRole, ['TUTOR'], <TutorDashboard />)}
-        />
-        <Route
-          path="/tutor/forms"
-          element={protect(currentRole, ['TUTOR'], <TutorForms />)}
-        />
-        <Route
-          path="/student"
-          element={protect(currentRole, ['STUDENT'], <StudentOverflow />)}
-        />
-        <Route
-          path="/settings"
-          element={protect(currentRole, ['ORGANISER', 'TUTOR', 'STUDENT'], <AccountSettings />)}
-        />
-
-        <Route path="/access-denied" element={<AccessDeniedPage />} />
-        <Route path="*" element={<Navigate to={entryPath || '/access-denied'} replace />} />
-      </Routes>
+      {routes}
     </>
   )
 }

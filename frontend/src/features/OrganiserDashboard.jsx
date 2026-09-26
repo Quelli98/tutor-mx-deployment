@@ -1,5 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useAuth0 } from '@auth0/auth0-react'
 import {
   canSelectCandidate,
@@ -18,6 +17,20 @@ import {
 import { RuleResult } from '../components/organiser/RuleResult'
 import { ConfirmationDialog } from '../components/shared/ConfirmationDialog'
 import { EmptyState, ErrorState, LoadingState } from '../components/shared/StatusMessage'
+import { SidePanel } from '../components/shared/SidePanel'
+import { localMonday } from '../components/shared/scheduleWeek'
+import { HomeHero } from '../components/organiser/HomeHero'
+import { HomeQuickActions } from '../components/organiser/HomeQuickActions'
+import { HomeWeek } from '../components/organiser/HomeWeek'
+import { HomeApprovals } from '../components/organiser/HomeApprovals'
+import { HomeRequirements } from '../components/organiser/HomeRequirements'
+import { HomeAllocations } from '../components/organiser/HomeAllocations'
+import { HomeCourses } from '../components/organiser/HomeCourses'
+import { HoursChart } from '../components/organiser/HoursChart'
+import { HomeTutors } from '../components/organiser/HomeTutors'
+import { useOrganiserApprovals } from './useOrganiserApprovals'
+import { useOrganiserWeek } from './useOrganiserWeek'
+import { timeRange } from './organiserHome'
 
 const EMPTY_FORM = {
   courseId: '',
@@ -63,13 +76,6 @@ function dateTimeLocalValue(isoValue) {
   if (Number.isNaN(value.valueOf())) return ''
   const offset = value.getTimezoneOffset() * 60_000
   return new Date(value.valueOf() - offset).toISOString().slice(0, 16)
-}
-
-function formatDateTime(isoValue) {
-  return new Intl.DateTimeFormat(undefined, {
-    dateStyle: 'medium',
-    timeStyle: 'short',
-  }).format(new Date(isoValue))
 }
 
 function validateBoard(form) {
@@ -235,6 +241,11 @@ export default function OrganiserDashboard() {
   const [mutationStatus, setMutationStatus] = useState('idle')
   const [saveMessage, setSaveMessage] = useState('')
   const [saveError, setSaveError] = useState('')
+  const [panelOpen, setPanelOpen] = useState(false)
+  const panelOpenerRef = useRef(null)
+  const [weekStart, setWeekStart] = useState(() => localMonday(new Date()))
+  const approvals = useOrganiserApprovals()
+  const week = useOrganiserWeek(weekStart)
 
   const loadCourses = useCallback(async () => {
     setCoursesStatus('loading')
@@ -340,7 +351,8 @@ export default function OrganiserDashboard() {
     void checkCandidates(editingAllocation?.tutorId ?? null)
   }
 
-  function startEditing(allocation) {
+  function startEditing(allocation, opener = null) {
+    panelOpenerRef.current = opener
     setEditingAllocation(allocation)
     setForm({
       courseId: String(allocation.courseId),
@@ -355,10 +367,46 @@ export default function OrganiserDashboard() {
     setSelectedTutorId(null)
     setSaveMessage('')
     setSaveError('')
-    const boardHeading = document.querySelector('#allocation-board-heading')
-    if (typeof boardHeading?.scrollIntoView === 'function') {
-      boardHeading.scrollIntoView({ behavior: 'smooth' })
-    }
+    setPanelOpen(true)
+  }
+
+  // Opens the allocation panel on a fresh board, optionally filled in (from a staffing requirement).
+  function openNewAllocation(prefill = {}, opener = null) {
+    panelOpenerRef.current = opener
+    setEditingAllocation(null)
+    setForm({ ...EMPTY_FORM, ...prefill })
+    setFieldErrors({})
+    setCandidateStatus('idle')
+    setCandidates([])
+    setSelectedTutorId(null)
+    setCandidateError('')
+    setSaveMessage('')
+    setSaveError('')
+    setPanelOpen(true)
+  }
+
+  function allocateForRequirement(requirement, opener) {
+    openNewAllocation({
+      courseId: String(requirement.courseId),
+      startsAt: dateTimeLocalValue(requirement.startsAt),
+      endsAt: dateTimeLocalValue(requirement.endsAt),
+      requestedHours: String(requirement.windowHours),
+    }, opener)
+  }
+
+  function closePanel() {
+    if (isMutating) return
+    cancelEditing()
+    setSaveMessage('')
+    setSaveError('')
+    setPanelOpen(false)
+  }
+
+  // Remove is offered in the panel; the panel closes first so the confirmation opens over Home.
+  function requestRemoval(allocation) {
+    if (isMutating) return
+    closePanel()
+    setRemovingAllocation(allocation)
   }
 
   function cancelEditing() {
@@ -434,6 +482,7 @@ export default function OrganiserDashboard() {
         savedAllocation = await createAllocation(payload, getAccessTokenSilently)
       }
       const refreshed = await refreshAfterMutation(input, selectedCandidate.tutorId, savedAllocation?.id)
+      week.reload()
       setSaveMessage(
         refreshed
           ? editingAllocation
@@ -479,6 +528,7 @@ export default function OrganiserDashboard() {
     try {
       await removeAllocation(allocation.id, getAccessTokenSilently)
       await loadAllocations()
+      week.reload()
       setSaveMessage(`${allocation.tutorName}'s ${allocation.courseCode} allocation was removed.`)
       if (editingAllocation?.id === allocation.id) cancelEditing()
     } catch (error) {
@@ -492,281 +542,332 @@ export default function OrganiserDashboard() {
     }
   }
 
+
+  const statusNotes = (
+    <>
+      {saveMessage && (
+        <p className="status-note" role="status">
+          {saveMessage}
+        </p>
+      )}
+      {saveError && (
+        <p className="status-note danger" role="alert">
+          {saveError}
+        </p>
+      )}
+    </>
+  )
+
   return (
-    <main id="main-content" className="dashboard-shell organiser-dashboard">
-      <header className="dashboard-header">
-        <div>
-          <p className="eyebrow">Tutor Mx</p>
-          <h1>Organiser workspace</h1>
-          <p className="helper-text">
-            Create, recheck and maintain tutor allocations with every server rule visible.
-          </p>
-        </div>
-        <Link className="secondary-button" to="/organiser/reports">
-          Reports
-        </Link>
-      </header>
+    <main id="main-content" className="dashboard-shell organiser-home">
+      <h1 className="visually-hidden">Organiser workspace</h1>
 
-      <section className="role-card" aria-labelledby="current-allocations-heading">
-        <div className="section-heading-row">
-          <div>
-            <p className="section-kicker">Live workload</p>
-            <h2 id="current-allocations-heading">Current allocations</h2>
-            <p className="helper-text">
-              Edit or remove active assignments. Hours refresh after every successful change.
-            </p>
-          </div>
-          <button
-            type="button"
-            className="secondary-button"
-            onClick={loadAllocations}
-            disabled={allocationsStatus === 'loading' || isMutating}
-          >
-            {allocationsStatus === 'loading' ? 'Refreshing...' : 'Refresh'}
-          </button>
-        </div>
+      <HomeHero approvals={approvals} week={week} weekStart={weekStart} />
 
-        {allocationsStatus === 'loading' && (
-          <LoadingState title="Loading allocations..." message="Checking the current workload." />
-        )}
-        {allocationsStatus === 'error' && (
-          <ErrorState
-            title="Allocations unavailable"
-            message={allocationsError}
-            onRetry={loadAllocations}
-          />
-        )}
-        {allocationsStatus === 'success' && allocations.length === 0 && (
-          <EmptyState
-            title="No active allocations"
-            message="Use the allocation board below to assign an eligible tutor."
-          />
-        )}
-        {allocationsStatus === 'success' && allocations.length > 0 && (
-          <div className="allocation-list">
-            {allocations.map((allocation) => (
-              <article className="allocation-card" key={allocation.id}>
-                <div className="allocation-card-main">
-                  <div className="allocation-card-title">
-                    <span className={`status-badge status-${allocation.status.toLowerCase()}`}>
-                      {allocation.status.toLowerCase()}
-                    </span>
-                    <h3>{allocation.courseCode}</h3>
-                  </div>
-                  <p className="allocation-course-name">{allocation.courseName}</p>
-                  <p>
-                    <strong>{allocation.tutorName}</strong> · {allocation.tutorEmail}
-                  </p>
-                  <p className="allocation-meta">
-                    {formatDateTime(allocation.startsAt)}–{formatDateTime(allocation.endsAt)} ·{' '}
-                    {allocation.allocatedHours} hours
-                  </p>
-                </div>
-                <div className="allocation-card-actions">
-                  <button
-                    type="button"
-                    className="secondary-button"
-                    onClick={() => startEditing(allocation)}
-                    disabled={isMutating}
-                  >
-                    Edit allocation
-                  </button>
-                  <button
-                    type="button"
-                    className="danger-button"
-                    onClick={() => setRemovingAllocation(allocation)}
-                    disabled={isMutating}
-                  >
-                    Remove
-                  </button>
-                </div>
-              </article>
-            ))}
-          </div>
-        )}
-      </section>
+      <HomeQuickActions onAllocate={(opener) => openNewAllocation({}, opener)} />
 
-      <section className="role-card" aria-labelledby="allocation-board-heading">
-        <div className="section-heading-row">
-          <div>
-            <p className="section-kicker">Rule-checked assignment</p>
-            <h2 id="allocation-board-heading">
-              {editingAllocation ? 'Edit allocation' : 'Allocation board'}
-            </h2>
-            <p className="helper-text">
-              Check mark, timetable and weekly-hour eligibility before saving.
-            </p>
-          </div>
-          {editingAllocation && (
-            <button
-              type="button"
-              className="secondary-button"
-              onClick={cancelEditing}
-              disabled={isMutating}
-            >
-              Cancel edit
-            </button>
-          )}
-        </div>
-        <form className="allocation-form" onSubmit={handleCheckCandidates} noValidate>
-          <div className="field-group">
-            <label htmlFor="allocation-course">Course</label>
-            <select
-              id="allocation-course"
-              value={form.courseId}
-              onChange={(event) => updateField('courseId', event.target.value)}
-              disabled={coursesStatus === 'loading' || isMutating}
-              aria-invalid={Boolean(fieldErrors.courseId)}
-              aria-describedby={fieldErrors.courseId ? 'allocation-course-error' : undefined}
-            >
-              <option value="">Select a course</option>
-              {courses.map((course) => (
-                <option key={course.id} value={course.id}>
-                  {course.code} - {course.name}
-                </option>
-              ))}
-            </select>
-            {fieldErrors.courseId && (
-              <p id="allocation-course-error" className="error-text">
-                {fieldErrors.courseId}
-              </p>
-            )}
-          </div>
+      <HomeWeek weekStart={weekStart} onWeekChange={setWeekStart} week={week} approvals={approvals} />
 
-          <div className="field-group">
-            <label htmlFor="allocation-start">Session starts</label>
-            <input
-              id="allocation-start"
-              type="datetime-local"
-              value={form.startsAt}
-              disabled={isMutating}
-              onChange={(event) => updateField('startsAt', event.target.value)}
-              aria-invalid={Boolean(fieldErrors.startsAt)}
-              aria-describedby={fieldErrors.startsAt ? 'allocation-start-error' : undefined}
-            />
-            {fieldErrors.startsAt && (
-              <p id="allocation-start-error" className="error-text">
-                {fieldErrors.startsAt}
-              </p>
-            )}
-          </div>
-
-          <div className="field-group">
-            <label htmlFor="allocation-end">Session ends</label>
-            <input
-              id="allocation-end"
-              type="datetime-local"
-              value={form.endsAt}
-              disabled={isMutating}
-              onChange={(event) => updateField('endsAt', event.target.value)}
-              aria-invalid={Boolean(fieldErrors.endsAt)}
-              aria-describedby={fieldErrors.endsAt ? 'allocation-end-error' : undefined}
-            />
-            {fieldErrors.endsAt && (
-              <p id="allocation-end-error" className="error-text">
-                {fieldErrors.endsAt}
-              </p>
-            )}
-          </div>
-
-          <div className="field-group">
-            <label htmlFor="allocation-minimum-mark">Minimum mark (%)</label>
-            <input
-              id="allocation-minimum-mark"
-              type="number"
-              min="0"
-              max="100"
-              step="any"
-              value={form.minimumMark}
-              disabled={isMutating}
-              onChange={(event) => updateField('minimumMark', event.target.value)}
-              aria-invalid={Boolean(fieldErrors.minimumMark)}
-              aria-describedby={
-                fieldErrors.minimumMark ? 'allocation-minimum-mark-error' : undefined
-              }
-            />
-            {fieldErrors.minimumMark && (
-              <p id="allocation-minimum-mark-error" className="error-text">
-                {fieldErrors.minimumMark}
-              </p>
-            )}
-          </div>
-
-          <div className="field-group">
-            <label htmlFor="allocation-hours">Required hours</label>
-            <input
-              id="allocation-hours"
-              type="number"
-              min="0.25"
-              max="24"
-              step="0.25"
-              value={form.requestedHours}
-              disabled={isMutating}
-              onChange={(event) => updateField('requestedHours', event.target.value)}
-              aria-invalid={Boolean(fieldErrors.requestedHours)}
-              aria-describedby={fieldErrors.requestedHours ? 'allocation-hours-error' : undefined}
-            />
-            {fieldErrors.requestedHours && (
-              <p id="allocation-hours-error" className="error-text">
-                {fieldErrors.requestedHours}
-              </p>
-            )}
-          </div>
-
-          <button
-            className="primary-button allocation-check-button"
-            type="submit"
-            disabled={
-              candidateStatus === 'loading' ||
-              coursesStatus === 'loading' ||
-              courses.length === 0 ||
-              isMutating
-            }
-          >
-            {candidateStatus === 'loading' ? 'Checking candidates...' : 'Check candidates'}
-          </button>
-        </form>
-      </section>
-
-      {coursesStatus === 'loading' && (
-        <LoadingState title="Loading courses..." message="The allocation board will remain here." />
-      )}
-      {coursesStatus === 'error' && (
-        <ErrorState title="Courses unavailable" message={coursesError} onRetry={loadCourses} />
-      )}
-      {coursesStatus === 'success' && courses.length === 0 && (
-        <EmptyState
-          title="No courses yet"
-          message="Add a course in Course management before checking allocation candidates."
+      <div className="home-split">
+        <HomeApprovals approvals={approvals} />
+        <HomeRequirements
+          part={week.requirements}
+          weekStart={weekStart}
+          onAllocate={allocateForRequirement}
+          onRetry={week.reload}
         />
-      )}
+      </div>
 
-      {candidateStatus === 'loading' && (
-        <LoadingState
-          title="Checking candidates..."
-          message="Mark, timetable and weekly-hour rules are being checked together."
-        />
-      )}
-      {candidateStatus === 'error' && (
-        <ErrorState
-          title="Candidates unavailable"
-          message={candidateError}
-          onRetry={() => checkCandidates(editingAllocation?.tutorId ?? null)}
-        />
-      )}
-      {candidateStatus === 'success' && candidates.length === 0 && (
-        <EmptyState
-          title="No tutors have marks recorded for this course yet."
-          message="Add a course mark in Tutor Management before checking allocation eligibility."
-        />
-      )}
-      {candidateStatus === 'success' && candidates.length > 0 && (
-        <section className="candidate-results" aria-labelledby="candidate-results-heading">
-          <div className="candidate-results-header">
-            <div>
-              <h2 id="candidate-results-heading">Candidate rule results</h2>
-              <p>All three checks stay visible, including failed checks.</p>
+      <HomeAllocations
+        status={allocationsStatus}
+        allocations={allocations}
+        error={allocationsError}
+        isMutating={isMutating}
+        weekStart={weekStart}
+        onWeekChange={setWeekStart}
+        onRefresh={loadAllocations}
+        onEdit={startEditing}
+      >
+        {!panelOpen && statusNotes}
+      </HomeAllocations>
+
+      <HomeCourses
+        coursesStatus={coursesStatus}
+        courses={courses}
+        allocations={allocations}
+        week={week}
+        weekStart={weekStart}
+        onRetry={loadCourses}
+      />
+
+      <div className="home-split">
+        <HoursChart weekStart={weekStart} />
+        <HomeTutors part={week.tutors} onRetry={week.reload} />
+      </div>
+
+      <SidePanel
+        open={panelOpen}
+        title={editingAllocation ? 'Edit allocation' : 'Allocate a tutor'}
+        description="Every tutor is checked against their mark, timetable and weekly hours."
+        onClose={closePanel}
+        closeDisabled={isMutating}
+        returnFocusRef={panelOpenerRef}
+      >
+        {editingAllocation && (
+          <section className="panel-current" aria-labelledby="allocation-current-heading">
+            <div className="panel-current-words">
+              <h3 id="allocation-current-heading">This allocation</h3>
+              <p className="panel-current-name">{editingAllocation.tutorName}</p>
+              <p className="panel-current-meta">{editingAllocation.tutorEmail}</p>
+              <p className="panel-current-meta">
+                {editingAllocation.courseCode} ·{' '}
+                {new Date(editingAllocation.startsAt).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' })},{' '}
+                {timeRange(editingAllocation.startsAt, editingAllocation.endsAt)}
+              </p>
+              <p className="panel-current-meta">
+                {`${editingAllocation.allocatedHours}\u00a0h`} ·{' '}
+                {editingAllocation.status.charAt(0) + editingAllocation.status.slice(1).toLowerCase()}
+              </p>
             </div>
+            <button type="button" className="danger-button" onClick={() => requestRemoval(editingAllocation)} disabled={isMutating}>
+              Remove allocation
+            </button>
+          </section>
+        )}
+
+        <section className="panel-step" aria-labelledby="allocation-session-heading">
+          <h3 id="allocation-session-heading">
+            <span className="panel-step-number" aria-hidden="true">1</span>
+            Session
+          </h3>
+          <form className="allocation-form" onSubmit={handleCheckCandidates} noValidate>
+            <div className="field-group allocation-field-wide">
+              <label htmlFor="allocation-course">Course</label>
+              <select
+                id="allocation-course"
+                value={form.courseId}
+                onChange={(event) => updateField('courseId', event.target.value)}
+                disabled={coursesStatus === 'loading' || isMutating}
+                aria-invalid={Boolean(fieldErrors.courseId)}
+                aria-describedby={fieldErrors.courseId ? 'allocation-course-error' : undefined}
+              >
+                <option value="">Select a course</option>
+                {courses.map((course) => (
+                  <option key={course.id} value={course.id}>
+                    {course.code} - {course.name}
+                  </option>
+                ))}
+              </select>
+              {fieldErrors.courseId && (
+                <p id="allocation-course-error" className="error-text">
+                  {fieldErrors.courseId}
+                </p>
+              )}
+            </div>
+
+            <div className="field-group">
+              <label htmlFor="allocation-start">Session starts</label>
+              <input
+                id="allocation-start"
+                type="datetime-local"
+                value={form.startsAt}
+                disabled={isMutating}
+                onChange={(event) => updateField('startsAt', event.target.value)}
+                aria-invalid={Boolean(fieldErrors.startsAt)}
+                aria-describedby={fieldErrors.startsAt ? 'allocation-start-error' : undefined}
+              />
+              {fieldErrors.startsAt && (
+                <p id="allocation-start-error" className="error-text">
+                  {fieldErrors.startsAt}
+                </p>
+              )}
+            </div>
+
+            <div className="field-group">
+              <label htmlFor="allocation-end">Session ends</label>
+              <input
+                id="allocation-end"
+                type="datetime-local"
+                value={form.endsAt}
+                disabled={isMutating}
+                onChange={(event) => updateField('endsAt', event.target.value)}
+                aria-invalid={Boolean(fieldErrors.endsAt)}
+                aria-describedby={fieldErrors.endsAt ? 'allocation-end-error' : undefined}
+              />
+              {fieldErrors.endsAt && (
+                <p id="allocation-end-error" className="error-text">
+                  {fieldErrors.endsAt}
+                </p>
+              )}
+            </div>
+
+            <div className="field-group">
+              <label htmlFor="allocation-minimum-mark">Minimum mark (%)</label>
+              <input
+                id="allocation-minimum-mark"
+                type="number"
+                min="0"
+                max="100"
+                step="any"
+                value={form.minimumMark}
+                disabled={isMutating}
+                onChange={(event) => updateField('minimumMark', event.target.value)}
+                aria-invalid={Boolean(fieldErrors.minimumMark)}
+                aria-describedby={
+                  fieldErrors.minimumMark ? 'allocation-minimum-mark-error' : undefined
+                }
+              />
+              {fieldErrors.minimumMark && (
+                <p id="allocation-minimum-mark-error" className="error-text">
+                  {fieldErrors.minimumMark}
+                </p>
+              )}
+            </div>
+
+            <div className="field-group">
+              <label htmlFor="allocation-hours">Required hours</label>
+              <input
+                id="allocation-hours"
+                type="number"
+                min="0.25"
+                max="24"
+                step="0.25"
+                value={form.requestedHours}
+                disabled={isMutating}
+                onChange={(event) => updateField('requestedHours', event.target.value)}
+                aria-invalid={Boolean(fieldErrors.requestedHours)}
+                aria-describedby={fieldErrors.requestedHours ? 'allocation-hours-error' : undefined}
+              />
+              {fieldErrors.requestedHours && (
+                <p id="allocation-hours-error" className="error-text">
+                  {fieldErrors.requestedHours}
+                </p>
+              )}
+            </div>
+
+            <button
+              className="primary-button allocation-check-button"
+              type="submit"
+              disabled={
+                candidateStatus === 'loading' ||
+                coursesStatus === 'loading' ||
+                courses.length === 0 ||
+                isMutating
+              }
+            >
+              {candidateStatus === 'loading' ? 'Checking candidates...' : 'Check candidates'}
+            </button>
+          </form>
+
+          {coursesStatus === 'loading' && (
+            <LoadingState title="Loading courses..." message="The allocation form will stay open." />
+          )}
+          {coursesStatus === 'error' && (
+            <ErrorState title="Courses unavailable" message={coursesError} onRetry={loadCourses} />
+          )}
+          {coursesStatus === 'success' && courses.length === 0 && (
+            <EmptyState
+              title="No courses yet"
+              message="Add a course in Course management before checking allocation candidates."
+            />
+          )}
+        </section>
+
+        {candidateStatus === 'loading' && (
+          <LoadingState
+            title="Checking candidates..."
+            message="Mark, timetable and weekly-hour rules are being checked together."
+          />
+        )}
+        {candidateStatus === 'error' && (
+          <ErrorState
+            title="Candidates unavailable"
+            message={candidateError}
+            onRetry={() => checkCandidates(editingAllocation?.tutorId ?? null)}
+          />
+        )}
+        {candidateStatus === 'success' && candidates.length === 0 && (
+          <EmptyState
+            title="No tutors have marks recorded for this course yet."
+            message="Add a course mark in Tutor Management before checking allocation eligibility."
+          />
+        )}
+        {candidateStatus === 'success' && candidates.length > 0 && (
+          <section className="panel-step candidate-results" aria-labelledby="candidate-results-heading">
+            <h3 id="candidate-results-heading">
+              <span className="panel-step-number" aria-hidden="true">2</span>
+              Choose a tutor
+            </h3>
+            <p className="helper-text">All three checks stay visible, including failed checks.</p>
+
+            {(eligibleCandidates.length > 0 || ineligibleCandidates.length > 0) && (
+              <>
+                <h3 className="candidate-section-heading">Eligible tutors</h3>
+                {eligibleCandidates.length > 0 ? (
+                  <>
+                    <p className="helper-text">
+                      <strong>Ranked by mark band, then who is least busy that week.</strong>{' '}
+                      These tutors meet all allocation rules. Select one to assign.
+                    </p>
+                    <div className="candidate-grid">
+                      {eligibleCandidates.map((candidate) => (
+                        <CandidateCard
+                          key={candidate.tutorId}
+                          candidate={candidate}
+                          minimumMark={Number(form.minimumMark)}
+                          requestedHours={Number(form.requestedHours)}
+                          selected={candidate.tutorId === selectedTutorId}
+                          onSelect={() => setSelectedTutorId(candidate.tutorId)}
+                          disabled={isMutating}
+                        />
+                      ))}
+                    </div>
+                  </>
+                ) : (
+                  <p className="empty-inline" role="status">
+                    No tutors currently available.
+                  </p>
+                )}
+              </>
+            )}
+
+            {ineligibleCandidates.length > 0 && (
+              <>
+                <h3 className="candidate-section-heading">Not eligible</h3>
+                <p className="helper-text">
+                  These tutors do not meet one or more allocation rules. See the reasons below each card.
+                </p>
+                <div className="candidate-grid">
+                  {ineligibleCandidates.map((candidate) => (
+                    <CandidateCard
+                      key={candidate.tutorId}
+                      candidate={candidate}
+                      minimumMark={Number(form.minimumMark)}
+                      requestedHours={Number(form.requestedHours)}
+                      selected={false}
+                      onSelect={() => {}}
+                      disabled={true}
+                    />
+                  ))}
+                </div>
+              </>
+            )}
+
+            {eligibleCandidates.length === 0 && ineligibleCandidates.length === 0 && (
+              <p className="empty-inline" role="status">
+                No tutors found for this course and time slot.
+              </p>
+            )}
+          </section>
+        )}
+
+        {panelOpen && statusNotes}
+
+        {candidateStatus === 'success' && candidates.length > 0 && (
+          <div className="side-panel-footer">
+            <button type="button" className="secondary-button" onClick={closePanel} disabled={isMutating}>
+              {editingAllocation ? 'Cancel edit' : 'Cancel'}
+            </button>
             <button
               type="button"
               className="primary-button"
@@ -780,78 +881,8 @@ export default function OrganiserDashboard() {
                   : 'Save allocation'}
             </button>
           </div>
-
-          {(eligibleCandidates.length > 0 || ineligibleCandidates.length > 0) && (
-            <>
-              <h3 className="candidate-section-heading">Eligible tutors</h3>
-              {eligibleCandidates.length > 0 ? (
-                <>
-                  <p className="helper-text">
-                    <strong>Ranked by mark band, then who is least busy that week.</strong>{' '}
-                    These tutors meet all allocation rules. Select one to assign.
-                  </p>
-                  <div className="candidate-grid">
-                    {eligibleCandidates.map((candidate) => (
-                      <CandidateCard
-                        key={candidate.tutorId}
-                        candidate={candidate}
-                        minimumMark={Number(form.minimumMark)}
-                        requestedHours={Number(form.requestedHours)}
-                        selected={candidate.tutorId === selectedTutorId}
-                        onSelect={() => setSelectedTutorId(candidate.tutorId)}
-                        disabled={isMutating}
-                      />
-                    ))}
-                  </div>
-                </>
-              ) : (
-                <p className="empty-inline" role="status">
-                  No tutors currently available.
-                </p>
-              )}
-            </>
-          )}
-
-          {ineligibleCandidates.length > 0 && (
-            <>
-              <h3 className="candidate-section-heading">Not eligible</h3>
-              <p className="helper-text">
-                These tutors do not meet one or more allocation rules. See the reasons below each card.
-              </p>
-              <div className="candidate-grid">
-                {ineligibleCandidates.map((candidate) => (
-                  <CandidateCard
-                    key={candidate.tutorId}
-                    candidate={candidate}
-                    minimumMark={Number(form.minimumMark)}
-                    requestedHours={Number(form.requestedHours)}
-                    selected={false}
-                    onSelect={() => {}}
-                    disabled={true}
-                  />
-                ))}
-              </div>
-            </>
-          )}
-
-          {eligibleCandidates.length === 0 && ineligibleCandidates.length === 0 && (
-            <p className="empty-inline" role="status">
-              No tutors found for this course and time slot.
-            </p>
-          )}
-        </section>
-      )}
-
-      {saveMessage && (
-        <p className="status-note" role="status">
-          {saveMessage}
-        </p>
-      )}
-      {saveError && (
-        <p className="status-note danger" role="alert">
-          {saveError}
-        </p>
-      )}
+        )}
+      </SidePanel>
 
       <ConfirmationDialog
         open={Boolean(removingAllocation)}

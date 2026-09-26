@@ -10,7 +10,9 @@ const CATEGORY_LABELS = {
   volunteer: 'Volunteer work',
 }
 
-export function CommandPalette() {
+// variant="field" draws the opener as a wide search box (the organiser's top bar); the default
+// is the compact button the tutor and student navigation use.
+export function CommandPalette({ variant = 'button' }) {
   const { getAccessTokenSilently } = useAuth0()
   const navigate = useNavigate()
   const openerRef = useRef(null)
@@ -90,14 +92,25 @@ export function CommandPalette() {
 
   return (
     <>
-      <button ref={openerRef} type="button" className="command-palette-trigger" onClick={() => setOpen(true)} aria-keyshortcuts="Control+K Meta+K">
-        Search <kbd>Ctrl K</kbd>
-      </button>
+      {variant === 'field' ? (
+        <button ref={openerRef} type="button" className="command-palette-trigger command-palette-field" onClick={() => setOpen(true)} aria-keyshortcuts="Control+K Meta+K">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true" focusable="false">
+            <circle cx="11" cy="11" r="8" />
+            <path d="m21 21-4.3-4.3" />
+          </svg>
+          <span>Search courses, people or timesheets</span>
+          <kbd>Ctrl K</kbd>
+        </button>
+      ) : (
+        <button ref={openerRef} type="button" className="command-palette-trigger" onClick={() => setOpen(true)} aria-keyshortcuts="Control+K Meta+K">
+          Search <kbd>Ctrl K</kbd>
+        </button>
+      )}
       {open && (
         <div className="command-palette-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) close() }}>
-          <section className="command-palette" role="dialog" aria-modal="true" aria-label="Search Tutor Mx">
+          <section className="command-palette" role="dialog" aria-modal="true" aria-label="Search CSAM Tutor Hub">
             <div className="command-palette-header">
-              <label htmlFor="global-search">Search Tutor Mx</label>
+              <label htmlFor="global-search">Search CSAM Tutor Hub</label>
               <button type="button" className="command-palette-close" onClick={close} aria-label="Close search">Close</button>
             </div>
             <input ref={inputRef} id="global-search" type="search" value={query} onChange={(event) => { const value = event.target.value; setQuery(value); if (value.trim().length < 2) { setGroups([]); setStatus('idle') } else { setStatus('loading') } }} onKeyDown={onInputKeyDown} placeholder="Courses, people or timesheets..." autoComplete="off" aria-controls="global-search-results" />

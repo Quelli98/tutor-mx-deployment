@@ -66,3 +66,44 @@ The preceding document was generated and reviewed with the assistance of the fol
 Codex (OpenAI; exact model identifier not supplied in this session) was used to audit the supplied integrated main archive against S3-M5-1/2/3, fix the organiser approvals/disputes contract, implement API validation and error hardening, add transactional retry receipts and atomic return history, prevent repeated overflow conversion, bound and measure report/ranking queries, add regression tests, and prepare the handoff/documentation evidence. The changes require human integration review; no remote CI, live authenticated test or deployment is claimed.
 
 Follow-up audit: Codex reviewed API routing and save/refresh handling, corrected authenticated CSV downloads and history recovery, added regression tests, and updated the handoff. The exact underlying model identifier was not supplied by the runtime. Local test results and remaining deployed-environment checks are documented in the audit report.
+
+## CSAM Tutor Hub homepage redesign - 25-26 September 2026
+
+- Claude Code[Claude Opus 5.5] was used on 25-26 September 2026 on branch `design/ui-redesign` to build the public CSAM Tutor Hub homepage from the Figma design: the signed-out landing page with Create account and Sign in for each role (sign-up starts with the chosen role), the vector CSAM mark reused in the header, role navigation and favicon, the line illustrations, brand rings and hover depth with reduced-motion handling, the responsive layout, the display rename from Tutor Mx to CSAM Tutor Hub in user-visible frontend text and API messages, a specific message when Organiser self-sign-up is disabled, and the updated App tests. It was also used to make sign-in and sign-up always show the Auth0 form (so people can choose the account for their role) and to prepare the Auth0 sign-in page branding assets under `frontend/public/auth/`; the building photo was supplied by the team member, and the Plus Jakarta Sans font is included under its SIL Open Font License. The Figma design itself was produced with Claude Code through a local plugin kept outside this repository. The role photos are Pexels images (free licence, no attribution required) with their backgrounds removed using macOS Vision. Verified locally with the frontend (539) and backend (1083) test suites, lint, typecheck, build and headless-browser screenshots; no deployed-environment check is claimed.
+
+## CSAM Tutor Hub organiser workspace redesign - 26 September 2026
+
+- Claude Code[Claude Opus 5.5] was used on 26 September 2026 on branch `design/ui-redesign` to build the organiser workspace from the approved Figma design. It covers:
+  - a navy sidebar layout for organiser pages (Home, Courses, Tutors, Reports, a Bulk allocation card, Account settings and Sign out), with a menu on narrow screens;
+  - a top bar with the organiser's name, search and notifications;
+  - an organiser Home page gathering quick-action tiles, the selected week's figures (open requirements, approvals waiting, hours allocated and budget used this year), the approval queues with their decisions, the week's open staffing requirements, current allocations with edit and remove, course cards, an hours-per-week chart and tutor workloads;
+  - the allocation board moved into a slide-over "Allocate a tutor" panel, with its validation, rule results, ranking and save/update/remove behaviour kept the same;
+  - the approval logic moved into a shared hook used by both the Approvals page and Home;
+  - a later visual pass:
+    - a soft brand-coloured page background;
+    - on every organiser page, a light banner (after the team member's `banner.webp` reference) with a scene of a person at a chalkboard written about that page and a handwritten line, and a welcome banner on Home;
+    - icons on card titles;
+    - Courses as photo-cover cards;
+    - Tutors as profile cards with a summary strip;
+    - four charts on Reports (hours by course, budget used, share of the work, tutor hours and limits) above the unchanged detailed tables.
+- It also wrote the new component, hook and helper tests and updated the dashboard and router tests to the new layout.
+- The line icons are Lucide (ISC licence) and the flat illustrations are unDraw (free licence, no attribution required), recoloured to the CSAM palette.
+- The banner people and the course and tutor cover photos are public-domain (CC0) photos from StockSnap and rawpixel, found through Openverse. The team member chose the people. Their backgrounds were removed with macOS Vision.
+- The design itself was produced in Figma with Claude Code through the local plugin kept outside this repository.
+- Verified locally with the frontend test suite (576 tests), lint, the production build, the repository security check, and headless-browser screenshots of the real components with sample data at 1440px, 1000px and 390px wide. No deployed-environment or live-API check is claimed.
+
+## CSAM Tutor Hub allocations timetable and main merge - 26 September 2026
+
+- Claude Code[Claude Opus 5.5] was used on 26 September 2026 on branch `design/ui-redesign` for two pieces of work.
+- The first was merging `main` into the branch. This brought in a teammate's organiser Command centre and the deep links to one course or one tutor. The merge resolved the conflicts in the router, its tests and `App.css`. It also:
+  - placed Command centre in the organiser sidebar;
+  - let its banner span the full width until it has a scene of its own;
+  - pointed two course deep-link tests at the course cards that replaced the courses table.
+- The second was redesigning "Current allocations" on the organiser Home as a week timetable, after the team member compared rendered options and chose it:
+  - Monday to Friday, and a weekend day only when a session falls on it;
+  - tutors on the same session shown together in a block in the course's colour;
+  - the Home week picker driving the timetable, with links to the nearest earlier or later week that has allocations;
+  - a compact layout for crowded weeks on narrower screens, and stacked days on phones.
+- Each tutor opens the allocation panel. Remove moved into that panel, in a "This allocation" summary, and still asks for confirmation.
+- It wrote the timetable component and helper tests and updated the dashboard tests.
+- Verified locally with the frontend test suite (722 tests), lint, the production build, the repository security check, and headless-browser screenshots with sample data at 1440px, 1000px and 390px wide. No deployed-environment or live-API check is claimed.

@@ -47,6 +47,8 @@ vi.mock('../api/organiser', () => ({
   decideTimesheet: vi.fn(),
   decideVolunteerClaim: vi.fn(),
   decideExcuse: vi.fn(),
+  listTimesheetDisputes: vi.fn().mockResolvedValue([]),
+  resolveTimesheetDispute: vi.fn(),
   listStaffingRequirements: vi.fn().mockResolvedValue([]),
   getWorkloadReport: vi.fn().mockResolvedValue({
     period: { weekStart: '2026-09-14T00:00:00.000Z', weekEnd: '2026-09-21T00:00:00.000Z', weeks: 1 },
@@ -113,7 +115,8 @@ describe('RoleRouter', () => {
   it('opens the ORGANISER entry route after sign in', () => {
     renderRole('ORGANISER')
     expect(screen.getByRole('heading', { name: 'Organiser workspace' })).toBeInTheDocument()
-    expect(screen.getByRole('heading', { name: /allocation board/i })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: /quick actions/i })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /allocate a tutor/i })).toBeInTheDocument()
   })
 
   it('opens the STUDENT entry route after sign in', async () => {
@@ -168,7 +171,9 @@ describe('RoleRouter', () => {
 
   it('shows organiser navigation for an organiser', () => {
     renderRole('ORGANISER')
-    expect(screen.getByRole('link', { name: /organiser workspace/i })).toBeInTheDocument()
+    const navigation = screen.getByRole('navigation', { name: /primary navigation/i })
+    expect(within(navigation).getByRole('link', { name: /^home$/i })).toHaveAttribute('href', '/organiser')
+    expect(screen.getByRole('link', { name: /account settings/i })).toBeInTheDocument()
   })
 
 
@@ -210,9 +215,15 @@ describe('RoleRouter', () => {
   it('shows the organiser management links only to an organiser', () => {
     renderRole('ORGANISER')
 
-    expect(screen.getByRole('link', { name: /^courses$/i })).toBeInTheDocument()
-    expect(screen.getByRole('link', { name: /^tutors$/i })).toBeInTheDocument()
-    expect(screen.getByRole('link', { name: /^approvals$/i })).toBeInTheDocument()
+    const navigation = screen.getByRole('navigation', { name: /primary navigation/i })
+    expect(within(navigation).getByRole('link', { name: /^courses$/i })).toBeInTheDocument()
+    expect(within(navigation).getByRole('link', { name: /^tutors$/i })).toBeInTheDocument()
+    expect(within(navigation).getByRole('link', { name: /^reports$/i })).toBeInTheDocument()
+    // Approvals, staffing and overflow are part of Home, each with its own full page behind it.
+    expect(screen.getByRole('link', { name: /see all approvals/i })).toHaveAttribute('href', '/organiser/approvals')
+    expect(screen.getByRole('link', { name: /see all staffing requirements/i })).toHaveAttribute('href', '/organiser/staffing')
+    expect(screen.getByRole('link', { name: /post overflow work/i })).toHaveAttribute('href', '/organiser/overflow#overflow-form-heading')
+    expect(screen.getByRole('link', { name: /start bulk allocation/i })).toHaveAttribute('href', '/organiser/staffing/bulk')
   })
 
   it('hides the organiser management links from a tutor', () => {
@@ -363,15 +374,65 @@ describe('RoleRouter', () => {
     expect(screen.queryByRole('heading', { name: 'Marks & schedule' })).not.toBeInTheDocument()
   })
 
-  it('reaches reports from the organiser dashboard, not the main navigation', () => {
+  it('puts Reports in the organiser sidebar', () => {
     renderRole('ORGANISER', '/organiser')
 
     const navigation = screen.getByRole('navigation', { name: /primary navigation/i })
-    expect(within(navigation).queryByRole('link', { name: 'Reports' })).not.toBeInTheDocument()
-    expect(screen.getByRole('link', { name: 'Reports' })).toHaveAttribute(
+    expect(within(navigation).getByRole('link', { name: 'Reports' })).toHaveAttribute(
       'href',
       '/organiser/reports',
     )
+  })
+
+  it('keeps Home highlighted on the pages that open from Home', async () => {
+    renderRole('ORGANISER', '/organiser/approvals')
+
+    expect(await screen.findByRole('heading', { name: 'Approvals' })).toBeInTheDocument()
+    const navigation = screen.getByRole('navigation', { name: /primary navigation/i })
+    expect(within(navigation).getByRole('link', { name: /^home$/i })).toHaveClass('active')
+    expect(within(navigation).getByRole('link', { name: /^courses$/i })).not.toHaveClass('active')
+  })
+
+  it('opens and closes the organiser menu on narrow screens', () => {
+    renderRole('ORGANISER')
+
+    const menuButton = screen.getByRole('button', { name: /^menu$/i })
+    expect(menuButton).toHaveAttribute('aria-expanded', 'false')
+    expect(menuButton).toHaveAttribute('aria-controls', 'organiser-sidebar')
+    fireEvent.click(menuButton)
+    expect(screen.getByRole('button', { name: /close menu/i })).toHaveAttribute('aria-expanded', 'true')
+    fireEvent.keyDown(document, { key: 'Escape' })
+    expect(screen.getByRole('button', { name: /^menu$/i })).toHaveAttribute('aria-expanded', 'false')
+  })
+
+  it('greets the organiser by the name on their profile', () => {
+    render(
+      <MemoryRouter initialEntries={['/organiser/courses']}>
+        <Routes>
+          <Route
+            path="/*"
+            element={(
+              <RoleRouter
+                currentRole="ORGANISER"
+                onSignOut={vi.fn()}
+                user={{ data: { profile: { fullName: 'Naledi Mokoena', role: 'ORGANISER' } } }}
+              />
+            )}
+          />
+        </Routes>
+      </MemoryRouter>,
+    )
+
+    expect(screen.getByText('Welcome back')).toBeInTheDocument()
+    expect(screen.getByText('Naledi Mokoena')).toBeInTheDocument()
+  })
+
+  it('keeps the tutor and student top navigation unchanged', () => {
+    renderRole('TUTOR', '/tutor')
+
+    expect(screen.queryByRole('link', { name: /start bulk allocation/i })).not.toBeInTheDocument()
+    expect(screen.queryByText('Welcome back')).not.toBeInTheDocument()
+    expect(screen.getByRole('link', { name: /tutor workspace/i })).toBeInTheDocument()
   })
 
   it('keeps course management away from a tutor', () => {

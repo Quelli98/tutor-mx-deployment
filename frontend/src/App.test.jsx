@@ -56,31 +56,44 @@ describe('Auth entry flow', () => {
     currentUserState = { role: null, loading: false, error: '', errorCode: '' }
   })
 
-  it('redirects an existing user to Auth0 sign in', async () => {
+  it('shows the CSAM Tutor Hub homepage with a way in for every role', () => {
     render(<MemoryRouter><App /></MemoryRouter>)
 
-    fireEvent.click(screen.getByRole('button', { name: /sign in with auth0/i }))
+    expect(screen.getByRole('heading', { level: 1, name: /a better way to manage tutors at csam/i })).toBeInTheDocument()
+    for (const role of ['Student', 'Tutor', 'Organiser']) {
+      expect(screen.getByRole('heading', { level: 3, name: role })).toBeInTheDocument()
+    }
+    expect(screen.getByRole('button', { name: /create account as a student/i })).toBeEnabled()
+    expect(screen.getByRole('button', { name: /create account as a tutor/i })).toBeEnabled()
+    expect(screen.getByRole('button', { name: /create account as an organiser/i })).toBeEnabled()
+    expect(screen.getAllByRole('button', { name: /^sign in$/i })).toHaveLength(3)
+    expect(screen.getByRole('link', { name: /choose your role/i })).toHaveAttribute('href', '#roles')
+    expect(screen.getByRole('link', { name: /how it works/i })).toHaveAttribute('href', '#roles')
+    expect(screen.getByRole('link', { name: /forgot your password/i })).toHaveAttribute('href', '/reset-password')
+    expect(screen.getByText(/university of the witwatersrand/i)).toBeInTheDocument()
+  })
+
+  it('redirects an existing user to Auth0 sign in and always shows the login form', async () => {
+    render(<MemoryRouter><App /></MemoryRouter>)
+
+    fireEvent.click(screen.getAllByRole('button', { name: /^sign in$/i })[0])
 
     await waitFor(() =>
       expect(loginMock).toHaveBeenCalledWith({
-        authorizationParams: { screen_hint: 'login' },
+        authorizationParams: { screen_hint: 'login', prompt: 'login' },
         appState: { targetUrl: '/' },
       }),
     )
   })
 
-  it('requires a role and sends a new Student to Auth0 sign up', async () => {
+  it('sends a new Student straight to Auth0 sign up with the role remembered', async () => {
     render(<MemoryRouter><App /></MemoryRouter>)
 
-    const create = screen.getByRole('button', { name: /^choose a role$/i })
-    expect(create).toBeDisabled()
-
-    fireEvent.click(screen.getByRole('button', { name: /^student$/i }))
-    fireEvent.click(screen.getByRole('button', { name: /create student account/i }))
+    fireEvent.click(screen.getByRole('button', { name: /create account as a student/i }))
 
     await waitFor(() =>
       expect(loginMock).toHaveBeenCalledWith({
-        authorizationParams: { screen_hint: 'signup' },
+        authorizationParams: { screen_hint: 'signup', prompt: 'login' },
         appState: { targetUrl: '/' },
       }),
     )
@@ -88,11 +101,20 @@ describe('Auth entry flow', () => {
     expect(window.sessionStorage.getItem('tutormx.pendingRole')).toBe('STUDENT')
   })
 
+  it('remembers the Organiser role when an Organiser creates an account', async () => {
+    render(<MemoryRouter><App /></MemoryRouter>)
+
+    fireEvent.click(screen.getByRole('button', { name: /create account as an organiser/i }))
+
+    await waitFor(() => expect(loginMock).toHaveBeenCalled())
+    expect(window.sessionStorage.getItem('tutormx.pendingRole')).toBe('ORGANISER')
+  })
+
   it('shows a safe message when Auth0 cannot start sign in', async () => {
     loginMock.mockRejectedValue(new Error('tenant details'))
     render(<MemoryRouter><App /></MemoryRouter>)
 
-    fireEvent.click(screen.getByRole('button', { name: /sign in with auth0/i }))
+    fireEvent.click(screen.getAllByRole('button', { name: /^sign in$/i })[0])
 
     expect(await screen.findByText(/authentication could not be started/i)).toBeInTheDocument()
     expect(screen.queryByText(/tenant details/i)).not.toBeInTheDocument()
@@ -119,7 +141,7 @@ describe('Auth entry flow', () => {
     render(<MemoryRouter><App /></MemoryRouter>)
 
     expect(screen.getByRole('heading', { name: /choose your role/i })).toBeInTheDocument()
-    expect(screen.getByText(/finish setting up your tutor mx account/i)).toBeInTheDocument()
+    expect(screen.getByText(/finish setting up your csam tutor hub account/i)).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /continue/i })).toBeDisabled()
   })
 
@@ -168,5 +190,19 @@ describe('Auth entry flow', () => {
       expect(resendVerificationMock).toHaveBeenCalledWith(tokenMock)
     })
     expect(await screen.findByText(/verification email sent/i)).toBeInTheDocument()
+  })
+
+  it('explains that Organiser accounts come from the School when self sign-up is disabled', async () => {
+    authState = { isAuthenticated: true, isLoading: false, user: { sub: 'auth0|789' } }
+    window.sessionStorage.setItem('tutormx.pendingRole', 'ORGANISER')
+    const disabled = new Error('Organiser self-sign-up is not enabled for this environment.')
+    disabled.code = 'ORGANISER_SELF_SIGNUP_DISABLED'
+    completeOnboardingMock.mockRejectedValueOnce(disabled)
+
+    render(<MemoryRouter initialEntries={['/']}><App /></MemoryRouter>)
+
+    expect(await screen.findByText(/organiser accounts are set up by the school/i)).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /try again/i })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /sign out/i })).toBeInTheDocument()
   })
 })
