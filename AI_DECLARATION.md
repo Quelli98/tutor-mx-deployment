@@ -91,3 +91,19 @@ Follow-up audit: Codex reviewed API routing and save/refresh handling, corrected
 - The banner people and the course and tutor cover photos are public-domain (CC0) photos from StockSnap and rawpixel, found through Openverse. The team member chose the people. Their backgrounds were removed with macOS Vision.
 - The design itself was produced in Figma with Claude Code through the local plugin kept outside this repository.
 - Verified locally with the frontend test suite (576 tests), lint, the production build, the repository security check, and headless-browser screenshots of the real components with sample data at 1440px, 1000px and 390px wide. No deployed-environment or live-API check is claimed.
+
+## CSAM Tutor Hub allocations timetable and main merge - 26 September 2026
+
+- Claude Code[Claude Opus 5.5] was used on 26 September 2026 on branch `design/ui-redesign` for two pieces of work.
+- The first was merging `main` into the branch. This brought in a teammate's organiser Command centre and the deep links to one course or one tutor. The merge resolved the conflicts in the router, its tests and `App.css`. It also:
+  - placed Command centre in the organiser sidebar;
+  - let its banner span the full width until it has a scene of its own;
+  - pointed two course deep-link tests at the course cards that replaced the courses table.
+- The second was redesigning "Current allocations" on the organiser Home as a week timetable, after the team member compared rendered options and chose it:
+  - Monday to Friday, and a weekend day only when a session falls on it;
+  - tutors on the same session shown together in a block in the course's colour;
+  - the Home week picker driving the timetable, with links to the nearest earlier or later week that has allocations;
+  - a compact layout for crowded weeks on narrower screens, and stacked days on phones.
+- Each tutor opens the allocation panel. Remove moved into that panel, in a "This allocation" summary, and still asks for confirmation.
+- It wrote the timetable component and helper tests and updated the dashboard tests.
+- Verified locally with the frontend test suite (722 tests), lint, the production build, the repository security check, and headless-browser screenshots with sample data at 1440px, 1000px and 390px wide. No deployed-environment or live-API check is claimed.
