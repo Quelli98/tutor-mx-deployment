@@ -8,7 +8,7 @@ export default defineConfig({
     fileParallelism: false,
     // Cold WebAssembly/PostgreSQL startup needs longer than a unit-test hook.
     // Keep this bounded; an actual setup failure must still fail the suite.
-    hookTimeout: 60_000,
+    hookTimeout: 120_000,
     testTimeout: 15_000,
     include: ["src/**/*.test.ts"],
     exclude: ["frontend/**", "node_modules/**", "dist/**"],
