@@ -95,7 +95,7 @@ describe('TutorForms accessibility', () => {
       screen.getByLabelText(/from.*date and time/i),
       screen.getByLabelText(/until.*date and time/i),
       screen.getByLabelText(/description \(optional\)/i),
-      screen.getByLabelText(/repeat weekly/i),
+      screen.getByLabelText(/^repeat$/i),
       screen.getByRole('button', { name: /add schedule entry/i }),
       screen.getByLabelText(/academic term/i),
       // Only the selected radio is a tab stop; arrow keys move within the group.
