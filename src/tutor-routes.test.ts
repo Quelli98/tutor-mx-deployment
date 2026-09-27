@@ -1041,3 +1041,41 @@ describe("tutor timesheet correction routes", () => {
     expect(answered.body.error.code).toBe("TIMESHEET_DISPUTE_UNAVAILABLE");
   });
 });
+
+describe('manual timetable metadata contract', () => {
+  const payload = {
+    type: 'BUSY', startsAt: '2030-09-04T14:00:00.000Z', endsAt: '2030-09-04T16:00:00.000Z',
+    recurrence: 'FORTNIGHTLY', label: 'Lab', recurrenceUntil: null, category: 'CLASS', seriesId: null,
+  };
+  it.each(['post', 'patch'] as const)('accepts the real frontend %s payload and retains metadata', async (method) => {
+    const write = vi.fn().mockResolvedValue({ id: 1, ...payload });
+    const app = makeApp({ createTutorTimeSlot: write, updateTutorTimeSlot: write });
+    const response = await request(app)[method](`/api/tutor/time-slots${method === 'patch' ? '/1' : ''}`)
+      .set('Authorization', 'Bearer token').send(payload);
+    expect(response.status).toBe(method === 'post' ? 201 : 200);
+    expect(response.body.data.timeSlot).toMatchObject(payload);
+    expect(write.mock.calls[0]!.at(-1)).toMatchObject({
+      recurrence: 'FORTNIGHTLY', category: 'CLASS', seriesId: null,
+      startsAt: new Date(payload.startsAt), endsAt: new Date(payload.endsAt),
+    });
+  });
+  it.each([
+    { category: 'TUTORING' }, { category: null }, { category: 1 },
+    { seriesId: 1 }, { seriesId: '' }, { seriesId: ' ' }, { seriesId: 'x'.repeat(37) },
+    { tutorId: 999 },
+  ])('refuses invalid metadata or ownership injection %j', async (invalid) => {
+    const createTutorTimeSlot = vi.fn();
+    const response = await request(makeApp({ createTutorTimeSlot })).post('/api/tutor/time-slots')
+      .set('Authorization', 'Bearer token').send({ ...payload, ...invalid });
+    expect(response.status).toBe(400);
+    expect(createTutorTimeSlot).not.toHaveBeenCalled();
+  });
+  it('accepts a retained series identifier on an edited class', async () => {
+    const updateTutorTimeSlot = vi.fn().mockResolvedValue({ id: 1, ...payload, seriesId: 'class-series' });
+    const response = await request(makeApp({ updateTutorTimeSlot })).patch('/api/tutor/time-slots/1')
+      .set('Authorization', 'Bearer token').send({ ...payload, seriesId: 'class-series' });
+    expect(response.status).toBe(200);
+    expect(updateTutorTimeSlot).toHaveBeenCalledWith('auth0|current-tutor', 1,
+      expect.objectContaining({ category: 'CLASS', seriesId: 'class-series' }));
+  });
+});

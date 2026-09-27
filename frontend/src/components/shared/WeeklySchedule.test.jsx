@@ -48,7 +48,7 @@ describe('weekly schedule', () => {
 
   it('shows null labels as Unavailable, never Available, and ignores AVAILABLE rows', () => {
     render(<WeeklySchedule slots={[{ ...slot, label: null }, { ...slot, id: 2, type: 'AVAILABLE', label: 'Not a busy block' }]} />)
-    expect(screen.getByText('Unavailable')).toBeVisible()
+    expect(within(screen.getByText('Unavailable', { selector: 'article strong' }).closest('article')).getByText('Unavailable')).toBeVisible()
     expect(screen.queryByText('Not a busy block')).not.toBeInTheDocument()
   })
 
@@ -95,5 +95,34 @@ describe('weekly schedule', () => {
     expect(weekRangeLabel(new Date('2026-09-28T00:00'))).toBe('28 September 2026 – 4 October 2026')
     expect(weekRangeLabel(new Date('2026-12-28T00:00'))).toBe('28 December 2026 – 3 January 2027')
     expect(localMonday(new Date('2026-09-20T23:00'))).toEqual(monday)
+  })
+})
+
+describe('calendar render and navigation regressions', () => {
+  it('preserves the navigated week when the parent supplies an equivalent Date', () => {
+    const { rerender } = render(<WeeklySchedule slots={[slot]} initialDate={new Date('2026-09-16T12:00')} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Next week' }))
+    expect(screen.getByText('21–27 September 2026')).toBeVisible()
+    rerender(<WeeklySchedule slots={[slot]} initialDate={new Date('2026-09-16T12:00')} />)
+    expect(screen.getByText('21–27 September 2026')).toBeVisible()
+    rerender(<WeeklySchedule slots={[slot]} initialDate={new Date('2026-10-07T12:00')} />)
+    expect(screen.getByText('5–11 October 2026')).toBeVisible()
+  })
+
+  it('keeps navigation across slot refreshes without a requested date', () => {
+    const { rerender } = render(<WeeklySchedule slots={[]} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Next week' }))
+    rerender(<WeeklySchedule slots={[slot]} />)
+    expect(screen.getByText('21–27 September 2026')).toBeVisible()
+    expect(screen.getByText('Lecture')).toBeVisible()
+  })
+
+  it('shows fortnightly entries only on alternating weeks', () => {
+    render(<WeeklySchedule slots={[{ ...slot, recurrence: 'FORTNIGHTLY', category: 'CLASS' }]} />)
+    expect(screen.getByText('Lecture')).toBeVisible()
+    fireEvent.click(screen.getByRole('button', { name: 'Next week' }))
+    expect(screen.queryByText('Lecture')).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Next week' }))
+    expect(screen.getByText('Lecture')).toBeVisible()
   })
 })

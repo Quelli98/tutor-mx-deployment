@@ -49,7 +49,7 @@ describe('Organiser detail API integration', () => {
     expect(request.mock.calls.some(([path]) => path === '/api/tutor/time-slots')).toBe(false)
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()
     const calendar = screen.getByRole('region', { name: 'Schedule for Raquel' })
-    if (!slots.length) expect(within(calendar).getByText('No unavailable times added')).toBeVisible()
+    if (!slots.length) expect(within(calendar).getByText('No times added')).toBeVisible()
     else expect(within(calendar).getByText('08:00–09:45')).toBeVisible()
     expect(within(calendar).queryByRole('button', { name: /edit|delete/i })).not.toBeInTheDocument()
     expect(screen.getByText('Schedule maintained by the Tutor')).toBeVisible()

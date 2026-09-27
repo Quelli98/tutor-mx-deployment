@@ -15,6 +15,8 @@ const listOwnTimeSlots = vi.fn().mockResolvedValue([])
 const deleteOwnTimeSlot = vi.fn()
 const updateOwnTimeSlot = vi.fn()
 const listAcademicTerms = vi.fn()
+const previewTimetableImport = vi.fn()
+const commitTimetableImport = vi.fn()
 
 vi.mock('@auth0/auth0-react', () => ({
   useAuth0: () => ({
@@ -44,8 +46,8 @@ vi.mock('../api/timesheet', () => ({
 }))
 vi.mock('../api/timetableImport', () => ({
   listAcademicTerms: (...args) => listAcademicTerms(...args),
-  previewTimetableImport: vi.fn(),
-  commitTimetableImport: vi.fn(),
+  previewTimetableImport: (...args) => previewTimetableImport(...args),
+  commitTimetableImport: (...args) => commitTimetableImport(...args),
   currentTimeZone: () => 'UTC',
 }))
 
@@ -79,33 +81,57 @@ describe('TutorForms accessibility', () => {
     listAcademicTerms.mockResolvedValue(academicTerms)
   })
 
-  it('keeps only the active timetable method in the keyboard flow', async () => {
+  it('reaches every labelled control and action in keyboard order', async () => {
     const user = userEvent.setup()
     render(<TutorForms />)
     await screen.findByRole('heading', { name: /forms and submissions/i })
+    // The import card only becomes reachable once its terms have loaded, which is
+    // the state a tutor is in when they work down the page.
+    await waitFor(() => expect(screen.getByLabelText(/academic term/i)).not.toBeDisabled())
 
-    const manualTab = screen.getByRole('tab', { name: /add manually/i })
-    const importTab = screen.getByRole('tab', { name: /import timetable/i })
-    const manualPanel = document.getElementById('tab-panel-manual')
-    const importPanel = document.getElementById('tab-panel-import')
+    const expectedControls = [
+      screen.getByRole('tab', { name: 'Add manually' }),
+      screen.getByRole('tab', { name: 'Import timetable' }),
+      await screen.findByRole('button', { name: /previous week/i }),
+      screen.getByRole('button', { name: /^this week$/i }),
+      screen.getByRole('button', { name: /next week/i }),
+      document.querySelector('.calendar-scroll'),
+      screen.getByLabelText(/^category$/i),
+      screen.getByLabelText(/from.*date and time/i),
+      screen.getByLabelText(/until.*date and time/i),
+      screen.getByLabelText(/description \(optional\)/i),
+      screen.getByLabelText(/^repeat$/i),
+      screen.getByRole('button', { name: /add schedule entry/i }),
+      screen.getAllByLabelText(/^session$/i)[0],
+      screen.getByLabelText(/^date$/i),
+      screen.getByLabelText(/hours worked/i),
+      screen.getByLabelText(/^description$/i),
+      screen.getByRole('button', { name: /add to draft/i }),
+      screen.getAllByLabelText(/^session$/i)[1],
+      screen.getByLabelText(/^reason$/i),
+      screen.getByRole('button', { name: /submit excuse/i }),
+    ]
 
-    expect(manualPanel).not.toHaveAttribute('hidden')
-    expect(importPanel).toHaveAttribute('hidden')
-    expect(screen.getByLabelText(/from.*date and time/i)).not.toHaveAttribute('tabindex', '-1')
-
-    manualTab.focus()
     await user.tab()
-    expect(importTab).toHaveFocus()
+    for (const control of expectedControls) {
+      expect(control).toHaveFocus()
+      await user.tab()
+    }
 
+    const importTab = screen.getByRole('tab', { name: 'Import timetable' })
+    importTab.focus()
     await user.keyboard('{Enter}')
     expect(importTab).toHaveAttribute('aria-selected', 'true')
-    expect(manualPanel).toHaveAttribute('hidden')
-    expect(importPanel).not.toHaveAttribute('hidden')
-
-    await waitFor(() => expect(screen.getByLabelText(/academic term/i)).not.toBeDisabled())
-    await user.tab()
-    expect(screen.getByLabelText(/academic term/i)).toHaveFocus()
-  })
+    for (const control of [
+      screen.getByLabelText(/academic term/i),
+      screen.getByLabelText(/pasted rows or a \.csv file/i),
+      screen.getByLabelText(/choose a file \(optional\)/i),
+      screen.getByLabelText(/timetable rows/i),
+    ]) {
+      await user.tab()
+      expect(control).toHaveFocus()
+    }
+  }, 15000) // Allow sequential keyboard interactions to finish on busy CI runners.
 
   it('activates validation from the keyboard', async () => {
     const user = userEvent.setup()
@@ -467,4 +493,32 @@ describe('TutorForms unified timetable', () => {
       tokenGetter,
     )
   })
+})
+
+it('keeps import success and an unsaved manual draft while refreshing imported slots', async () => {
+  vi.clearAllMocks()
+  window.sessionStorage.clear()
+  fetchTutorDashboard.mockResolvedValue(dashboard)
+  listOwnTimeSlots.mockResolvedValue([])
+  listAcademicTerms.mockResolvedValue(academicTerms)
+  previewTimetableImport.mockResolvedValue({
+    timeZone: 'UTC', term: academicTerms[0], rows: [], validCount: 1, invalidCount: 0, duplicateCount: 0,
+  })
+  commitTimetableImport.mockResolvedValue({ created: 1 })
+  render(<TutorForms />)
+  await screen.findByRole('region', { name: 'Your weekly schedule' })
+  fireEvent.change(screen.getByLabelText(/description \(optional\)/i), { target: { value: 'Unsaved draft' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Next week' }))
+  const navigatedWeek = document.querySelector('.calendar-toolbar p').textContent
+  fireEvent.click(screen.getByRole('tab', { name: 'Import timetable' }))
+  await waitFor(() => expect(screen.getByLabelText(/academic term/i)).not.toBeDisabled())
+  fireEvent.change(screen.getByLabelText(/timetable rows/i), { target: { value: 'date,start,end\n2030-09-02,09:00,10:00' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Preview import' }))
+  fireEvent.click(await screen.findByRole('button', { name: 'Save 1 entry' }))
+  expect(await screen.findByText('Imported 1 schedule entry.')).toBeVisible()
+  await waitFor(() => expect(listOwnTimeSlots).toHaveBeenCalledTimes(2))
+  expect(listAcademicTerms).toHaveBeenCalledTimes(1)
+  fireEvent.click(screen.getByRole('tab', { name: 'Add manually' }))
+  expect(screen.getByLabelText(/description \(optional\)/i)).toHaveValue('Unsaved draft')
+  expect(document.querySelector('.calendar-toolbar p').textContent).toBe(navigatedWeek)
 })

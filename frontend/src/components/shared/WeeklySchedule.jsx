@@ -20,17 +20,20 @@ function blockStyle(category) {
 export default function WeeklySchedule({
   slots,
   label = 'Weekly schedule',
-  initialDate = new Date(),
+  initialDate,
   showLegend = false,
   emptyMessage,
 }) {
   const headingId = useId()
-  const [weekStart, setWeekStart] = useState(() => localMonday(initialDate))
-  // Sync with initialDate prop changes while preserving user navigation
+  const [weekStart, setWeekStart] = useState(() => localMonday(initialDate ?? new Date()))
+  // A parent may recreate the Date on every render. Only an actual change
+  // of requested week should reset navigation; an omitted date never does.
+  const requestedWeek = initialDate == null ? null : localMonday(initialDate).valueOf()
   useEffect(() => {
+    if (requestedWeek === null || !Number.isFinite(requestedWeek)) return
     // eslint-disable-next-line react-hooks/set-state-in-effect
-    setWeekStart(localMonday(initialDate))
-  }, [initialDate])
+    setWeekStart((current) => current.valueOf() === requestedWeek ? current : new Date(requestedWeek))
+  }, [requestedWeek])
   const days = useMemo(() => scheduleForWeek(slots, weekStart), [slots, weekStart])
   const blocks = days.flatMap((day) => day.blocks)
   const firstHour = Math.floor(Math.min(8 * 60, ...blocks.map((block) => block.startMinute)) / 60)
@@ -56,6 +59,7 @@ export default function WeeklySchedule({
           <button className="secondary-button" type="button" onClick={() => setWeekStart(addDays(weekStart, 7))}>Next week</button>
         </div>
       </div>
+      <p className="helper-text">Free space means available.</p>
       {activeLegend.length > 0 && (
         <div className="calendar-legend" role="list" aria-label="Legend">
           {activeLegend.map((item) => (

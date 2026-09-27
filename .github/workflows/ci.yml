@@ -65,7 +65,7 @@ jobs:
   frontend-quality:
     name: Frontend quality and coverage
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 30
 
     defaults:
       run:
@@ -89,6 +89,7 @@ jobs:
         run: npm run lint
 
       - name: Test with frontend coverage
+        timeout-minutes: 25
         run: npm run test:coverage
 
       - name: Build

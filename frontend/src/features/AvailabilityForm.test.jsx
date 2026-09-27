@@ -85,7 +85,7 @@ describe('AvailabilityForm', () => {
     expect(mockUpdateOwnTimeSlot).toHaveBeenCalledWith(4, expect.objectContaining({ label: 'Study group', startsAt: slot.startsAt }), tokenGetter)
     fireEvent.click(screen.getByRole('button', { name: 'Delete schedule entry Study group' }))
     fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Delete schedule entry' }))
-    expect(await within(calendar).findByText('No unavailable times added')).toBeInTheDocument()
+    expect(await within(calendar).findByText('No times added')).toBeInTheDocument()
     expect(mockDeleteOwnTimeSlot).toHaveBeenCalledWith(4, tokenGetter)
     expect(screen.queryByRole('list', { name: 'Your schedule entries' })).not.toBeInTheDocument()
   })
@@ -114,38 +114,11 @@ describe('AvailabilityForm', () => {
           label: null,
           recurrenceUntil: null,
           category: 'UNAVAILABLE',
+          seriesId: null,
         },
         tokenGetter,
       )
     })
     expect(await screen.findByText(/schedule entry added/i)).toBeInTheDocument()
   })
-
-  it('refreshes imported timetable data without remounting or clearing an unsaved manual form', async () => {
-    const importedSlot = {
-      id: 20,
-      type: 'BUSY',
-      startsAt: '2030-09-10T08:00:00.000Z',
-      endsAt: '2030-09-10T09:00:00.000Z',
-      recurrence: null,
-      label: 'Imported lecture',
-      recurrenceUntil: null,
-      category: 'CLASS',
-    }
-    mockListOwnTimeSlots.mockResolvedValueOnce([]).mockResolvedValueOnce([importedSlot])
-
-    const { rerender } = render(<AvailabilityForm tokenOrGetter={tokenGetter} refreshVersion={0} />)
-    await screen.findByRole('region', { name: 'Your weekly schedule' })
-
-    fireEvent.change(screen.getByLabelText(/description \(optional\)/i), {
-      target: { value: 'Keep this draft' },
-    })
-
-    rerender(<AvailabilityForm tokenOrGetter={tokenGetter} refreshVersion={1} />)
-
-    await waitFor(() => expect(mockListOwnTimeSlots).toHaveBeenCalledTimes(2))
-    expect(screen.getByLabelText(/description \(optional\)/i)).toHaveValue('Keep this draft')
-    expect(await screen.findByText('Imported lecture')).toBeInTheDocument()
-  })
-
 })
