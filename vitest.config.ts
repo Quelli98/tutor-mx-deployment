@@ -8,8 +8,11 @@ export default defineConfig({
     fileParallelism: false,
     // Cold WebAssembly/PostgreSQL startup needs longer than a unit-test hook.
     // Keep this bounded; an actual setup failure must still fail the suite.
-    hookTimeout: 120_000,
-    testTimeout: 15_000,
+    // V8 coverage instrumentation makes the PostgreSQL/PGlite integration tests
+    // materially slower on the shared runner. Keep bounded limits, but leave
+    // enough headroom for the exact same assertions to complete under coverage.
+    hookTimeout: 90_000,
+    testTimeout: 30_000,
     include: ["src/**/*.test.ts"],
     exclude: ["frontend/**", "node_modules/**", "dist/**"],
     coverage: {

@@ -40,7 +40,7 @@ function validate(form) {
   return errors
 }
 
-export default function AvailabilityForm({ tokenOrGetter }) {
+export default function AvailabilityForm({ tokenOrGetter, refreshVersion = 0 }) {
   const [form, setForm] = useState(EMPTY_FORM)
   const [editingId, setEditingId] = useState(null)
   const [errors, setErrors] = useState({})
@@ -68,7 +68,7 @@ export default function AvailabilityForm({ tokenOrGetter }) {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     load(() => active)
     return () => { active = false }
-  }, [load])
+  }, [load, refreshVersion])
 
   function reset() {
     setForm(EMPTY_FORM)

@@ -117,7 +117,7 @@ export default function TutorForms() {
           aria-labelledby="tab-manual"
           hidden={activeTab !== 'manual'}
         >
-          <AvailabilityForm key={`schedule-${scheduleVersion}`} tokenOrGetter={getAccessTokenSilently} />
+          <AvailabilityForm refreshVersion={scheduleVersion} tokenOrGetter={getAccessTokenSilently} />
         </div>
         <div
           role="tabpanel"
@@ -126,7 +126,6 @@ export default function TutorForms() {
           hidden={activeTab !== 'import'}
         >
           <TimetableImport
-            key={`import-${scheduleVersion}`}
             tokenOrGetter={getAccessTokenSilently}
             onImported={() => setScheduleVersion((current) => current + 1)}
           />

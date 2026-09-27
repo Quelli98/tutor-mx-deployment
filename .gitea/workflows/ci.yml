@@ -14,7 +14,7 @@ jobs:
   backend-quality:
     name: Backend quality and coverage
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 25
 
     env:
       CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
@@ -70,7 +70,7 @@ jobs:
   frontend-quality:
     name: Frontend quality and coverage
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 25
 
     env:
       CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}

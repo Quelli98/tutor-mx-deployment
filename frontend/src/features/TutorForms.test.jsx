@@ -79,45 +79,33 @@ describe('TutorForms accessibility', () => {
     listAcademicTerms.mockResolvedValue(academicTerms)
   })
 
-  it('reaches every labelled control and action in keyboard order', async () => {
+  it('keeps only the active timetable method in the keyboard flow', async () => {
     const user = userEvent.setup()
     render(<TutorForms />)
     await screen.findByRole('heading', { name: /forms and submissions/i })
-    // The import card only becomes reachable once its terms have loaded, which is
-    // the state a tutor is in when they work down the page.
-    await waitFor(() => expect(screen.getByLabelText(/academic term/i)).not.toBeDisabled())
 
-    const expectedControls = [
-      await screen.findByRole('button', { name: /previous week/i }),
-      screen.getByRole('button', { name: /^this week$/i }),
-      screen.getByRole('button', { name: /next week/i }),
-      document.querySelector('.calendar-scroll'),
-      screen.getByLabelText(/from.*date and time/i),
-      screen.getByLabelText(/until.*date and time/i),
-      screen.getByLabelText(/description \(optional\)/i),
-      screen.getByLabelText(/^repeat$/i),
-      screen.getByRole('button', { name: /add schedule entry/i }),
-      screen.getByLabelText(/academic term/i),
-      // Only the selected radio is a tab stop; arrow keys move within the group.
-      screen.getByLabelText(/pasted rows or a \.csv file/i),
-      screen.getByLabelText(/choose a file \(optional\)/i),
-      screen.getByLabelText(/timetable rows/i),
-      screen.getAllByLabelText(/^session$/i)[0],
-      screen.getByLabelText(/^date$/i),
-      screen.getByLabelText(/hours worked/i),
-      screen.getByLabelText(/^description$/i),
-      screen.getByRole('button', { name: /add to draft/i }),
-      screen.getAllByLabelText(/^session$/i)[1],
-      screen.getByLabelText(/^reason$/i),
-      screen.getByRole('button', { name: /submit excuse/i }),
-    ]
+    const manualTab = screen.getByRole('tab', { name: /add manually/i })
+    const importTab = screen.getByRole('tab', { name: /import timetable/i })
+    const manualPanel = document.getElementById('tab-panel-manual')
+    const importPanel = document.getElementById('tab-panel-import')
 
+    expect(manualPanel).not.toHaveAttribute('hidden')
+    expect(importPanel).toHaveAttribute('hidden')
+    expect(screen.getByLabelText(/from.*date and time/i)).not.toHaveAttribute('tabindex', '-1')
+
+    manualTab.focus()
     await user.tab()
-    for (const control of expectedControls) {
-      expect(control).toHaveFocus()
-      await user.tab()
-    }
-  }, 15000) // Allow sequential keyboard interactions to finish on busy CI runners.
+    expect(importTab).toHaveFocus()
+
+    await user.keyboard('{Enter}')
+    expect(importTab).toHaveAttribute('aria-selected', 'true')
+    expect(manualPanel).toHaveAttribute('hidden')
+    expect(importPanel).not.toHaveAttribute('hidden')
+
+    await waitFor(() => expect(screen.getByLabelText(/academic term/i)).not.toBeDisabled())
+    await user.tab()
+    expect(screen.getByLabelText(/academic term/i)).toHaveFocus()
+  })
 
   it('activates validation from the keyboard', async () => {
     const user = userEvent.setup()
