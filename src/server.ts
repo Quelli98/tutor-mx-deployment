@@ -170,22 +170,26 @@ function toTimeSlotSummary(timeSlot: {
   recurrence: string | null;
   label: string | null;
   recurrenceUntil: Date | null;
+  category?: string;
+  seriesId?: string | null;
 }): TutorTimeSlotSummary {
   return {
     id: timeSlot.id,
     type: timeSlot.type,
     startsAt: timeSlot.startsAt.toISOString(),
     endsAt: timeSlot.endsAt.toISOString(),
-    recurrence: timeSlot.recurrence === "WEEKLY" || timeSlot.recurrence === "ONCE"
+    recurrence: timeSlot.recurrence === "WEEKLY" || timeSlot.recurrence === "FORTNIGHTLY" || timeSlot.recurrence === "ONCE"
       ? timeSlot.recurrence : null,
     label: timeSlot.label,
     recurrenceUntil: timeSlot.recurrenceUntil?.toISOString() ?? null,
+    category: timeSlot.category ?? "UNAVAILABLE",
+    seriesId: timeSlot.seriesId ?? null,
   };
 }
 
 const timeSlotSelect = {
   id: true, type: true, startsAt: true, endsAt: true,
-  recurrence: true, label: true, recurrenceUntil: true,
+  recurrence: true, label: true, recurrenceUntil: true, category: true, seriesId: true,
 } as const;
 
 async function listTimeSlots(tutorId: number) {
@@ -664,6 +668,8 @@ const app = createApp(
             recurrence: input.recurrence ?? null,
             label: input.label ?? null,
             recurrenceUntil: input.recurrenceUntil ?? null,
+            ...(input.category !== undefined ? { category: input.category } : {}),
+            ...(input.seriesId !== undefined ? { seriesId: input.seriesId } : {}),
           },
           select: timeSlotSelect,
         });
@@ -1082,6 +1088,8 @@ const app = createApp(
             recurrence: input.recurrence ?? null,
             label: input.label ?? null,
             recurrenceUntil: input.recurrenceUntil ?? null,
+            ...(input.category !== undefined ? { category: input.category } : {}),
+            ...(input.seriesId !== undefined ? { seriesId: input.seriesId } : {}),
           },
           select: timeSlotSelect,
         });

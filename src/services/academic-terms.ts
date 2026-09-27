@@ -245,7 +245,7 @@ export function parseAcademicTermInput(
       ...(year !== undefined ? { year: year as number | null } : {}),
       ...(termNumber !== undefined ? { termNumber: termNumber as number | null } : {}),
       ...(published !== undefined ? { published: published as boolean } : {}),
-      ...(breaks.value.length > 0 ? { teachingBreaks: breaks.value } : {}),
+      ...(payload.teachingBreaks !== undefined ? { teachingBreaks: breaks.value } : {}),
     },
   };
 }
@@ -349,12 +349,24 @@ export function createAcademicTermService(
 
       const overlap = await checkOverlap(input.startsOn, input.endsOn, id);
       if (overlap) throw new Error(overlap);
-      const unique = await checkYearTermUnique(input.year, input.termNumber, id);
+      const unique = await checkYearTermUnique(
+        input.year === undefined ? existing.year : input.year,
+        input.termNumber === undefined ? existing.termNumber : input.termNumber,
+        id,
+      );
       if (unique) throw new Error(unique);
 
       const row = await prismaClient.academicTerm.update({
         where: { id },
-        data: toCreateData(input),
+        data: {
+          name: input.name,
+          startsOn: parseDateOnlyUtc(input.startsOn),
+          endsOn: parseDateOnlyUtc(input.endsOn),
+          ...(input.year !== undefined ? { year: input.year } : {}),
+          ...(input.termNumber !== undefined ? { termNumber: input.termNumber } : {}),
+          ...(input.published !== undefined ? { published: input.published } : {}),
+          ...(input.teachingBreaks !== undefined ? { teachingBreaks: input.teachingBreaks } : {}),
+        },
         select: termSelection,
       });
       return toSummary(row);

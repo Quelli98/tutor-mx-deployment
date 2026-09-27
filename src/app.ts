@@ -139,6 +139,8 @@ export interface TutorTimeSlotSummary {
   recurrence: "WEEKLY" | "FORTNIGHTLY" | "ONCE" | null;
   label: string | null;
   recurrenceUntil: string | null;
+  category?: string;
+  seriesId?: string | null;
 }
 
 export interface TutorWorkLogWriteInput {
@@ -1659,7 +1661,7 @@ function hasAtMostTwoDecimalPlaces(value: number) {
 }
 
 function parseTutorTimeSlotInput(body: unknown) {
-  if (!hasOnlyFields(body, ["type", "startsAt", "endsAt", "recurrence", "label", "recurrenceUntil"])) {
+  if (!hasOnlyFields(body, ["type", "startsAt", "endsAt", "recurrence", "label", "recurrenceUntil", "category", "seriesId"])) {
     return { error: "Provide only schedule fields, without an ownership identifier." } as const;
   }
   const { type, recurrence } = body;
@@ -1693,7 +1695,18 @@ function parseTutorTimeSlotInput(body: unknown) {
     return { error: checked.error } as const;
   }
 
-  const value: TutorTimeSlotWriteInput = checked.value;
+  if (body.category !== undefined && body.category !== "CLASS" && body.category !== "UNAVAILABLE") {
+    return { error: "Choose Class or Unavailable as the schedule category." } as const;
+  }
+  if (body.seriesId !== undefined && body.seriesId !== null &&
+      (typeof body.seriesId !== "string" || !body.seriesId.trim() || body.seriesId.length > 36)) {
+    return { error: "Provide a valid schedule series identifier." } as const;
+  }
+  const value: TutorTimeSlotWriteInput = {
+    ...checked.value,
+    ...(body.category !== undefined ? { category: body.category as string } : {}),
+    ...(body.seriesId !== undefined ? { seriesId: body.seriesId as string | null } : {}),
+  };
   return { value } as const;
 }
 

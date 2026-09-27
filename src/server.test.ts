@@ -22,6 +22,7 @@ const mocks = vi.hoisted(() => ({
   profileFindUnique: vi.fn(),
   queryRaw: vi.fn(),
   timeSlotCreate: vi.fn(),
+  timeSlotUpdate: vi.fn(),
   timeSlotFindMany: vi.fn(),
   timesheetUpsert: vi.fn(),
   transaction: vi.fn(),
@@ -66,6 +67,7 @@ vi.mock("./database.js", () => ({
     },
     timeSlot: {
       create: mocks.timeSlotCreate,
+      update: mocks.timeSlotUpdate,
       findMany: mocks.timeSlotFindMany,
     },
     tutorMark: {
@@ -930,16 +932,16 @@ describe("server-side API persistence", () => {
     );
   });
 
-  it.each(["WEEKLY", "ONCE", null])("serializes selected tutor schedules with %s and nullable optional fields", async (recurrence) => {
+  it.each(["WEEKLY", "FORTNIGHTLY", "ONCE", null])("serializes selected tutor schedules with %s and nullable optional fields", async (recurrence) => {
     await import("./server.js");
     const dependencies = capturedDependencies();
     mocks.timeSlotFindMany.mockImplementation(async ({ where }) => where.tutorId === 7 ? [{
       id: 15, type: "BUSY", startsAt: new Date("2026-09-17T06:00:00Z"), endsAt: new Date("2026-09-17T07:45:00Z"),
-      recurrence, label: null, recurrenceUntil: null,
+      recurrence, label: null, recurrenceUntil: null, category: "CLASS", seriesId: "class-series",
     }] : []);
     await expect(dependencies.listTutorTimeSlots(7)).resolves.toEqual([{
       id: 15, type: "BUSY", startsAt: "2026-09-17T06:00:00.000Z", endsAt: "2026-09-17T07:45:00.000Z",
-      recurrence, label: null, recurrenceUntil: null,
+      recurrence, label: null, recurrenceUntil: null, category: "CLASS", seriesId: "class-series",
     }]);
     await expect(dependencies.listTutorTimeSlots(8)).resolves.toEqual([]);
     expect(mocks.timeSlotFindMany).toHaveBeenCalledWith(expect.objectContaining({ where: { tutorId: 7 }, select: expect.objectContaining({ label: true, recurrenceUntil: true }) }));
@@ -1027,4 +1029,22 @@ describe("server-side API persistence", () => {
       }),
     ).rejects.toMatchObject({ status: 409, code: "WORK_LOG_CONFLICT" });
   });
+});
+
+it.each(['create', 'update'] as const)('persists class metadata and fortnightly recurrence on %s', async (operation) => {
+  await import('./server.js');
+  const dependencies = capturedDependencies();
+  mocks.profileFindUnique.mockResolvedValueOnce({ id: 7, role: 'TUTOR' });
+  const input = {
+    type: 'BUSY' as const, startsAt: new Date('2030-09-04T14:00:00Z'), endsAt: new Date('2030-09-04T16:00:00Z'),
+    recurrence: 'FORTNIGHTLY' as const, category: 'CLASS', seriesId: 'class-series', label: 'Lab', recurrenceUntil: null,
+  };
+  const write = operation === 'create' ? mocks.timeSlotCreate : mocks.timeSlotUpdate;
+  write.mockResolvedValueOnce({ id: 8, ...input });
+  const result = operation === 'create'
+    ? await dependencies.createTutorTimeSlot('auth0|current-tutor', input)
+    : await dependencies.updateTutorTimeSlot('auth0|current-tutor', 8, input);
+  expect(result).toMatchObject({ recurrence: 'FORTNIGHTLY', category: 'CLASS', seriesId: 'class-series' });
+  expect(write.mock.calls[0]![0].data).toMatchObject(input);
+  if (operation === 'update') expect(write.mock.calls[0]![0].where).toEqual({ id: 8, tutorId: 7 });
 });

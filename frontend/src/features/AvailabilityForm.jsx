@@ -5,7 +5,7 @@ import { ConfirmationDialog } from '../components/shared/ConfirmationDialog'
 import TimeSlotDetails from './TimeSlotDetails'
 import WeeklySchedule from '../components/shared/WeeklySchedule'
 
-const EMPTY_FORM = { startsAt: '', endsAt: '', recurrence: 'ONCE', label: '', recurrenceUntil: '', category: 'UNAVAILABLE' }
+const EMPTY_FORM = { startsAt: '', endsAt: '', recurrence: 'ONCE', label: '', recurrenceUntil: '', category: 'UNAVAILABLE', seriesId: null }
 
 function localValue(iso) {
   if (!iso) return ''
@@ -52,7 +52,7 @@ export default function AvailabilityForm({ tokenOrGetter, refreshVersion = 0 }) 
   const [slotToDelete, setSlotToDelete] = useState(null)
 
   const load = useCallback(async (isActive = () => true) => {
-    setLoadStatus('loading')
+    setLoadStatus((current) => current === 'success' ? current : 'loading')
     try {
       const result = await listOwnTimeSlots(tokenOrGetter)
       if (!isActive()) return
@@ -82,7 +82,8 @@ export default function AvailabilityForm({ tokenOrGetter, refreshVersion = 0 }) 
       recurrence: slot.recurrence === 'FORTNIGHTLY' ? 'FORTNIGHTLY' : slot.recurrence === 'WEEKLY' ? 'WEEKLY' : 'ONCE',
       label: slot.label ?? '',
       recurrenceUntil: localValue(slot.recurrenceUntil),
-      category: 'UNAVAILABLE',
+      category: slot.category ?? 'UNAVAILABLE',
+      seriesId: slot.seriesId ?? null,
     })
     setEditingId(slot.id)
     setErrors({})
@@ -108,6 +109,7 @@ export default function AvailabilityForm({ tokenOrGetter, refreshVersion = 0 }) 
       recurrenceUntil: form.recurrence !== 'ONCE' && form.recurrenceUntil
         ? new Date(form.recurrenceUntil).toISOString() : null,
       category: form.category,
+      seriesId: form.seriesId,
     }
     setPending(true)
     try {

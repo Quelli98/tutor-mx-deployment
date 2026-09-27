@@ -20,11 +20,11 @@ export default function TimeSlotDetails({ slot }) {
     <>
       <strong>{slot.label || 'Unavailable'}</strong>
       <span>
-        {slot.recurrence === 'WEEKLY'
-          ? `Every ${dayName} · ${timeRange}`
+        {(slot.recurrence === 'WEEKLY' || slot.recurrence === 'FORTNIGHTLY')
+          ? `Every ${slot.recurrence === 'FORTNIGHTLY' ? 'other ' : ''}${dayName} · ${timeRange}`
           : `${formatDate(slot.startsAt)} · ${timeRange}`}
       </span>
-      {slot.recurrence === 'WEEKLY' && (
+      {(slot.recurrence === 'WEEKLY' || slot.recurrence === 'FORTNIGHTLY') && (
         <span>
           From {formatDate(slot.startsAt)}
           {slot.recurrenceUntil ? ` until ${formatDate(slot.recurrenceUntil)}` : ' (ongoing)'}
