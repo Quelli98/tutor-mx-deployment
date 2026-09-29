@@ -437,6 +437,19 @@ describe('StaffingRequirements', () => {
     expect(listStaffingRequirements).toHaveBeenCalledTimes(2)
   })
 
+  it('does not offer to reopen a closed session whose date has already passed', async () => {
+    listStaffingRequirements.mockResolvedValue([{
+      ...closedRequirement,
+      startsAt: '2020-09-04T14:00:00.000Z',
+      endsAt: '2020-09-04T18:00:00.000Z',
+    }])
+
+    renderPage()
+    await screen.findByRole('table')
+
+    expect(screen.queryByRole('button', { name: /^reopen COMS3011/i })).not.toBeInTheDocument()
+  })
+
   it('reopens a closed requirement and offers no close action for it', async () => {
     listStaffingRequirements.mockResolvedValue([closedRequirement])
     setStaffingRequirementStatus.mockResolvedValue(openRequirement)

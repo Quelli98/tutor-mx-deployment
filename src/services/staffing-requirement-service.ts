@@ -223,6 +223,17 @@ export function createStaffingRequirementService(
 
   return {
     async listStaffingRequirements(query) {
+      // Expired sessions must not remain actionable. Closing them before the
+      // read also means an OPEN filter immediately excludes sessions whose end
+      // time has already passed, while the all-status view shows them as CLOSED.
+      await client.staffingRequirement.updateMany({
+        where: {
+          status: "OPEN",
+          endsAt: { lte: new Date() },
+        },
+        data: { status: "CLOSED" },
+      });
+
       const rows = await client.staffingRequirement.findMany({
         take: MAX_REPORT_ROWS + 1,
         where: {
@@ -304,7 +315,7 @@ export function createStaffingRequirementService(
       return await client.$transaction(async (transaction) => {
         const current = await transaction.staffingRequirement.findUnique({
           where: { id: requirementId },
-          select: { id: true, status: true },
+          select: { id: true, status: true, endsAt: true },
         });
         if (!current) {
           requirementNotFound();
@@ -317,6 +328,13 @@ export function createStaffingRequirementService(
             409,
             "STAFFING_REQUIREMENT_CONFLICT",
             `This staffing requirement is already ${status.toLowerCase()}.`,
+          );
+        }
+        if (status === "OPEN" && current.endsAt <= new Date()) {
+          throw createRouteError(
+            409,
+            "STAFFING_REQUIREMENT_CONFLICT",
+            "This session has already ended and cannot be reopened.",
           );
         }
 

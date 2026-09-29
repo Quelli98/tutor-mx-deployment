@@ -15,7 +15,7 @@ createRoot(document.getElementById('root')).render(
     <Auth0Provider
       domain={domain}
       clientId={clientId}
-      cacheLocation="memory"
+      cacheLocation="localstorage"
       useRefreshTokens={false}
       authorizationParams={{
         redirect_uri: redirectUri,

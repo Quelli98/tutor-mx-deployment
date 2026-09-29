@@ -5192,12 +5192,13 @@ textarea:focus {
 
 .course-tile-facts {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
   gap: 10px;
   margin: 0;
 }
 
 .course-tile-facts > div {
+  min-width: 0;
   padding: 10px 12px;
   border-radius: 14px;
   background: #f6f7fb;
@@ -5210,11 +5211,14 @@ textarea:focus {
 }
 
 .course-tile-facts dd {
+  min-width: 0;
   margin: 2px 0 0;
   color: #14112b;
   font-family: var(--csam-heading);
-  font-size: 0.95rem;
+  font-size: clamp(0.78rem, 1.1vw, 0.95rem);
   font-weight: 600;
+  overflow-wrap: anywhere;
+  font-variant-numeric: tabular-nums;
 }
 
 .course-tile-facts dd.not-set {

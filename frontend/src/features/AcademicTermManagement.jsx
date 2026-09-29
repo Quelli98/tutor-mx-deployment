@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useAuth0 } from '@auth0/auth0-react'
 import {
   createAcademicTerm,
@@ -42,6 +42,7 @@ export default function AcademicTermManagement() {
   const [error, setError] = useState('')
   const [pending, setPending] = useState(false)
   const [termToDelete, setTermToDelete] = useState(null)
+  const formSectionRef = useRef(null)
 
   const load = useCallback(async () => {
     setStatus('loading')
@@ -65,6 +66,11 @@ export default function AcademicTermManagement() {
     setErrors({})
   }
 
+  function scrollToForm() {
+    formSectionRef.current?.scrollIntoView?.({ behavior: 'smooth', block: 'start' })
+    formSectionRef.current?.querySelector('input, select, button')?.focus({ preventScroll: true })
+  }
+
   function edit(term) {
     setForm({
       name: term.name,
@@ -81,6 +87,16 @@ export default function AcademicTermManagement() {
     setErrors({})
     setError('')
     setMessage('')
+    scrollToForm()
+  }
+
+  function configure(number) {
+    setEditingId(null)
+    setForm({ ...EMPTY_FORM, year: form.year, termNumber: String(number) })
+    setErrors({})
+    setError('')
+    setMessage('')
+    scrollToForm()
   }
 
   async function handleSubmit(event) {
@@ -161,7 +177,7 @@ export default function AcademicTermManagement() {
         </div>
       </header>
 
-      <section className="role-card tutor-form-card" aria-labelledby="term-form-heading">
+      <section ref={formSectionRef} className="role-card tutor-form-card" aria-labelledby="term-form-heading">
         <h2 id="term-form-heading">{editingId ? 'Edit term' : 'Add term'}</h2>
         <form className="tutor-form schedule-editor" onSubmit={handleSubmit} noValidate>
           <div className="field-group">
@@ -239,7 +255,7 @@ export default function AcademicTermManagement() {
               <span>Semester {number <= 2 ? 1 : 2} · {term ? (term.published ? 'Published' : 'Draft') : 'Not configured'}</span>
               <button type="button" className="secondary-button" disabled={pending} onClick={() => {
                 if (term) edit(term)
-                else { setEditingId(null); setForm({ ...EMPTY_FORM, year: form.year, termNumber: String(number) }); setErrors({}) }
+                else configure(number)
               }}>{term ? `Edit Term ${number}` : `Configure Term ${number}`}</button>
             </li>
           })}
