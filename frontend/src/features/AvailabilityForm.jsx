@@ -119,8 +119,8 @@ export default function AvailabilityForm({ tokenOrGetter, refreshVersion = 0 }) 
       setSlots((current) => [...current.filter((item) => item.id !== slot.id), slot])
       setMessage(editingId ? 'Schedule entry updated.' : 'Schedule entry added.')
       reset()
-    } catch {
-      setError('Schedule entry could not be saved. Check your details and try again.')
+    } catch (failure) {
+      setError(failure?.message || 'Schedule entry could not be saved. Check your details and try again.')
     } finally {
       setPending(false)
     }

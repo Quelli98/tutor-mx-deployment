@@ -21,6 +21,8 @@ const mocks = vi.hoisted(() => ({
   profileFindMany: vi.fn(),
   profileFindUnique: vi.fn(),
   queryRaw: vi.fn(),
+  academicTermFindMany: vi.fn(),
+  timeSlotFindFirst: vi.fn(),
   timeSlotCreate: vi.fn(),
   timeSlotUpdate: vi.fn(),
   timeSlotFindMany: vi.fn(),
@@ -138,9 +140,14 @@ beforeEach(() => {
   mocks.createApp.mockReturnValue({
     listen: mocks.listen,
   });
+  mocks.academicTermFindMany.mockResolvedValue([]);
+  mocks.timeSlotFindMany.mockResolvedValue([]);
+  mocks.timeSlotFindFirst.mockResolvedValue({ id: 8 });
   mocks.transaction.mockImplementation(
     async (callback: (transaction: unknown) => unknown) =>
       callback({
+        academicTerm: { findMany: mocks.academicTermFindMany },
+        timeSlot: { findMany: mocks.timeSlotFindMany, findFirst: mocks.timeSlotFindFirst, create: mocks.timeSlotCreate, update: mocks.timeSlotUpdate },
         timesheet: { upsert: mocks.timesheetUpsert },
         workLog: { create: mocks.workLogCreate },
       }),
@@ -479,6 +486,7 @@ describe("server-side API persistence", () => {
           endsAt: "2030-09-04T16:00:00.000Z",
           allocatedHours: 2,
           status: "CONFIRMED",
+          occurrenceStatus: "SCHEDULED", absenceReason: null, excusePending: false, workLogEligible: true, excuse: null,
         },
       ],
       weeklyLimit: 10,
@@ -779,7 +787,6 @@ describe("server-side API persistence", () => {
           id: 4,
           tutorId: 7,
           status: "CONFIRMED",
-          startsAt: { gt: expect.any(Date) },
         }),
       }),
     );
@@ -942,6 +949,7 @@ describe("server-side API persistence", () => {
     await expect(dependencies.listTutorTimeSlots(7)).resolves.toEqual([{
       id: 15, type: "BUSY", startsAt: "2026-09-17T06:00:00.000Z", endsAt: "2026-09-17T07:45:00.000Z",
       recurrence, label: null, recurrenceUntil: null, category: "CLASS", seriesId: "class-series",
+      termId: null, teachingBreaks: [], exceptions: [],
     }]);
     await expect(dependencies.listTutorTimeSlots(8)).resolves.toEqual([]);
     expect(mocks.timeSlotFindMany).toHaveBeenCalledWith(expect.objectContaining({ where: { tutorId: 7 }, select: expect.objectContaining({ label: true, recurrenceUntil: true }) }));

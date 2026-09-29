@@ -43,6 +43,15 @@ enum TimesheetDisputeStatus {
   RESOLVED
 }
 
+enum SickOccurrenceStatus {
+  EXCUSED
+  SKIPPED
+}
+
+enum AbsenceReason {
+  SICK
+}
+
 enum ExcuseStatus {
   PENDING
   APPROVED
@@ -104,6 +113,7 @@ model Profile {
   timesheets          Timesheet[]      @relation("TutorTimesheets")
   reviewedTimesheets  Timesheet[]      @relation("TimesheetReviewer")
   excuses             Excuse[]
+  reviewedExcuses     Excuse[] @relation("ExcuseReviewer")
   volunteerClaims     VolunteerClaim[]
   notifications       Notification[]
   staffingRequirements StaffingRequirement[]
@@ -192,6 +202,7 @@ model TimeSlot {
   category         String       @default("UNAVAILABLE") @db.VarChar(32)
   seriesId         String?      @db.VarChar(36)
   termId           Int?
+  dedupeKey        String? @unique @db.VarChar(64)
   tutor            Profile      @relation(fields: [tutorId], references: [id], onDelete: Cascade)
   term             AcademicTerm? @relation(fields: [termId], references: [id], onDelete: SetNull)
   exceptions       OccurrenceException[]
@@ -368,6 +379,13 @@ model Excuse {
   reason       String
   status       ExcuseStatus  @default(PENDING)
   reviewReason String?
+  // Allocation is already one concrete occurrence. This request also stores its
+  // attendance exception, without removing or cancelling the allocation.
+  occurrenceStatus SickOccurrenceStatus?
+  absenceReason AbsenceReason @default(SICK)
+  reviewedAt DateTime?
+  reviewedById Int?
+  reviewedBy Profile? @relation("ExcuseReviewer", fields: [reviewedById], references: [id], onDelete: SetNull)
   tutor        Profile       @relation(fields: [tutorId], references: [id], onDelete: Restrict)
   allocation   Allocation    @relation(fields: [allocationId, tutorId], references: [id, tutorId], onDelete: Restrict)
   createdAt    DateTime      @default(now())

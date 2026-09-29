@@ -224,6 +224,7 @@ describe("organiser allocation service", () => {
     await expect(harness.service.listAllocations()).resolves.toEqual([
       {
         id: 11,
+        occurrenceStatus: "SCHEDULED", absenceReason: null, excusePending: false, workLogEligible: true, excuse: null,
         tutorId: 7,
         courseId: 9,
         startsAt: startsAt.toISOString(),

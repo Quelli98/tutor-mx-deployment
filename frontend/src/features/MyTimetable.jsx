@@ -1,3 +1,4 @@
+import { attendanceLabel, sickStyle } from '../components/shared/attendance'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useAuth0 } from '@auth0/auth0-react'
 import { listOwnTimeSlots } from '../api/availability'
@@ -18,9 +19,11 @@ function toSlotEntries(slots) {
 
 function toAllocationEntries(allocations) {
   return allocations
-    .filter((allocation) => allocation.status === 'CONFIRMED')
+    .filter((allocation) => allocation.status === 'CONFIRMED' && allocation.occurrenceStatus !== 'EXCUSED')
     .map((allocation) => ({
       id: `alloc-${allocation.id}`,
+      occurrenceStatus: allocation.occurrenceStatus,
+      excusePending: allocation.excusePending,
       startsAt: allocation.startsAt,
       endsAt: allocation.endsAt,
       label: `${allocation.courseCode} – ${allocation.courseName}`,
@@ -74,6 +77,8 @@ export default function MyTimetable() {
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     load()
+    window.addEventListener('focus', load)
+    return () => window.removeEventListener('focus', load)
   }, [load])
 
   const combined = useMemo(() => [
@@ -81,7 +86,7 @@ export default function MyTimetable() {
     ...toAllocationEntries(allocations),
   ], [slots, allocations])
 
-  const confirmedCount = allocations.filter((a) => a.status === 'CONFIRMED').length
+  const confirmedCount = allocations.filter((a) => a.status === 'CONFIRMED' && a.occurrenceStatus !== 'EXCUSED').length
   const totalSlots = slots.filter((s) => s.type === 'BUSY').length
 
   function handleRetry() {
@@ -153,22 +158,23 @@ export default function MyTimetable() {
         initialDate={jumpDate ? new Date(jumpDate + 'T00:00:00') : new Date()}
       />
 
-      {allocations.filter((a) => a.status === 'CONFIRMED').length > 0 && (
+      {allocations.filter((a) => a.status === 'CONFIRMED' && a.occurrenceStatus !== 'EXCUSED').length > 0 && (
         <section className="role-card" aria-labelledby="tutoring-sessions-heading">
           <h2 id="tutoring-sessions-heading">Tutoring sessions</h2>
           <p className="helper-text">Confirmed allocations from organisers.</p>
-          {allocations.filter((a) => a.status === 'CONFIRMED').length === 0
+          {allocations.filter((a) => a.status === 'CONFIRMED' && a.occurrenceStatus !== 'EXCUSED').length === 0
             ? <p>No confirmed tutoring sessions.</p>
             : <ul className="detail-record-list" aria-label="Confirmed tutoring sessions">
               {allocations
-                .filter((a) => a.status === 'CONFIRMED')
+                .filter((a) => a.status === 'CONFIRMED' && a.occurrenceStatus !== 'EXCUSED')
                 .sort((a, b) => new Date(a.startsAt) - new Date(b.startsAt))
                 .map((allocation) => {
                   const start = new Date(allocation.startsAt)
                   const end = new Date(allocation.endsAt)
                   return (
-                    <li key={allocation.id}>
+                    <li key={allocation.id} style={allocation.occurrenceStatus === 'SKIPPED' ? sickStyle : undefined}>
                       <strong>{allocation.courseCode} – {allocation.courseName}</strong>
+                      {attendanceLabel(allocation) && <span>{attendanceLabel(allocation)}</span>}
                       <span>{start.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' })}</span>
                       <span>{start.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}–{end.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}</span>
                       <span>{sessionLengthText(start, end)}</span>

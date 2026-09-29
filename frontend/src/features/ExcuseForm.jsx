@@ -11,7 +11,7 @@ function submitErrorMessage(error) {
     return 'An excuse has already been submitted for this session.'
   }
   if (error?.code === 'ALLOCATION_NOT_FOUND') {
-    return 'The session could not be excused. Choose one of your future confirmed sessions.'
+    return 'The session could not be excused. Choose one of your confirmed sessions.'
   }
   return 'Excuse could not be submitted. Try again.'
 }
@@ -29,8 +29,8 @@ export default function ExcuseForm({ allocations = [], tokenOrGetter, storageSco
     const selected = allocations.find((allocation) => String(allocation.id) === allocationId)
     if (!selected) {
       nextErrors.allocationId = 'Please select the session you are excusing.'
-    } else if (new Date(selected.startsAt) <= new Date()) {
-      nextErrors.allocationId = 'Only future sessions can be excused.'
+    } else if (selected.status !== 'CONFIRMED' || selected.excuse) {
+      nextErrors.allocationId = 'Choose a confirmed session without an existing excuse.'
     }
     if (!reason.trim()) nextErrors.reason = 'A reason is required.'
     setErrors(nextErrors)
@@ -61,6 +61,7 @@ export default function ExcuseForm({ allocations = [], tokenOrGetter, storageSco
     <section className="role-card tutor-form-card">
       <form className="tutor-form" onSubmit={handleSubmit} noValidate>
         <h2>Submit a session excuse</h2>
+        <p className="helper-text">Select the exact session missed because of sickness. You can report before, on or after its day. It stays scheduled until an organiser approves.</p>
 
         <label htmlFor="excuse-allocation">Session</label>
         <select
@@ -70,8 +71,8 @@ export default function ExcuseForm({ allocations = [], tokenOrGetter, storageSco
           aria-invalid={Boolean(errors.allocationId)}
           aria-describedby={errors.allocationId ? 'excuse-allocation-error' : undefined}
         >
-          <option value="">Select a future confirmed session</option>
-          {allocations.map((allocation) => (
+          <option value="">Select a confirmed session</option>
+          {allocations.filter((allocation) => allocation.status === 'CONFIRMED' && !allocation.excuse).map((allocation) => (
             <option key={allocation.id} value={allocation.id}>{sessionLabel(allocation)}</option>
           ))}
         </select>

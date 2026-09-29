@@ -1,4 +1,6 @@
 import { createRouteError } from "../app.js";
+import { sickOccurrenceStatus } from "./session-attendance.js";
+import { buildExcuseDecisionNotifications } from "./notifications.js";
 import type { PrismaClient } from "../generated/prisma/client.js";
 
 export type ExcuseWorkflowStatus = "PENDING" | "APPROVED" | "REJECTED";
@@ -11,6 +13,10 @@ export interface ExcuseWorkflowSummary {
   reviewReason: string | null;
   createdAt: string;
   updatedAt: string;
+  occurrenceStatus: "EXCUSED" | "SKIPPED" | null;
+  absenceReason: "SICK";
+  reviewedAt: string | null;
+  reviewedById: number | null;
 }
 
 export interface ExcuseDecisionInput {
@@ -26,6 +32,7 @@ export interface ExcuseWorkflowService {
   decide(
     excuseId: number,
     input: ExcuseDecisionInput,
+    auth0Id: string,
   ): Promise<ExcuseWorkflowSummary>;
 }
 
@@ -37,6 +44,7 @@ const excuseSelection = {
   reviewReason: true,
   createdAt: true,
   updatedAt: true,
+  occurrenceStatus: true, absenceReason: true, reviewedAt: true, reviewedById: true,
 } as const;
 
 interface ExcuseRecord {
@@ -47,6 +55,10 @@ interface ExcuseRecord {
   reviewReason: string | null;
   createdAt: Date;
   updatedAt: Date;
+  occurrenceStatus?: "EXCUSED" | "SKIPPED" | null;
+  absenceReason?: "SICK";
+  reviewedAt?: Date | null;
+  reviewedById?: number | null;
 }
 
 function isObject(value: unknown): value is Record<string, unknown> {
@@ -144,11 +156,16 @@ function toExcuseSummary(excuse: ExcuseRecord): ExcuseWorkflowSummary {
     reviewReason: excuse.reviewReason,
     createdAt: excuse.createdAt.toISOString(),
     updatedAt: excuse.updatedAt.toISOString(),
+    occurrenceStatus: excuse.occurrenceStatus ?? null,
+    absenceReason: excuse.absenceReason ?? "SICK",
+    reviewedAt: excuse.reviewedAt?.toISOString() ?? null,
+    reviewedById: excuse.reviewedById ?? null,
   };
 }
 
 export function createExcuseWorkflowService(
   prismaClient: PrismaClient,
+  now: () => Date = () => new Date(),
 ): ExcuseWorkflowService {
   async function findTutorProfileId(auth0Id: string): Promise<number> {
     const profile = await prismaClient.profile.findUnique({
@@ -183,55 +200,68 @@ export function createExcuseWorkflowService(
       return toExcuseSummary(excuse);
     },
 
-    async decide(excuseId, input) {
+    async decide(excuseId, input, auth0Id) {
       validateExcuseId(excuseId);
       const decision = parseDecision(input);
-
-      try {
-        return await prismaClient.$transaction(
-          async (transaction) => {
+      // A serializable retry re-reads the committed decision, making double clicks
+      // return the same result without repeating notifications or replacement work.
+      for (let attempt = 0; attempt < 3; attempt += 1) {
+        try {
+          return await prismaClient.$transaction(async (transaction) => {
+            const organiser = await transaction.profile.findUnique({
+              where: { auth0Id }, select: { id: true, role: true },
+            });
+            if (organiser?.role !== "ORGANISER") {
+              throw createRouteError(403, "FORBIDDEN", "Only an organiser can decide an excuse.");
+            }
+            const existing = await transaction.excuse.findUnique({
+              where: { id: excuseId },
+              select: { ...excuseSelection, tutorId: true, allocation: {
+                select: { id: true, status: true, startsAt: true, endsAt: true, courseId: true, allocatedHours: true },
+              } },
+            });
+            if (!existing) throw excuseNotFound();
+            if (existing.status === decision.status) return toExcuseSummary(existing);
+            if (existing.status !== "PENDING") throw decisionConflict();
+            const approvedAt = now();
+            const allocation = existing.allocation;
+            if (decision.status === "APPROVED" && allocation.status !== "CONFIRMED") throw decisionConflict();
+            const occurrenceStatus = decision.status === "APPROVED"
+              ? sickOccurrenceStatus(existing.createdAt, allocation.startsAt, allocation.endsAt, approvedAt) : null;
             const update = await transaction.excuse.updateMany({
               where: { id: excuseId, status: "PENDING" },
-              data: {
-                status: decision.status,
-                reviewReason: decision.reviewReason,
-              },
+              data: { ...decision, occurrenceStatus, reviewedAt: approvedAt, reviewedById: organiser.id },
             });
-
-            if (update.count !== 1) {
-              const existing = await transaction.excuse.findUnique({
-                where: { id: excuseId },
-                select: { id: true, status: true },
+            if (update.count !== 1) throw decisionConflict();
+            // Reuse the existing overflow slot, keyed by the exact allocation.
+            // Retrospective absences must not create an expired replacement offer.
+            if (decision.status === "APPROVED" && allocation.endsAt > approvedAt) {
+              await transaction.overflowWork.upsert({
+                where: { sourceAllocationId: allocation.id }, update: {},
+                create: { sourceAllocationId: allocation.id, courseId: allocation.courseId,
+                  startsAt: allocation.startsAt, endsAt: allocation.endsAt, hours: allocation.allocatedHours },
               });
-              if (!existing) {
-                throw excuseNotFound();
-              }
-              throw decisionConflict();
             }
-
-            const updated = await transaction.excuse.findUnique({
-              where: { id: excuseId },
-              select: excuseSelection,
+            const events = buildExcuseDecisionNotifications({ id: excuseId, ...decision }, existing.tutorId);
+            await transaction.notification.createMany({
+              data: events.map((event) => ({
+                recipientProfileId: event.recipientProfileId, type: "EXCUSE_DECIDED" as const,
+                title: event.title, body: event.body, linkPath: event.linkPath,
+                targetType: event.targetType, targetId: event.targetId, eventKey: event.eventKey,
+              })), skipDuplicates: true,
             });
-            if (!updated) {
-              throw decisionConflict();
-            }
-
+            const updated = await transaction.excuse.findUnique({ where: { id: excuseId }, select: excuseSelection });
+            if (!updated) throw decisionConflict();
             return toExcuseSummary(updated);
-          },
-          { isolationLevel: "Serializable" },
-        );
-      } catch (error) {
-        if (
-          hasPrismaCode(error, "P2003") ||
-          hasPrismaCode(error, "P2004") ||
-          hasPrismaCode(error, "P2034") ||
-          isAdapterCheckConstraintError(error)
-        ) {
-          throw decisionConflict();
+          }, { isolationLevel: "Serializable" });
+        } catch (error) {
+          if (hasPrismaCode(error, "P2034") && attempt < 2) continue;
+          if (hasPrismaCode(error, "P2003") || hasPrismaCode(error, "P2004") ||
+              hasPrismaCode(error, "P2034") || isAdapterCheckConstraintError(error)) throw decisionConflict();
+          throw error;
         }
-        throw error;
       }
+      throw decisionConflict();
     },
   };
 }

@@ -1,3 +1,4 @@
+import { scheduleFingerprint } from "./schedule-identity.js";
 import { normalizeIdempotencyKey, withWriteReceipt, type ReceiptTransaction } from "../http/idempotency.js";
 import { createRouteError } from "../http/errors.js";
 /**
@@ -20,6 +21,7 @@ import { createRouteError } from "../http/errors.js";
 import { toDateOnly } from "./academic-terms.js";
 import {
   parseTimetableImport,
+  timetableDateRange,
   timeSlotDedupeKey,
   type TimetableImportPreview,
   type TimetableImportRequest,
@@ -62,6 +64,10 @@ interface TermRow {
   name: string;
   startsOn: Date;
   endsOn: Date;
+  published: boolean;
+  year?: number | null;
+  termNumber?: number | null;
+  teachingBreaks?: unknown;
 }
 
 interface ExistingSlotRow {
@@ -70,6 +76,8 @@ interface ExistingSlotRow {
   recurrence: string | null;
   label: string | null;
   category: string;
+  termId: number | null;
+  recurrenceUntil: Date | null;
 }
 
 interface ProfileDelegate {
@@ -80,10 +88,8 @@ interface ProfileDelegate {
 }
 
 interface AcademicTermDelegate {
-  findUnique(args: {
-    where: { id: number };
-    select: { id: true; name: true; startsOn: true; endsOn: true };
-  }): Promise<TermRow | null>;
+  findUnique(args: { where: { id: number }; select: { id: true; name: true; startsOn: true; endsOn: true; published: true; year: true; termNumber: true; teachingBreaks: true } }): Promise<TermRow | null>;
+  findMany(args: { where: { published: true }; orderBy: { startsOn: "asc" } }): Promise<TermRow[]>;
 }
 
 interface TimeSlotDelegate {
@@ -99,6 +105,7 @@ interface TimeSlotDelegate {
       recurrence: true;
       label: true;
       category: true;
+      termId: true; recurrenceUntil: true;
     };
   }): Promise<ExistingSlotRow[]>;
   create(args: {
@@ -113,12 +120,14 @@ interface TimeSlotDelegate {
       category: string;
       seriesId: string | null;
       termId: number;
+      dedupeKey: string;
     };
     select: { id: true };
   }): Promise<{ id: number }>;
 }
 
 export interface TimetableImportTransaction extends ReceiptTransaction {
+  academicTerm: AcademicTermDelegate;
   timeSlot: TimeSlotDelegate;
 }
 
@@ -215,6 +224,8 @@ function toTermBounds(term: TermRow) {
     name: term.name,
     startsOn: toDateOnly(term.startsOn),
     endsOn: toDateOnly(term.endsOn),
+    year: term.year ?? null, termNumber: term.termNumber ?? null,
+    teachingBreaks: Array.isArray(term.teachingBreaks) ? term.teachingBreaks as Array<{ startsOn: string; endsOn: string }> : [],
   };
 }
 
@@ -250,6 +261,7 @@ async function markDuplicates(
   client: TimetableImportTransaction,
   tutorId: number,
   rows: TimetableImportRow[],
+  term: TimetableImportPreview["term"],
 ): Promise<TimetableImportPreview["rows"]> {
   const window = coverageWindow(rows);
   const seen = new Set<string>();
@@ -257,7 +269,7 @@ async function markDuplicates(
   if (window) {
     const existing = await client.timeSlot.findMany({
       where: { tutorId, type: "BUSY", startsAt: window },
-      select: { startsAt: true, endsAt: true, recurrence: true, label: true, category: true },
+      select: { startsAt: true, endsAt: true, recurrence: true, label: true, category: true, termId: true, recurrenceUntil: true },
     });
     for (const slot of existing) {
       seen.add(
@@ -266,7 +278,8 @@ async function markDuplicates(
           endsAt: slot.endsAt.toISOString(),
           recurrence: slot.recurrence,
           label: slot.label,
-        }),
+          termId: slot.termId, recurrenceUntil: slot.recurrenceUntil,
+        }, term),
       );
     }
   }
@@ -275,12 +288,12 @@ async function markDuplicates(
     if (!row.slot || row.errors.length > 0) {
       return row;
     }
-    const key = timeSlotDedupeKey(row.slot);
+    const key = timeSlotDedupeKey(row.slot, term);
     if (seen.has(key)) {
       return {
         ...row,
         duplicate: true,
-        errors: [...row.errors, "This entry is already in your schedule."],
+        errors: [],
       };
     }
     seen.add(key);
@@ -301,12 +314,33 @@ export function createTimetableImportService(
 ): TimetableImportService {
   async function prepare(auth0Id: string, request: TimetableImportRequest) {
     const tutor = await resolveTutor(prismaClient, auth0Id);
-    const term = await prismaClient.academicTerm.findUnique({
-      where: { id: request.termId },
-      select: { id: true, name: true, startsOn: true, endsOn: true },
-    });
-    if (!term) {
-      throw termNotFound();
+    const range = timetableDateRange(request);
+    if ("error" in range) return { tutor, error: range.error, preview: null };
+    let term: TermRow | null;
+    let suggestedTerm: ReturnType<typeof toTermBounds> | undefined;
+    if (request.termId != null) {
+      term = await prismaClient.academicTerm.findUnique({
+        where: { id: request.termId },
+        select: { id: true, name: true, startsOn: true, endsOn: true, published: true, year: true, termNumber: true, teachingBreaks: true },
+      });
+      if (!term || !term.published) throw termNotFound();
+      if (range.startsOn < toDateOnly(term.startsOn) || range.endsOn > toDateOnly(term.endsOn)) {
+        const published = await prismaClient.academicTerm.findMany({ where: { published: true }, orderBy: { startsOn: "asc" } });
+        const matching = published.filter((candidate) => toDateOnly(candidate.startsOn) <= range.startsOn && toDateOnly(candidate.endsOn) >= range.endsOn);
+        if (matching.length === 1) suggestedTerm = toTermBounds(matching[0]!);
+        const crossed = published.filter((candidate) => toDateOnly(candidate.startsOn) <= range.endsOn && toDateOnly(candidate.endsOn) >= range.startsOn);
+        if (!matching.length && crossed.length > 1) throw importInvalid("Please import one academic term at a time. Your file spans multiple academic terms.");
+      }
+    } else {
+      const terms = await prismaClient.academicTerm.findMany({ where: { published: true }, orderBy: { startsOn: "asc" } });
+      const matches = terms.filter((candidate) => toDateOnly(candidate.startsOn) <= range.startsOn && toDateOnly(candidate.endsOn) >= range.endsOn);
+      term = matches.length === 1 ? matches[0]! : null;
+      if (!term) {
+        const covered = terms.filter((candidate) => toDateOnly(candidate.startsOn) <= range.endsOn && toDateOnly(candidate.endsOn) >= range.startsOn);
+        throw importInvalid(covered.length > 1
+          ? "Please import one academic term at a time. Your file spans multiple academic terms."
+          : `No published academic term covers these timetable dates. Your file contains entries from ${range.startsOn} to ${range.endsOn}. Ask an organiser to create or publish the academic term covering these dates.`);
+      }
     }
 
     // The term is reloaded from the database rather than trusted from the
@@ -321,9 +355,11 @@ export function createTimetableImportService(
     if ("error" in parsed) {
       return { tutor, error: parsed.error as string, preview: null };
     }
-    const rows = await markDuplicates(prismaClient, tutor.id, parsed.rows);
+    const rows = await markDuplicates(prismaClient, tutor.id, parsed.rows, bounds);
     const preview: TimetableImportPreview = {
       ...parsed,
+      detectedTerm: request.termId == null, dateRange: range,
+      ...(suggestedTerm ? { suggestedTerm } : {}),
       rows,
       ...summarize(rows),
     };
@@ -357,22 +393,29 @@ export function createTimetableImportService(
           errors: row.errors,
         }));
 
+      for (let attempt = 0; attempt < 3; attempt += 1) {
       try {
         return await prismaClient.$transaction(
           async (transaction) => withWriteReceipt(transaction, tutor.id, key, request, async () => {
+            const currentTerm = await transaction.academicTerm.findUnique({
+              where: { id: preview.term.id },
+              select: { id: true, name: true, startsOn: true, endsOn: true, published: true, year: true, termNumber: true, teachingBreaks: true },
+            });
+            if (!currentTerm?.published || toDateOnly(currentTerm.startsOn) !== preview.term.startsOn || toDateOnly(currentTerm.endsOn) !== preview.term.endsOn) {
+              throw importConflict();
+            }
             // Re-read inside the transaction so two commits racing each other
             // cannot both insert the same rows.
             const insideRows = await markDuplicates(
               transaction,
               tutor.id,
               saveable.map((row) => ({ ...row, duplicate: false })),
+              preview.term,
             );
             const writable = insideRows.filter(
               (row) => row.slot !== null && !row.duplicate,
             );
-            if (writable.length !== saveable.length) {
-              throw importConflict();
-            }
+            const racedDuplicates = insideRows.filter((row) => row.duplicate).map((row) => ({ sourceRow: row.sourceRow, duplicate: true, errors: [] as string[] }));
 
             const ids: number[] = [];
             for (const row of writable) {
@@ -390,7 +433,8 @@ export function createTimetableImportService(
                     : null,
                   category: slot.category,
                   seriesId: slot.seriesId,
-                  termId: request.termId,
+                  termId: preview.term.id,
+                  dedupeKey: scheduleFingerprint(tutor.id, slot, preview.term),
                 },
                 select: { id: true },
               });
@@ -399,14 +443,15 @@ export function createTimetableImportService(
             return {
               created: ids.length,
               createdIds: ids,
-              skipped,
+              skipped: [...skipped, ...racedDuplicates],
               invalidCount: preview.invalidCount,
-              duplicateCount: preview.duplicateCount,
+              duplicateCount: preview.duplicateCount + racedDuplicates.length,
             };
           }),
           { isolationLevel: "Serializable" },
         );
       } catch (value) {
+        if (["P2002", "P2034"].includes(prismaErrorCode(value) ?? "") && attempt < 2) continue;
         if (isImportError(value)) {
           throw value;
         }
@@ -421,6 +466,8 @@ export function createTimetableImportService(
         }
         throw importConflict();
       }
+      }
+      throw importConflict();
     },
   };
 }

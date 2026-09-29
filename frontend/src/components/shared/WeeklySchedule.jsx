@@ -1,3 +1,4 @@
+import { sickStyle } from './attendance'
 import { useEffect, useId, useMemo, useState } from 'react'
 import { addDays, localMonday, localTime, scheduleForWeek, weekRangeLabel } from './scheduleWeek'
 
@@ -89,11 +90,12 @@ export default function WeeklySchedule({
             style={{ gridColumn: index + 2, gridRow: '2 / -1', gridTemplateColumns: `repeat(${day.lanes}, minmax(0, 1fr))` }}>
             {day.blocks.map((block) => <article className="calendar-block" key={block.id}
               style={{
-                ...blockStyle(block.category),
+                ...(block.occurrenceStatus === 'SKIPPED' ? sickStyle : blockStyle(block.category)),
                 gridColumn: block.lane,
                 gridRow: `${Math.floor((block.startMinute - firstHour * 60) / 15) + 1} / ${Math.ceil((block.endMinute - firstHour * 60) / 15) + 1}`,
               }}>
               <strong>{block.label}</strong>
+              {block.attendanceLabel && <span>{block.attendanceLabel}</span>}
               <span>{day.date.toLocaleDateString('en-GB', { weekday: 'long' })}</span>
               <span>{localTime(block.startsAt)}–{block.endMinute === 1440 ? '24:00' : localTime(block.endsAt)}</span>
             </article>)}

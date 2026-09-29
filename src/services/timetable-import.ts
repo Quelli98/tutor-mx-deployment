@@ -1,3 +1,5 @@
+import { sessionDay } from "./session-attendance.js";
+export { timeSlotDedupeKey } from "./schedule-identity.js";
 /**
  * Timetable import for the tutor schedule (Sprint 3, card S3-M3-1).
  *
@@ -51,6 +53,9 @@ export interface AcademicTermBounds {
   startsOn: string;
   /** Inclusive last day, YYYY-MM-DD. */
   endsOn: string;
+  year?: number | null;
+  termNumber?: number | null;
+  teachingBreaks?: Array<{ startsOn: string; endsOn: string; label?: string }>;
 }
 
 /** The exact payload shape the existing schedule write path accepts. */
@@ -93,6 +98,9 @@ export interface TimetableImportPreview {
   source: TimetableImportSource;
   timeZone: string;
   term: AcademicTermBounds;
+  suggestedTerm?: AcademicTermBounds;
+  detectedTerm?: boolean;
+  dateRange?: { startsOn: string; endsOn: string };
   rows: TimetableImportRow[];
   /** Rows that can be saved as they stand. */
   validCount: number;
@@ -119,7 +127,7 @@ export interface TimetableImportRequest {
   source: TimetableImportSource;
   text: string;
   timeZone: string;
-  termId: number;
+  termId?: number | null;
 }
 
 /** Reasonable header aliases, normalised to letters only before matching. */
@@ -1090,11 +1098,11 @@ function mapRow(raw: RawRow, term: AcademicTermBounds): TimetableImportRow {
   // Term containment, compared as calendar dates so the boundary does not
   // depend on the server's timezone.
   if (termStart && localDateText < formatDateOnly(termStart)) {
-    base.errors.push(`This falls before ${term.name} starts on ${term.startsOn}.`);
+    base.errors.push(`This class starts outside the selected academic term. Class date: ${localDateText}; ${term.name}: ${term.startsOn} to ${term.endsOn}.`);
     return base;
   }
   if (termEnd && localDateText > formatDateOnly(termEnd)) {
-    base.errors.push(`This falls after ${term.name} ends on ${term.endsOn}.`);
+    base.errors.push(`This class starts outside the selected academic term. Class date: ${localDateText}; ${term.name}: ${term.startsOn} to ${term.endsOn}.`);
     return base;
   }
 
@@ -1223,20 +1231,6 @@ export function parseTimetableImport(
  * same block of time with the same description are the same entry, whether one
  * of them was imported or typed by hand.
  */
-export function timeSlotDedupeKey(slot: {
-  startsAt: string;
-  endsAt: string;
-  recurrence?: string | null;
-  label?: string | null;
-}): string {
-  return [
-    new Date(slot.startsAt).toISOString(),
-    new Date(slot.endsAt).toISOString(),
-    slot.recurrence ?? "",
-    slot.label ?? "",
-  ].join("|");
-}
-
 /**
  * Reads the request that carries a timetable. Structural problems (unknown
  * source, missing text, bad zone shape, bad term) are request-level; everything
@@ -1266,9 +1260,29 @@ export function parseTimetableImportRequest(body: unknown):
     return { error: "A valid time zone is required to place the entries on the calendar." };
   }
   const termId = payload.termId;
-  if (typeof termId !== "number" || !Number.isInteger(termId) || termId <= 0) {
+  if (termId != null && (typeof termId !== "number" || !Number.isInteger(termId) || termId <= 0)) {
     return { error: "Choose the academic term this timetable belongs to." };
   }
 
-  return { value: { source, text: payload.text, timeZone, termId } };
+  return { value: { source, text: payload.text, timeZone, ...(termId != null ? { termId: termId as number } : {}) } };
+}
+
+/** Read dates without an arbitrarily selected term generating one error per row. */
+export function timetableDateRange(request: TimetableImportRequest): { startsOn: string; endsOn: string } | { error: string } {
+  if (!request.text.trim() || request.text.length > MAX_IMPORT_TEXT_LENGTH) return { error: "Choose a non-empty timetable file under 30,000 characters." };
+  const zone = normalizeTimeZone(request.timeZone);
+  if (!zone) return { error: "A valid time zone is required." };
+  const read = request.source === "ICS" ? readIcsRows(request.text, zone) : readDelimitedRows(request.text, zone);
+  if ("error" in read) return read;
+  const dates: string[] = [];
+  for (const row of read.rows) {
+    const date = parseDateOnly(row.date);
+    const time = parseClockTime(row.start);
+    if (date && time) dates.push(sessionDay(zonedWallClockToUtc({ ...date, ...time }, row.timeZone)));
+    else if (date) dates.push(formatDateOnly(date));
+    if (row.until && parseDateOnly(row.until)) dates.push(row.until);
+  }
+  if (!dates.length) return { error: "No valid class dates were found. Use YYYY-MM-DD in the date column." };
+  dates.sort();
+  return { startsOn: dates[0]!, endsOn: dates.at(-1)! };
 }

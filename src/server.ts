@@ -1,3 +1,4 @@
+import { saveManualSchedule } from "./services/manual-schedule.js";
 import "dotenv/config";
 import {
   createApp,
@@ -29,6 +30,7 @@ import { createBulkAllocationService } from "./services/bulk-allocation-service.
 import { createReportingService } from "./services/reporting-service.js";
 import { createCommandCentreService } from "./services/command-centre-service.js";
 import { payrollFilename, toPayrollCsv } from "./services/payroll-export.js";
+import { allocationAttendance, attendanceSelection, sessionDay } from "./services/session-attendance.js";
 import { createExcuseWorkflowService } from "./services/excuse-workflows.js";
 import { createOrganiserService } from "./services/organiser-service.js";
 import { createStudentWorkflowService } from "./services/student-workflows.js";
@@ -42,7 +44,6 @@ import {
 import {
   buildAllocationCancelledNotifications,
   buildAllocationNotifications,
-  buildExcuseDecisionNotifications,
   buildExcuseSubmittedNotifications,
   buildTimesheetDecisionNotifications,
   buildTimesheetDisputeResolvedNotifications,
@@ -172,6 +173,9 @@ function toTimeSlotSummary(timeSlot: {
   recurrenceUntil: Date | null;
   category?: string;
   seriesId?: string | null;
+  termId?: number | null;
+  term?: { teachingBreaks: unknown } | null;
+  exceptions?: Array<{ occurrenceDate: Date; exceptionType: string; newStartsAt: Date | null; newEndsAt: Date | null }>;
 }): TutorTimeSlotSummary {
   return {
     id: timeSlot.id,
@@ -184,12 +188,16 @@ function toTimeSlotSummary(timeSlot: {
     recurrenceUntil: timeSlot.recurrenceUntil?.toISOString() ?? null,
     category: timeSlot.category ?? "UNAVAILABLE",
     seriesId: timeSlot.seriesId ?? null,
+    termId: timeSlot.termId ?? null,
+    teachingBreaks: Array.isArray(timeSlot.term?.teachingBreaks) ? timeSlot.term.teachingBreaks : [],
+    exceptions: timeSlot.exceptions?.map((exception) => ({ ...exception, occurrenceDate: exception.occurrenceDate.toISOString().slice(0, 10), newStartsAt: exception.newStartsAt?.toISOString() ?? null, newEndsAt: exception.newEndsAt?.toISOString() ?? null })) ?? [],
   };
 }
 
 const timeSlotSelect = {
   id: true, type: true, startsAt: true, endsAt: true,
   recurrence: true, label: true, recurrenceUntil: true, category: true, seriesId: true,
+  termId: true, term: { select: { teachingBreaks: true } }, exceptions: true,
 } as const;
 
 async function listTimeSlots(tutorId: number) {
@@ -590,6 +598,7 @@ const app = createApp(
               allocatedHours: true,
               status: true,
               course: { select: { code: true, name: true } },
+              excuses: { select: attendanceSelection },
             },
           },
         },
@@ -625,6 +634,7 @@ const app = createApp(
         .filter(
           (allocation) =>
             allocation.status === "CONFIRMED" &&
+            allocationAttendance(allocation.excuses).workLogEligible &&
             allocation.startsAt >= weekStart &&
             allocation.startsAt < nextWeekStart,
         )
@@ -641,6 +651,7 @@ const app = createApp(
 
       return {
         allocations: profile.allocations.map((allocation) => ({
+          ...allocationAttendance(allocation.excuses),
           id: allocation.id,
           courseCode: allocation.course.code,
           courseName: allocation.course.name,
@@ -659,20 +670,7 @@ const app = createApp(
     async createTutorTimeSlot(auth0Id, input) {
       const tutorId = await findTutorProfileId(auth0Id);
       try {
-        const timeSlot = await prisma.timeSlot.create({
-          data: {
-            tutorId,
-            type: input.type,
-            startsAt: input.startsAt,
-            endsAt: input.endsAt,
-            recurrence: input.recurrence ?? null,
-            label: input.label ?? null,
-            recurrenceUntil: input.recurrenceUntil ?? null,
-            ...(input.category !== undefined ? { category: input.category } : {}),
-            ...(input.seriesId !== undefined ? { seriesId: input.seriesId } : {}),
-          },
-          select: timeSlotSelect,
-        });
+        const timeSlot = await saveManualSchedule(prisma, tutorId, input);
         return toTimeSlotSummary(timeSlot);
       } catch (error) {
         if (
@@ -692,7 +690,7 @@ const app = createApp(
       const tutorId = await findTutorProfileId(auth0Id);
       const allocation = await prisma.allocation.findFirst({
         where: { id: input.allocationId, tutorId },
-        select: { id: true, startsAt: true, endsAt: true, status: true },
+        select: { id: true, startsAt: true, endsAt: true, status: true, excuses: { select: attendanceSelection } },
       });
       if (!allocation) {
         throw createRouteError(
@@ -703,12 +701,13 @@ const app = createApp(
       }
       if (
         allocation.status !== "CONFIRMED" ||
-        allocation.startsAt.toISOString().slice(0, 10) !== input.workDate
+        !allocationAttendance(allocation.excuses).workLogEligible ||
+        sessionDay(allocation.startsAt) !== input.workDate
       ) {
         throw createRouteError(
           409,
           "WORK_LOG_CONFLICT",
-          "Worked hours must match a confirmed session owned by the tutor.",
+          "Worked hours must match a confirmed session owned by the tutor without an approved sick excuse.",
         );
       }
       if (new Date() <= allocation.endsAt) {
@@ -776,7 +775,7 @@ const app = createApp(
         }
         if (
           isPrismaErrorCode(error, "P2003") ||
-          isPrismaErrorCode(error, "P2004")
+          isPrismaErrorCode(error, "P2004") || isPrismaErrorCode(error, "P2039")
         ) {
           throw createRouteError(
             409,
@@ -794,7 +793,6 @@ const app = createApp(
           id: input.allocationId,
           tutorId,
           status: "CONFIRMED",
-          startsAt: { gt: new Date() },
         },
         select: { id: true },
       });
@@ -802,7 +800,7 @@ const app = createApp(
         throw createRouteError(
           404,
           "ALLOCATION_NOT_FOUND",
-          "The assigned future session could not be found.",
+          "The assigned confirmed session could not be found.",
         );
       }
 
@@ -918,21 +916,7 @@ const app = createApp(
       return dispute;
     },
     getTutorExcuseStatus: excuseWorkflowService.getStatus,
-    async decideExcuse(excuseId, input) {
-      const owner = await prisma.excuse.findUnique({
-        where: { id: excuseId },
-        select: { tutorId: true },
-      });
-      const result = await excuseWorkflowService.decide(excuseId, input);
-      if (owner && (result.status === "APPROVED" || result.status === "REJECTED")) {
-        await emitNotifications(buildExcuseDecisionNotifications({
-          id: result.id,
-          status: result.status,
-          reviewReason: result.reviewReason,
-        }, owner.tutorId));
-      }
-      return result;
-    },
+    decideExcuse: excuseWorkflowService.decide,
     async listAllocationCandidates(input) {
       const candidates = await findAllocationCandidates(queryClient, input);
       return candidates.map((candidate) => ({
@@ -1078,21 +1062,7 @@ const app = createApp(
     async updateTutorTimeSlot(auth0Id, timeSlotId, input) {
       const tutorId = await findTutorProfileId(auth0Id);
       try {
-        const timeSlot = await prisma.timeSlot.update({
-          // Keep ownership in the write predicate, not a separate preflight read.
-          where: { id: timeSlotId, tutorId },
-          data: {
-            type: input.type,
-            startsAt: input.startsAt,
-            endsAt: input.endsAt,
-            recurrence: input.recurrence ?? null,
-            label: input.label ?? null,
-            recurrenceUntil: input.recurrenceUntil ?? null,
-            ...(input.category !== undefined ? { category: input.category } : {}),
-            ...(input.seriesId !== undefined ? { seriesId: input.seriesId } : {}),
-          },
-          select: timeSlotSelect,
-        });
+        const timeSlot = await saveManualSchedule(prisma, tutorId, input, timeSlotId);
         return toTimeSlotSummary(timeSlot);
       } catch (error) {
         if (isPrismaErrorCode(error, "P2025")) {

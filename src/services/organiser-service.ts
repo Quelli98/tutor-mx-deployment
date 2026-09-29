@@ -10,6 +10,7 @@ import {
   type VolunteerClaimDecisionInput,
   type VolunteerClaimDecisionSummary,
 } from "../app.js";
+import { allocationAttendance, attendanceSelection } from "./session-attendance.js";
 import { Prisma, type PrismaClient } from "../generated/prisma/client.js";
 import {
   findAllocationCandidates,
@@ -40,6 +41,7 @@ const allocationSelection = {
 
 const organiserAllocationSelection = {
   ...allocationSelection,
+  excuses: { select: attendanceSelection },
   tutor: { select: { fullName: true, email: true } },
   course: { select: { code: true, name: true } },
 } as const;
@@ -300,6 +302,7 @@ export function createOrganiserService(client: PrismaClient) {
 
       return allocations.map((allocation) => ({
         ...toAllocationSummary(allocation),
+        ...allocationAttendance(allocation.excuses),
         tutorName: allocation.tutor.fullName,
         tutorEmail: allocation.tutor.email,
         courseCode: allocation.course.code,

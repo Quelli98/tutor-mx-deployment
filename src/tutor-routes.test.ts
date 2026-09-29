@@ -408,11 +408,11 @@ describe("tutor timetable import routes", () => {
       .send({ ...previewBody, tutorId: 999 });
     expect(extraField.status).toBe(400);
 
-    const missingTerm = await request(app)
+    const invalidTerm = await request(app)
       .post("/api/tutor/time-slots/import/preview")
       .set("Authorization", "Bearer valid-token")
-      .send({ source: "CSV", text: previewBody.text, timeZone: "UTC" });
-    expect(missingTerm.status).toBe(400);
+      .send({ source: "CSV", text: previewBody.text, timeZone: "UTC", termId: 0 });
+    expect(invalidTerm.status).toBe(400);
 
     expect(previewTutorTimetableImport).not.toHaveBeenCalled();
   });
@@ -517,15 +517,15 @@ describe("academic term routes", () => {
     verifyAccessToken: async () => auth("ORGANISER"),
   };
 
-  it("lists terms for any signed-in role", async () => {
-    const listAcademicTerms = vi.fn().mockResolvedValue([term]);
+  it("lists only published terms for tutors", async () => {
+    const listAcademicTerms = vi.fn().mockResolvedValue([{ ...term, published: true }, { ...term, id: 99, published: false }]);
 
     const response = await request(makeApp({ listAcademicTerms }))
       .get("/api/academic-terms")
       .set("Authorization", "Bearer valid-token");
 
     expect(response.status).toBe(200);
-    expect(response.body).toEqual({ data: { academicTerms: [term] } });
+    expect(response.body).toEqual({ data: { academicTerms: [{ ...term, published: true }] } });
   });
 
   it("requires an Organiser to create a term", async () => {

@@ -27,14 +27,19 @@ function respond(body) {
 }
 
 describe('buildImportRequest', () => {
-  it('sends the browser time zone so wall clocks are read where the tutor is', () => {
+  it('uses the configured timetable time zone independently of the browser zone', () => {
     const request = buildImportRequest({ source: 'CSV', text: 'a', termId: 3 })
 
-    expect(request.timeZone).toBe(currentTimeZone())
+    expect(currentTimeZone()).toBe('Africa/Johannesburg')
     expect(request).toEqual({ source: 'CSV', text: 'a', timeZone: currentTimeZone(), termId: 3 })
   })
 
-  it('rejects a missing format, empty text, oversized text and a missing term', () => {
+  it('omits the term for automatic detection and preserves an explicit source time zone', () => {
+    expect(buildImportRequest({ source: 'CSV', text: 'a', timeZone: 'UTC' }))
+      .toEqual({ source: 'CSV', text: 'a', timeZone: 'UTC' })
+  })
+
+  it('rejects a missing format, empty text, oversized text and an invalid term', () => {
     expect(() => buildImportRequest({ source: 'XLSX', text: 'a', termId: 1 })).toThrow(/csv|calendar/i)
     expect(() => buildImportRequest({ source: 'CSV', text: '  ', termId: 1 })).toThrow(/paste or choose/i)
     expect(() => buildImportRequest({ source: 'CSV', text: 'x'.repeat(30_001), termId: 1 })).toThrow(/too large/i)

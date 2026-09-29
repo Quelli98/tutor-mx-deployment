@@ -47,7 +47,8 @@ WITH allocated AS (
   FROM "WorkLog" w
   JOIN "Allocation" a ON a."id" = w."allocationId"
   JOIN "Timesheet" t ON t."id" = w."timesheetId"
-  WHERE t."status" = 'APPROVED' AND w."workDate" >= $1::date AND w."workDate" < $2::date
+  WHERE t."status" = 'APPROVED'
+    AND NOT EXISTS (SELECT 1 FROM "Excuse" sick WHERE sick."allocationId" = w."allocationId" AND sick."tutorId" = w."tutorId" AND sick."status" = 'APPROVED') AND w."workDate" >= $1::date AND w."workDate" < $2::date
   GROUP BY a."courseId"
 )
 SELECT c."id" AS "courseId", c."code" AS "courseCode", c."name" AS "courseName",
@@ -70,7 +71,8 @@ WITH allocated AS (
 ), worked AS (
   SELECT w."tutorId", SUM(w."hours") AS hours
   FROM "WorkLog" w JOIN "Timesheet" t ON t."id" = w."timesheetId"
-  WHERE t."status" = 'APPROVED' AND w."workDate" >= $1::date AND w."workDate" < $2::date
+  WHERE t."status" = 'APPROVED'
+    AND NOT EXISTS (SELECT 1 FROM "Excuse" sick WHERE sick."allocationId" = w."allocationId" AND sick."tutorId" = w."tutorId" AND sick."status" = 'APPROVED') AND w."workDate" >= $1::date AND w."workDate" < $2::date
   GROUP BY w."tutorId"
 )
 SELECT p."id" AS "tutorId", p."fullName", thl."weeklyHours"::double precision AS "weeklyLimit",
@@ -112,6 +114,7 @@ JOIN "Allocation" a ON a."id" = w."allocationId"
 JOIN "Course" c ON c."id" = a."courseId"
 JOIN "Profile" p ON p."id" = w."tutorId"
 WHERE t."status" = 'APPROVED'
+    AND NOT EXISTS (SELECT 1 FROM "Excuse" sick WHERE sick."allocationId" = w."allocationId" AND sick."tutorId" = w."tutorId" AND sick."status" = 'APPROVED')
   AND w."workDate" >= $1::date AND w."workDate" < $2::date
 GROUP BY t."id", t."weekStart", p."id", p."fullName", c."id", c."code", c."name"
 ORDER BY t."weekStart" ASC, p."fullName" ASC, p."id" ASC, c."code" ASC LIMIT 10001;

@@ -101,7 +101,15 @@ export interface TutorWeeklyCapacity {
   weeklyHours: number | null;
 }
 
-export interface TutorAllocationSummary {
+export interface AllocationAttendanceSummary {
+  occurrenceStatus?: string;
+  absenceReason?: string | null;
+  excusePending?: boolean;
+  workLogEligible?: boolean;
+  excuse?: { id: number; status: string; reviewReason: string | null; submittedAt?: string; reviewedAt: string | null } | null;
+}
+
+export interface TutorAllocationSummary extends AllocationAttendanceSummary {
   id: number;
   courseCode: string;
   courseName: string;
@@ -132,6 +140,9 @@ export interface TutorTimeSlotWriteInput {
 }
 
 export interface TutorTimeSlotSummary {
+  termId?: number | null;
+  teachingBreaks?: Array<{ startsOn: string; endsOn: string }>;
+  exceptions?: Array<{ occurrenceDate: string; exceptionType: string; newStartsAt: string | null; newEndsAt: string | null }>;
   id: number;
   type: "AVAILABLE" | "BUSY";
   startsAt: string;
@@ -205,6 +216,10 @@ export interface TutorTimesheetStatusSummary {
 }
 
 export interface TutorExcuseStatusSummary {
+  occurrenceStatus?: "EXCUSED" | "SKIPPED" | null;
+  absenceReason?: "SICK";
+  reviewedAt?: string | null;
+  reviewedById?: number | null;
   id: number;
   allocationId: number;
   reason: string;
@@ -265,7 +280,7 @@ export interface AllocationWriteInput {
   overrideReason?: string;
 }
 
-export interface AllocationSummary {
+export interface AllocationSummary extends AllocationAttendanceSummary {
   id: number;
   tutorId: number;
   courseId: number;
@@ -813,6 +828,7 @@ export interface AppDependencies {
   decideExcuse: (
     excuseId: number,
     input: ExcuseDecisionInput,
+    auth0Id: string,
   ) => Promise<TutorExcuseStatusSummary>;
   listAllocationCandidates: (
     input: AllocationCandidateQuery,
@@ -3654,7 +3670,10 @@ export function createApp(
             "Academic terms are not configured.",
           );
         }
-        const academicTerms = await dependencies.listAcademicTerms();
+        const role = (request as AuthenticatedRequest).auth!.role;
+        const academicTerms = role === "ORGANISER"
+          ? await dependencies.listAcademicTerms()
+          : (await dependencies.listAcademicTerms()).filter((term) => term.published);
         response.status(200).json({ data: { academicTerms } });
       } catch (value) {
         sendRouteError(response, value);
@@ -4445,6 +4464,7 @@ export function createApp(
         const excuse = await dependencies.decideExcuse(
           excuseId.value,
           parsed.value,
+          (request as AuthenticatedRequest).auth!.subject,
         );
         response.status(200).json({ data: { excuse } });
       } catch (value) {

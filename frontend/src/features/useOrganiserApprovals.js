@@ -35,7 +35,7 @@ export function approvalError(error, loading = false) {
  * approval" card on Home, so both follow the same rules: a reason is required to return,
  * reject or resolve, one decision runs at a time, and a conflict refreshes the queue.
  */
-export function useOrganiserApprovals() {
+export function useOrganiserApprovals({ onDecision } = {}) {
   const { getAccessTokenSilently } = useAuth0()
   const [status, setStatus] = useState('loading')
   const [queues, setQueues] = useState({ timesheets: [], volunteerClaims: [], excuses: [], disputes: [] })
@@ -133,6 +133,7 @@ export function useOrganiserApprovals() {
       const collection = type === 'timesheet' ? 'timesheets' : type === 'excuse' ? 'excuses' : 'volunteerClaims'
       setQueues((current) => ({ ...current, [collection]: current[collection].filter((item) => item.id !== id) }))
       await loadApprovals({ silent: true })
+      await onDecision?.()
       setMessage(
         decision === 'APPROVE'
           ? `${personName}'s request was approved.`

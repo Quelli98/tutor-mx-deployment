@@ -24,23 +24,22 @@ export function isImportRow(value) {
 }
 
 /**
- * Builds the request the import endpoints expect. The browser's own zone is sent
- * so the server reads every wall clock exactly as the tutor sees it, rather than
- * guessing from the server's location.
+ * Builds the request using the timetable's configured zone, unless the caller
+ * supplies an explicit zone for the imported source.
  */
 export function buildImportRequest({ source, text, termId, timeZone }) {
   if (!SOURCES.includes(source)) throw new Error('Choose a CSV/pasted timetable or a calendar file.')
   if (typeof text !== 'string' || text.trim().length === 0) throw new Error('Paste or choose a timetable first.')
   if (text.length > MAX_TEXT_LENGTH) throw new Error('That timetable is too large to import.')
-  if (!Number.isInteger(termId) || termId <= 0) throw new Error('Choose the academic term this timetable belongs to.')
-  const zone = timeZone || Intl.DateTimeFormat().resolvedOptions().timeZone
+  if (termId != null && (!Number.isInteger(termId) || termId <= 0)) throw new Error('Choose the academic term this timetable belongs to.')
+  const zone = timeZone || currentTimeZone()
   if (typeof zone !== 'string' || zone.length === 0) throw new Error('A time zone is required to place the entries.')
 
-  return { source, text, timeZone: zone, termId }
+  return { source, text, timeZone: zone, ...(termId != null ? { termId } : {}) }
 }
 
 export function currentTimeZone() {
-  return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'
+  return 'Africa/Johannesburg'
 }
 
 function previewFrom(body) {

@@ -442,11 +442,11 @@ describe("Sprint 2 Member 5 workflow routes", () => {
     expect(rejected.body.data.excuse.status).toBe("REJECTED");
     expect(decideExcuse).toHaveBeenNthCalledWith(1, 12, {
       decision: "APPROVE",
-    });
+    }, "auth0|member5-organiser");
     expect(decideExcuse).toHaveBeenNthCalledWith(2, 13, {
       decision: "REJECT",
       reason: "Not supported",
-    });
+    }, "auth0|member5-organiser");
   });
 
   const securedRoutes: Array<{

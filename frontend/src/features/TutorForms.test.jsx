@@ -45,7 +45,7 @@ vi.mock('../api/timesheet', () => ({
   submitTimesheet: (...args) => submitTimesheet(...args),
 }))
 vi.mock('../api/timetableImport', () => ({
-  listAcademicTerms: (...args) => listAcademicTerms(...args),
+  listPublishedAcademicTerms: (...args) => listAcademicTerms(...args),
   previewTimetableImport: (...args) => previewTimetableImport(...args),
   commitTimetableImport: (...args) => commitTimetableImport(...args),
   currentTimeZone: () => 'UTC',
@@ -123,6 +123,8 @@ describe('TutorForms accessibility', () => {
     await user.keyboard('{Enter}')
     expect(importTab).toHaveAttribute('aria-selected', 'true')
     for (const control of [
+      screen.getByRole('link', { name: /download CSV template/i }),
+      screen.getByText('View example'),
       screen.getByLabelText(/academic term/i),
       screen.getByLabelText(/pasted rows or a \.csv file/i),
       screen.getByLabelText(/choose a file \(optional\)/i),
@@ -514,7 +516,7 @@ it('keeps import success and an unsaved manual draft while refreshing imported s
   await waitFor(() => expect(screen.getByLabelText(/academic term/i)).not.toBeDisabled())
   fireEvent.change(screen.getByLabelText(/timetable rows/i), { target: { value: 'date,start,end\n2030-09-02,09:00,10:00' } })
   fireEvent.click(screen.getByRole('button', { name: 'Preview import' }))
-  fireEvent.click(await screen.findByRole('button', { name: 'Save 1 entry' }))
+  fireEvent.click(await screen.findByRole('button', { name: 'Import 1 new entry' }))
   expect(await screen.findByText('Imported 1 schedule entry.')).toBeVisible()
   await waitFor(() => expect(listOwnTimeSlots).toHaveBeenCalledTimes(2))
   expect(listAcademicTerms).toHaveBeenCalledTimes(1)

@@ -49,10 +49,6 @@ export default function TutorForms() {
     () => allocations.filter((allocation) => allocation.status === 'CONFIRMED'),
     [allocations],
   )
-  const futureConfirmedAllocations = useMemo(
-    () => confirmedAllocations.filter((allocation) => new Date(allocation.startsAt) > new Date()),
-    [confirmedAllocations],
-  )
   const storageScope = user?.sub ?? null
 
   if (status === 'loading') {
@@ -140,7 +136,7 @@ export default function TutorForms() {
         />
         <ExcuseForm
           key={`excuse-${storageScope ?? 'unknown'}`}
-          allocations={futureConfirmedAllocations}
+          allocations={allocations}
           tokenOrGetter={getAccessTokenSilently}
           storageScope={storageScope}
         />
