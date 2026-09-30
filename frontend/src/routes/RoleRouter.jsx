@@ -16,6 +16,7 @@ import BulkAllocation from '../features/BulkAllocation'
 import OrganiserReports from '../features/OrganiserReports'
 import OrganiserOverflow from '../features/OrganiserOverflow'
 import CommandCentre from '../features/CommandCentre'
+import MasterOrganiserApplications from '../features/MasterOrganiserApplications'
 import { SkipToContent } from '../components/shared/SkipToContent'
 import { NotificationBell } from '../components/shared/NotificationBell'
 import { CommandPalette } from '../components/shared/CommandPalette'
@@ -104,6 +105,7 @@ function protect(currentRole, allowedRoles, children) {
 
 export function RoleRouter({ currentRole, onSignOut, user = null }) {
   const entryPath = ROLE_ROUTE_MAP[currentRole]?.path
+  const isMasterOrganiser = Boolean(user?.data?.capabilities?.masterOrganiser)
 
   const routes = (
     <Routes>
@@ -162,6 +164,12 @@ export function RoleRouter({ currentRole, onSignOut, user = null }) {
         element={protect(currentRole, ['ORGANISER'], <OrganiserOverflow />)}
       />
       <Route
+        path="/organiser/organiser-applications"
+        element={isMasterOrganiser
+          ? protect(currentRole, ['ORGANISER'], <MasterOrganiserApplications />)
+          : <Navigate to="/access-denied" replace />}
+      />
+      <Route
         path="/tutor"
         element={protect(currentRole, ['TUTOR'], <TutorDashboard />)}
       />
@@ -192,7 +200,7 @@ export function RoleRouter({ currentRole, onSignOut, user = null }) {
     return (
       <>
         <SkipToContent />
-        <OrganiserShell user={user} onSignOut={onSignOut}>
+        <OrganiserShell user={user} onSignOut={onSignOut} isMasterOrganiser={isMasterOrganiser}>
           {routes}
         </OrganiserShell>
       </>

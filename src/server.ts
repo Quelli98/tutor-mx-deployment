@@ -3,6 +3,7 @@ import "dotenv/config";
 import {
   createApp,
   createRouteError,
+  type OrganiserApplicationSummary,
   type TutorMarkSummary,
   type TutorTimeSlotSummary,
 } from "./app.js";
@@ -15,7 +16,7 @@ import {
   createAuth0PasswordResetRequester,
   type PasswordResetRequester,
 } from "./auth/password-reset.js";
-import { createAuth0RoleProvisioner, createAuth0UserDeleter, createAuth0VerificationEmailSender } from "./auth/management-api.js";
+import { createAuth0RoleProvisioner, createAuth0UserDeleter, createAuth0UserReader, createAuth0VerificationEmailSender } from "./auth/management-api.js";
 import { prisma, queryClient } from "./database.js";
 import { createSouthAfricaPublicHolidayService } from "./integrations/public-holidays.js";
 import {
@@ -98,6 +99,10 @@ const provisionAuth0Role = auth0ManagementConfig
   ? createAuth0RoleProvisioner(auth0ManagementConfig)
   : async () => { throw new Error("Auth0 Management API onboarding is not configured"); };
 
+const readAuth0User = auth0ManagementConfig
+  ? createAuth0UserReader(auth0ManagementConfig)
+  : async () => { throw new Error("Auth0 Management API user lookup is not configured"); };
+
 // The resend-verification route fails closed when this is undefined (503), so it
 // is only wired when Management API credentials are present.
 const requestVerificationEmail = auth0ManagementConfig
@@ -120,6 +125,51 @@ const courseSelect = {
   hourlyRate: true,
   budget: true,
 } as const;
+
+const organiserApplicationSelect = {
+  id: true,
+  auth0Id: true,
+  email: true,
+  fullName: true,
+  status: true,
+  motivation: true,
+  reviewReason: true,
+  createdAt: true,
+  updatedAt: true,
+  reviewedAt: true,
+  reviewer: {
+    select: { id: true, email: true, fullName: true },
+  },
+} as const;
+
+function toOrganiserApplicationSummary(application: {
+  id: number;
+  auth0Id: string;
+  email: string;
+  fullName: string;
+  status: "PENDING" | "APPROVED" | "REJECTED";
+  motivation: string | null;
+  reviewReason: string | null;
+  createdAt: Date;
+  updatedAt: Date;
+  reviewedAt: Date | null;
+  reviewer: { id: number; email: string; fullName: string } | null;
+}): OrganiserApplicationSummary {
+  return {
+    id: application.id,
+    status: application.status,
+    motivation: application.motivation,
+    reviewReason: application.reviewReason,
+    createdAt: application.createdAt.toISOString(),
+    updatedAt: application.updatedAt.toISOString(),
+    reviewedAt: application.reviewedAt?.toISOString() ?? null,
+    applicant: {
+      email: application.email,
+      fullName: application.fullName,
+    },
+    reviewer: application.reviewer,
+  };
+}
 
 function toCourseSummary(course: {
   id: number;
@@ -400,9 +450,16 @@ const app = createApp(
     verifyAccessToken,
     requestPasswordReset,
     requestVerificationEmail,
-    allowSelfServiceOrganiser: process.env.ALLOW_SELF_SERVICE_ORGANISER?.toLowerCase() === "true",
     getPublicHolidays: (year) => publicHolidayService.execute(year),
     async findProfileByAuth0Id(auth0Id) {
+      const organiserApplication = await prisma.organiserApplication.findUnique({
+        where: { auth0Id },
+        select: { status: true },
+      });
+      // A lecturer waiting for organiser approval is not a Student user. This
+      // also safely blocks any profile left by the earlier student-based draft.
+      if (organiserApplication && organiserApplication.status !== "APPROVED") return null;
+
       const profile = await prisma.profile.findUnique({
         where: { auth0Id },
         select: {
@@ -456,13 +513,29 @@ const app = createApp(
     previewTutorTimetableImport: timetableImportService.preview,
     commitTutorTimetableImport: timetableImportService.commit,
     async onboardUser(auth0Id, role) {
+      if (role === "ORGANISER") {
+        throw createRouteError(400, "ORGANISER_REGISTRATION_REQUIRED", "Organisers must register for lecturer approval before access is granted.");
+      }
+
+      const organiserApplication = await prisma.organiserApplication.findUnique({
+        where: { auth0Id },
+        select: { status: true },
+      });
+      if (organiserApplication) {
+        throw createRouteError(409, "ORGANISER_APPLICATION_EXISTS", "This account is already registered for organiser approval.");
+      }
+
       const existing = await prisma.profile.findUnique({
         where: { auth0Id },
         select: { id: true, email: true, fullName: true, role: true },
       });
       if (existing) {
         const existingRole = normalizeTutorRole(existing.role);
-        if (!existingRole || existingRole !== role) {
+        if (!existingRole) {
+          throw createRouteError(409, "ROLE_ALREADY_SET", "This CSAM Tutor Hub account already has a different role.");
+        }
+
+        if (existingRole !== role) {
           throw createRouteError(409, "ROLE_ALREADY_SET", "This CSAM Tutor Hub account already has a different role.");
         }
         const identity = await provisionAuth0Role(auth0Id, role);
@@ -484,6 +557,178 @@ const app = createApp(
         }
         throw error;
       }
+    },
+    async registerOrganiserApplication(auth0Id) {
+      const identity = await readAuth0User(auth0Id);
+      if (!identity.emailVerified) {
+        throw createRouteError(403, "EMAIL_NOT_VERIFIED", "Verify your lecturer email address, then try again.");
+      }
+
+      const existing = await prisma.organiserApplication.findFirst({
+        where: { OR: [{ auth0Id }, { email: identity.email }] },
+        select: organiserApplicationSelect,
+      });
+      if (existing) {
+        if (existing.auth0Id !== auth0Id || existing.email !== identity.email) {
+          throw createRouteError(409, "ORGANISER_APPLICATION_CONFLICT", "This lecturer email is already linked to another organiser registration.");
+        }
+        return toOrganiserApplicationSummary(existing);
+      }
+
+      const existingProfile = await prisma.profile.findFirst({
+        where: { OR: [{ auth0Id }, { email: identity.email }] },
+        select: { id: true, role: true },
+      });
+      if (existingProfile) {
+        throw createRouteError(409, "ROLE_ALREADY_SET", "This account is already linked to an existing Tutor MX role. Organiser registration is for lecturer organiser accounts, not Student or Tutor accounts.");
+      }
+
+      try {
+        const application = await prisma.organiserApplication.create({
+          data: {
+            auth0Id,
+            email: identity.email,
+            fullName: identity.fullName,
+          },
+          select: organiserApplicationSelect,
+        });
+        return toOrganiserApplicationSummary(application);
+      } catch (error) {
+        if (isPrismaErrorCode(error, "P2002")) {
+          throw createRouteError(409, "ORGANISER_APPLICATION_CONFLICT", "This lecturer email already has an organiser registration.");
+        }
+        throw error;
+      }
+    },
+    async getOwnOrganiserApplication(auth0Id) {
+      const application = await prisma.organiserApplication.findUnique({
+        where: { auth0Id },
+        select: organiserApplicationSelect,
+      });
+      return application ? toOrganiserApplicationSummary(application) : null;
+    },
+    async getOrganiserApplicationStatusByEmail(email) {
+      const application = await prisma.organiserApplication.findUnique({
+        where: { email: email.trim().toLowerCase() },
+        select: { status: true },
+      });
+      return application?.status ?? "NOT_FOUND";
+    },
+    async listOrganiserApplications() {
+      const applications = await prisma.organiserApplication.findMany({
+        orderBy: [{ status: "asc" }, { createdAt: "asc" }],
+        select: organiserApplicationSelect,
+      });
+      return applications.map(toOrganiserApplicationSummary);
+    },
+    async approveOrganiserApplication(reviewerAuth0Id, applicationId) {
+      const reviewer = await prisma.profile.findUnique({
+        where: { auth0Id: reviewerAuth0Id },
+        select: { id: true, role: true },
+      });
+      if (!reviewer || reviewer.role !== "ORGANISER") {
+        throw createRouteError(403, "FORBIDDEN", "Only an organiser can review organiser applications.");
+      }
+
+      const application = await prisma.organiserApplication.findUnique({
+        where: { id: applicationId },
+        select: organiserApplicationSelect,
+      });
+      if (!application) {
+        throw createRouteError(404, "ORGANISER_APPLICATION_NOT_FOUND", "The organiser application could not be found.");
+      }
+      if (application.status !== "PENDING") {
+        throw createRouteError(409, "ORGANISER_APPLICATION_ALREADY_REVIEWED", "This organiser application has already been reviewed.");
+      }
+
+      // Auth0 is the authorization source of truth. Grant ORGANISER only after
+      // the Master Organiser approves the lecturer registration.
+      const identity = await provisionAuth0Role(application.auth0Id, "ORGANISER");
+      if (!identity.emailVerified) {
+        throw createRouteError(409, "APPLICANT_EMAIL_NOT_VERIFIED", "The applicant must verify their email before approval.");
+      }
+      if (identity.email !== application.email) {
+        throw createRouteError(409, "APPLICANT_EMAIL_CHANGED", "The Auth0 email no longer matches this organiser registration.");
+      }
+
+      const updated = await prisma.$transaction(async (transaction) => {
+        const claimed = await transaction.organiserApplication.updateMany({
+          where: { id: applicationId, status: "PENDING" },
+          data: {
+            status: "APPROVED",
+            reviewReason: null,
+            reviewedAt: new Date(),
+            reviewerProfileId: reviewer.id,
+          },
+        });
+        if (claimed.count !== 1) {
+          throw createRouteError(409, "ORGANISER_APPLICATION_ALREADY_REVIEWED", "This organiser application has already been reviewed.");
+        }
+
+        const existingProfile = await transaction.profile.findFirst({
+          where: { OR: [{ auth0Id: application.auth0Id }, { email: application.email }] },
+          select: { id: true, auth0Id: true, email: true, role: true },
+        });
+        if (existingProfile) {
+          if (existingProfile.auth0Id !== application.auth0Id || existingProfile.email !== application.email) {
+            throw createRouteError(409, "PROFILE_CONFLICT", "This lecturer email is already linked to another Tutor MX account.");
+          }
+          // Compatibility with the earlier student-based draft: if such a row
+          // exists, convert it to the intended lecturer Organiser account.
+          if (existingProfile.role !== "ORGANISER" && existingProfile.role !== "STUDENT") {
+            throw createRouteError(409, "ROLE_ALREADY_SET", "This account is already linked to a different Tutor MX role.");
+          }
+          await transaction.profile.update({
+            where: { id: existingProfile.id },
+            data: { role: "ORGANISER", fullName: application.fullName },
+          });
+        } else {
+          await transaction.profile.create({
+            data: {
+              auth0Id: application.auth0Id,
+              email: application.email,
+              fullName: application.fullName,
+              role: "ORGANISER",
+            },
+          });
+        }
+        return transaction.organiserApplication.findUniqueOrThrow({
+          where: { id: applicationId },
+          select: organiserApplicationSelect,
+        });
+      });
+      return toOrganiserApplicationSummary(updated);
+    },
+    async rejectOrganiserApplication(reviewerAuth0Id, applicationId, reviewReason) {
+      const reviewer = await prisma.profile.findUnique({
+        where: { auth0Id: reviewerAuth0Id },
+        select: { id: true, role: true },
+      });
+      if (!reviewer || reviewer.role !== "ORGANISER") {
+        throw createRouteError(403, "FORBIDDEN", "Only an organiser can review organiser applications.");
+      }
+
+      const claimed = await prisma.organiserApplication.updateMany({
+        where: { id: applicationId, status: "PENDING" },
+        data: {
+          status: "REJECTED",
+          reviewReason,
+          reviewedAt: new Date(),
+          reviewerProfileId: reviewer.id,
+        },
+      });
+      if (claimed.count !== 1) {
+        const exists = await prisma.organiserApplication.findUnique({ where: { id: applicationId }, select: { id: true } });
+        if (!exists) {
+          throw createRouteError(404, "ORGANISER_APPLICATION_NOT_FOUND", "The organiser application could not be found.");
+        }
+        throw createRouteError(409, "ORGANISER_APPLICATION_ALREADY_REVIEWED", "This organiser application has already been reviewed.");
+      }
+      const updated = await prisma.organiserApplication.findUniqueOrThrow({
+        where: { id: applicationId },
+        select: organiserApplicationSelect,
+      });
+      return toOrganiserApplicationSummary(updated);
     },
     async listCourses() {
       const courses = await prisma.course.findMany({

@@ -71,7 +71,7 @@ Create an Auth0 Single Page Application and configure these development URLs:
 
 Create an Auth0 API whose identifier exactly matches `AUTH0_AUDIENCE` and `VITE_AUTH0_AUDIENCE`, using RS256 access tokens. Configure the database connection named by `AUTH0_DB_CONNECTION` and enable it for the SPA.
 
-The access token must contain the custom claim named by `AUTH0_ROLES_CLAIM` (default `https://tutormx.example/roles`). Its value is an array containing one of `ORGANISER`, `TUTOR` or `STUDENT`. The frontend now supports first-login role selection. After Auth0 proves the identity, the handwritten Express onboarding endpoint uses a server-only Auth0 Management API client to assign exactly one pre-created Tutor Mx role and then creates the matching Neon `Profile`. `ORGANISER` self-sign-up is protected by `ALLOW_SELF_SERVICE_ORGANISER`; keep it `false` outside environments where public organiser creation is intended. A token that already carries a role must still match the Neon profile.
+The access token must contain the custom claim named by `AUTH0_ROLES_CLAIM` (default `https://tutormx.example/roles`). Its value is an array containing the user's Auth0 roles. Tutor Mx uses `ORGANISER`, `TUTOR` and `STUDENT` as application roles, with `MASTER_ORGANIZER` as an additional Auth0 privilege for approving organiser registrations. **Organisers are lecturers, not Students.** A lecturer who chooses **Register as organiser** creates a pending `OrganiserApplication` linked to the Auth0 identity and lecturer email, but receives no Tutor MX `Profile` and no `ORGANISER` role yet. A Master Organiser approves the registration, after which the backend assigns `ORGANISER` in Auth0 and creates the Neon `Profile` as `ORGANISER`. Pending or rejected organiser applicants cannot enter any Student workspace.
 
 ### HTTP authentication contract
 
@@ -84,9 +84,15 @@ Authorization: Bearer <access-token>
 | Route | Access | Success | Relevant errors |
 | --- | --- | --- | --- |
 | `POST /api/auth/password-reset` | Public, validated email | `202 { data: { message } }` with a non-enumerating message | `400 VALIDATION_ERROR`, `503 PASSWORD_RESET_UNAVAILABLE` |
-| `POST /api/auth/onboarding` | Valid Auth0 identity + selected role | Assigns Auth0 role and creates matching Neon Profile | `400`, `401`, `403`, `409`, safe `500` |
-| `GET /api/me` | Valid token linked to a Tutor Mx profile | `200 { data: { profile } }` | `401`, `403`, `404` in `{ error: { code, message } }` |
+| `POST /api/auth/onboarding` | Valid Auth0 identity + Student/Tutor selection | Creates the matching Student or Tutor account | `400`, `401`, `403`, `409`, safe `500` |
+| `POST /api/auth/organiser-registration` | Valid Auth0 identity | Registers the lecturer's email as a pending organiser application; creates no Student profile or organiser role | `401`, `403`, `409`, safe `500` |
+| `POST /api/auth/organiser-application-status` | Public, validated email | Returns `PENDING`, `APPROVED`, `REJECTED`, or `NOT_FOUND` for the organiser registration email | `400`, `503`, safe `500` |
+| `GET /api/auth/organiser-application/me` | Authenticated Auth0 identity | Reads the signed-in identity's organiser application even before a Tutor MX profile exists | `401`, `503`, safe `500` |
+| `GET /api/me` | Valid token linked to an approved Tutor Mx profile | `200 { data: { profile } }` | `401`, `403`, `404` in `{ error: { code, message } }` |
 | `GET /api/profile/current` | Valid token and supported matching role | Alias of the current-profile contract | `401`, `403`, `404` |
+| `GET /api/master-organiser/organiser-applications` | Organiser + Auth0 `MASTER_ORGANIZER` | Lists organiser applications | `401`, `403` |
+| `POST /api/master-organiser/organiser-applications/:id/approve` | Organiser + Auth0 `MASTER_ORGANIZER` | Grants `ORGANISER` in Auth0, creates/updates the Neon Organiser profile, and records approval | `400`, `401`, `403`, `404`, `409` |
+| `POST /api/master-organiser/organiser-applications/:id/reject` | Organiser + Auth0 `MASTER_ORGANIZER` | Rejects the lecturer registration; no Student or Organiser profile is created | `400`, `401`, `403`, `404`, `409` |
 | `GET /api/public-holidays?year=YYYY` | Any supported authenticated role | `200 { data: { source, holidays, retrievedAt, reason? } }`; fallback remains a successful non-blocking response | `400`, `401`, `403`, safe `500` |
 | `GET /api/courses` | Any supported authenticated role | `200 { data: { courses } }` | `401`, `403`, safe `500` |
 | `POST /api/courses` | Organiser | `201 { data: { course } }` | `400`, `401`, `403`, `409` |

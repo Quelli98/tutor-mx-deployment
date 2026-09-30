@@ -20,6 +20,7 @@ const mocks = vi.hoisted(() => ({
   profileCreate: vi.fn(),
   profileFindMany: vi.fn(),
   profileFindUnique: vi.fn(),
+  organiserApplicationFindUnique: vi.fn(),
   queryRaw: vi.fn(),
   academicTermFindMany: vi.fn(),
   timeSlotFindFirst: vi.fn(),
@@ -63,6 +64,9 @@ vi.mock("./database.js", () => ({
       create: mocks.profileCreate,
       findMany: mocks.profileFindMany,
       findUnique: mocks.profileFindUnique,
+    },
+    organiserApplication: {
+      findUnique: mocks.organiserApplicationFindUnique,
     },
     excuse: {
       create: mocks.excuseCreate,
@@ -108,7 +112,6 @@ const originalEnvironment = {
   AUTH0_MANAGEMENT_CLIENT_ID: process.env.AUTH0_MANAGEMENT_CLIENT_ID,
   AUTH0_MANAGEMENT_CLIENT_SECRET: process.env.AUTH0_MANAGEMENT_CLIENT_SECRET,
   AUTH0_ROLES_CLAIM: process.env.AUTH0_ROLES_CLAIM,
-  ALLOW_SELF_SERVICE_ORGANISER: process.env.ALLOW_SELF_SERVICE_ORGANISER,
   FRONTEND_ORIGIN: process.env.FRONTEND_ORIGIN,
   PORT: process.env.PORT,
 };
@@ -140,6 +143,7 @@ beforeEach(() => {
   mocks.createApp.mockReturnValue({
     listen: mocks.listen,
   });
+  mocks.organiserApplicationFindUnique.mockResolvedValue(null);
   mocks.academicTermFindMany.mockResolvedValue([]);
   mocks.timeSlotFindMany.mockResolvedValue([]);
   mocks.timeSlotFindFirst.mockResolvedValue({ id: 8 });

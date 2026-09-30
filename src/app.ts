@@ -12,6 +12,8 @@ import {
 import {
   createAuthenticationMiddleware,
   createProfileRoleMiddleware,
+  hasMasterOrganiserAccess,
+  requireMasterOrganiser,
   requireRole,
   type AuthenticatedRequest,
 } from "./auth/middleware.js";
@@ -718,6 +720,27 @@ export interface ProfileSummary {
   role: TutorRole;
 }
 
+export type OrganiserApplicationStatus = "PENDING" | "APPROVED" | "REJECTED";
+
+export interface OrganiserApplicationSummary {
+  id: number;
+  status: OrganiserApplicationStatus;
+  motivation: string | null;
+  reviewReason: string | null;
+  createdAt: string;
+  updatedAt: string;
+  reviewedAt: string | null;
+  applicant: {
+    email: string;
+    fullName: string;
+  };
+  reviewer: {
+    id: number;
+    email: string;
+    fullName: string;
+  } | null;
+}
+
 export interface RouteError extends Error {
   status: number;
   code: string;
@@ -727,7 +750,16 @@ export interface AppDependencies {
   corsOrigin?: string;
   findProfileByAuth0Id: (auth0Id: string) => Promise<ProfileSummary | null>;
   onboardUser: (auth0Id: string, role: TutorRole) => Promise<ProfileSummary>;
-  allowSelfServiceOrganiser?: boolean;
+  registerOrganiserApplication?: (auth0Id: string) => Promise<OrganiserApplicationSummary>;
+  getOwnOrganiserApplication?: (auth0Id: string) => Promise<OrganiserApplicationSummary | null>;
+  getOrganiserApplicationStatusByEmail?: (email: string) => Promise<OrganiserApplicationStatus | "NOT_FOUND">;
+  listOrganiserApplications?: () => Promise<OrganiserApplicationSummary[]>;
+  approveOrganiserApplication?: (reviewerAuth0Id: string, applicationId: number) => Promise<OrganiserApplicationSummary>;
+  rejectOrganiserApplication?: (
+    reviewerAuth0Id: string,
+    applicationId: number,
+    reviewReason: string | null,
+  ) => Promise<OrganiserApplicationSummary>;
   getPublicHolidays: (
     year: number,
   ) => Promise<ExternalApiResult<PublicHoliday[]>>;
@@ -2191,16 +2223,17 @@ function parseTutorMarkInput(body: unknown) {
 function parseNumericId(
   value: string | string[] | undefined,
   resourceName: string,
-) {
+): { error: string } | { value: number } {
   const resolved = Array.isArray(value) ? value[0] : value;
   const numeric = boundedInteger(resolved, 1, MAX_DATABASE_ID);
+
   if (numeric === null) {
     return {
       error: `${resourceName} identifier must be a positive whole number.`,
-    } as const;
+    };
   }
 
-  return { value: numeric } as const;
+  return { value: numeric };
 }
 
 function parsePublicHolidayYear(value: unknown) {
@@ -2245,7 +2278,13 @@ function currentProfileRoute(
       return;
     }
 
-    response.status(200).json({ data: { profile } });
+    const masterOrganiser = hasMasterOrganiserAccess(auth);
+    response.status(200).json({
+      data: {
+        profile,
+        ...(masterOrganiser ? { capabilities: { masterOrganiser: true } } : {}),
+      },
+    });
   })().catch((value) => sendRouteError(response, value));
 }
 
@@ -2260,6 +2299,7 @@ export function createApp(
   );
   const resolveProfileRole = createProfileRoleMiddleware(dependencies.findProfileByAuth0Id);
   const requireTutorMxRole = requireRole(...TUTOR_ROLES);
+  const requireMaster = requireMasterOrganiser();
 
   const corsOrigin = dependencies.corsOrigin;
   if (corsOrigin) {
@@ -2378,13 +2418,8 @@ export function createApp(
     authenticate,
     async (request, response) => {
       const role = request.body?.role;
-      if (!TUTOR_ROLES.includes(role)) {
-        const result = error(400, "VALIDATION_ERROR", "Choose Student, Tutor or Organiser.");
-        response.status(result.status).json(result.body);
-        return;
-      }
-      if (role === "ORGANISER" && !dependencies.allowSelfServiceOrganiser) {
-        const result = error(403, "ORGANISER_SELF_SIGNUP_DISABLED", "Organiser self-sign-up is not enabled for this environment.");
+      if (!TUTOR_ROLES.includes(role) || role === "ORGANISER") {
+        const result = error(400, "VALIDATION_ERROR", "Choose Student or Tutor for standard onboarding. Organisers must use organiser registration.");
         response.status(result.status).json(result.body);
         return;
       }
@@ -2392,6 +2427,45 @@ export function createApp(
       try {
         const profile = await dependencies.onboardUser(auth.subject, role);
         response.status(200).json({ data: { profile } });
+      } catch (value) { sendRouteError(response, value); }
+    },
+  );
+
+  app.post(
+    "/api/auth/organiser-registration",
+    sensitiveAuthLimiter,
+    authenticate,
+    async (request, response) => {
+      if (!dependencies.registerOrganiserApplication) {
+        const result = error(503, "ORGANISER_APPLICATIONS_UNAVAILABLE", "Organiser registration is not configured.");
+        response.status(result.status).json(result.body);
+        return;
+      }
+      try {
+        const auth = (request as AuthenticatedRequest).auth!;
+        const application = await dependencies.registerOrganiserApplication(auth.subject);
+        response.status(200).json({ data: { application } });
+      } catch (value) { sendRouteError(response, value); }
+    },
+  );
+
+  app.post(
+    "/api/auth/organiser-application-status",
+    sensitiveAuthLimiter,
+    async (request, response) => {
+      if (!dependencies.getOrganiserApplicationStatusByEmail) {
+        const result = error(503, "ORGANISER_APPLICATIONS_UNAVAILABLE", "Organiser application status is not configured.");
+        response.status(result.status).json(result.body);
+        return;
+      }
+      if (!isValidEmail(request.body?.email)) {
+        const result = error(400, "VALIDATION_ERROR", "Enter a valid email address.");
+        response.status(result.status).json(result.body);
+        return;
+      }
+      try {
+        const status = await dependencies.getOrganiserApplicationStatusByEmail(request.body.email.trim().toLowerCase());
+        response.status(200).json({ data: { status } });
       } catch (value) { sendRouteError(response, value); }
     },
   );
@@ -2431,6 +2505,108 @@ export function createApp(
     resolveProfileRole,
     requireTutorMxRole,
     (request, response) => currentProfileRoute(dependencies, request, response),
+  );
+
+  app.get(
+    "/api/auth/organiser-application/me",
+    authenticate,
+    async (request, response) => {
+      if (!dependencies.getOwnOrganiserApplication) {
+        const result = error(503, "ORGANISER_APPLICATIONS_UNAVAILABLE", "Organiser applications are not configured.");
+        response.status(result.status).json(result.body);
+        return;
+      }
+      try {
+        const auth = (request as AuthenticatedRequest).auth!;
+        const application = await dependencies.getOwnOrganiserApplication(auth.subject);
+        response.status(200).json({ data: { application } });
+      } catch (value) { sendRouteError(response, value); }
+    },
+  );
+
+  app.get(
+    "/api/master-organiser/organiser-applications",
+    authenticate,
+    resolveProfileRole,
+    requireRole("ORGANISER"),
+    requireMaster,
+    async (_request, response) => {
+      if (!dependencies.listOrganiserApplications) {
+        const result = error(503, "ORGANISER_APPLICATIONS_UNAVAILABLE", "Organiser applications are not configured.");
+        response.status(result.status).json(result.body);
+        return;
+      }
+      try {
+        const applications = await dependencies.listOrganiserApplications();
+        response.status(200).json({ data: { applications } });
+      } catch (value) { sendRouteError(response, value); }
+    },
+  );
+
+  app.post(
+    "/api/master-organiser/organiser-applications/:id/approve",
+    authenticate,
+    resolveProfileRole,
+    requireRole("ORGANISER"),
+    requireMaster,
+    async (request, response) => {
+      if (!dependencies.approveOrganiserApplication) {
+        const result = error(503, "ORGANISER_APPLICATIONS_UNAVAILABLE", "Organiser applications are not configured.");
+        response.status(result.status).json(result.body);
+        return;
+      }
+      const applicationId = parseNumericId(request.params.id, "Organiser application");
+      if ("error" in applicationId) {
+        const result = error(400, "VALIDATION_ERROR", applicationId.error);
+        response.status(result.status).json(result.body);
+        return;
+      }
+      try {
+        const auth = (request as AuthenticatedRequest).auth!;
+        const application = await dependencies.approveOrganiserApplication(auth.subject, applicationId.value);
+        response.status(200).json({ data: { application } });
+      } catch (value) { sendRouteError(response, value); }
+    },
+  );
+
+  app.post(
+    "/api/master-organiser/organiser-applications/:id/reject",
+    authenticate,
+    resolveProfileRole,
+    requireRole("ORGANISER"),
+    requireMaster,
+    async (request, response) => {
+      if (!dependencies.rejectOrganiserApplication) {
+        const result = error(503, "ORGANISER_APPLICATIONS_UNAVAILABLE", "Organiser applications are not configured.");
+        response.status(result.status).json(result.body);
+        return;
+      }
+      const applicationId = parseNumericId(request.params.id, "Organiser application");
+      if ("error" in applicationId) {
+        const result = error(400, "VALIDATION_ERROR", applicationId.error);
+        response.status(result.status).json(result.body);
+        return;
+      }
+      const reviewReason = request.body?.reviewReason == null
+        ? null
+        : typeof request.body.reviewReason === "string"
+          ? request.body.reviewReason.trim()
+          : "";
+      if (reviewReason !== null && reviewReason.length > 500) {
+        const result = error(400, "VALIDATION_ERROR", "Review notes must be 500 characters or fewer.");
+        response.status(result.status).json(result.body);
+        return;
+      }
+      try {
+        const auth = (request as AuthenticatedRequest).auth!;
+        const application = await dependencies.rejectOrganiserApplication(
+          auth.subject,
+          applicationId.value,
+          reviewReason || null,
+        );
+        response.status(200).json({ data: { application } });
+      } catch (value) { sendRouteError(response, value); }
+    },
   );
 
   app.get(

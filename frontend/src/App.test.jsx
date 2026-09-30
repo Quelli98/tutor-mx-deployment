@@ -8,6 +8,8 @@ const logoutMock = vi.fn()
 const tokenMock = vi.fn()
 const completeOnboardingMock = vi.fn()
 const resendVerificationMock = vi.fn()
+const getOwnOrganiserApplicationMock = vi.fn()
+const checkOrganiserApplicationStatusMock = vi.fn()
 let authState
 let currentUserState
 
@@ -31,6 +33,14 @@ vi.mock('./api/onboarding', () => ({
   resendVerificationEmail: (...arguments_) => resendVerificationMock(...arguments_),
 }))
 
+vi.mock('./api/organiserApplications', () => ({
+  getOwnOrganiserApplication: (...arguments_) => getOwnOrganiserApplicationMock(...arguments_),
+  checkOrganiserApplicationStatus: (...arguments_) => checkOrganiserApplicationStatusMock(...arguments_),
+  listOrganiserApplications: vi.fn().mockResolvedValue([]),
+  approveOrganiserApplication: vi.fn(),
+  rejectOrganiserApplication: vi.fn(),
+}))
+
 vi.mock('./api/tutorDashboard', () => ({
   fetchTutorDashboard: () =>
     Promise.resolve({
@@ -52,6 +62,10 @@ describe('Auth entry flow', () => {
     completeOnboardingMock.mockResolvedValue({ data: { profile: { role: 'TUTOR' } } })
     resendVerificationMock.mockReset()
     resendVerificationMock.mockResolvedValue({ data: { message: 'sent' } })
+    getOwnOrganiserApplicationMock.mockReset()
+    getOwnOrganiserApplicationMock.mockResolvedValue(null)
+    checkOrganiserApplicationStatusMock.mockReset()
+    checkOrganiserApplicationStatusMock.mockResolvedValue('NOT_FOUND')
     authState = { isAuthenticated: false, isLoading: false, user: null }
     currentUserState = { role: null, loading: false, error: '', errorCode: '' }
   })
@@ -65,7 +79,7 @@ describe('Auth entry flow', () => {
     }
     expect(screen.getByRole('button', { name: /create account as a student/i })).toBeEnabled()
     expect(screen.getByRole('button', { name: /create account as a tutor/i })).toBeEnabled()
-    expect(screen.getByRole('button', { name: /create account as an organiser/i })).toBeEnabled()
+    expect(screen.getByRole('button', { name: /register as an organiser/i })).toBeEnabled()
     expect(screen.getAllByRole('button', { name: /^sign in$/i })).toHaveLength(3)
     expect(screen.getByRole('link', { name: /choose your role/i })).toHaveAttribute('href', '#roles')
     expect(screen.getByRole('link', { name: /how it works/i })).toHaveAttribute('href', '#roles')
@@ -102,13 +116,28 @@ describe('Auth entry flow', () => {
     expect(window.sessionStorage.getItem('tutormx.pendingRole')).toBe('STUDENT')
   })
 
-  it('remembers the Organiser role when an Organiser creates an account', async () => {
+  it('remembers the Organiser registration choice when a lecturer registers from the landing page', async () => {
     render(<MemoryRouter><App /></MemoryRouter>)
 
-    fireEvent.click(screen.getByRole('button', { name: /create account as an organiser/i }))
+    fireEvent.click(screen.getByRole('button', { name: /register as an organiser/i }))
 
     await waitFor(() => expect(loginMock).toHaveBeenCalled())
     expect(window.sessionStorage.getItem('tutormx.pendingRole')).toBe('ORGANISER')
+  })
+
+  it('lets a lecturer check organiser approval status by email without signing in', async () => {
+    checkOrganiserApplicationStatusMock.mockResolvedValueOnce('APPROVED')
+    render(<MemoryRouter><App /></MemoryRouter>)
+
+    fireEvent.change(screen.getByLabelText(/check organiser approval status/i), {
+      target: { value: 'Lecturer@Wits.ac.za' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: /check status/i }))
+
+    await waitFor(() => {
+      expect(checkOrganiserApplicationStatusMock).toHaveBeenCalledWith('Lecturer@Wits.ac.za')
+    })
+    expect(await screen.findByText(/approved.*sign in as organiser/i)).toBeInTheDocument()
   })
 
   it('shows a safe message when Auth0 cannot start sign in', async () => {
@@ -130,7 +159,7 @@ describe('Auth entry flow', () => {
     expect(await screen.findByRole('heading', { name: /tutor dashboard/i })).toBeInTheDocument()
   })
 
-  it('offers role setup to an authenticated legacy user with no Neon profile', () => {
+  it('offers role setup to an authenticated legacy user with no Neon profile or organiser application', async () => {
     authState = { isAuthenticated: true, isLoading: false, user: { sub: 'auth0|123' } }
     currentUserState = {
       role: null,
@@ -141,9 +170,41 @@ describe('Auth entry flow', () => {
 
     render(<MemoryRouter><App /></MemoryRouter>)
 
-    expect(screen.getByRole('heading', { name: /choose your role/i })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: /choose your role/i })).toBeInTheDocument()
     expect(screen.getByText(/finish setting up your csam tutor hub account/i)).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /continue/i })).toBeDisabled()
+  })
+
+  it('does not offer Student setup to a pending lecturer organiser applicant', async () => {
+    authState = { isAuthenticated: true, isLoading: false, user: { sub: 'auth0|lecturer' } }
+    currentUserState = {
+      role: null,
+      loading: false,
+      error: 'No Tutor Mx profile is linked to this account.',
+      errorCode: 'PROFILE_NOT_FOUND',
+    }
+    getOwnOrganiserApplicationMock.mockResolvedValueOnce({
+      id: 44,
+      status: 'PENDING',
+      applicant: { email: 'lecturer@wits.ac.za', fullName: 'Demo Lecturer' },
+    })
+
+    render(<MemoryRouter><App /></MemoryRouter>)
+
+    expect(await screen.findByRole('heading', { name: /awaiting organiser approval/i })).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: /choose your role/i })).not.toBeInTheDocument()
+  })
+
+  it('keeps organiser registration pending instead of creating a Student workspace', async () => {
+    authState = { isAuthenticated: true, isLoading: false, user: { sub: 'auth0|lecturer' } }
+    currentUserState = { role: null, loading: false, error: '', errorCode: '' }
+    window.sessionStorage.setItem('tutormx.pendingRole', 'ORGANISER')
+    completeOnboardingMock.mockResolvedValueOnce({ data: { application: { status: 'PENDING' } } })
+
+    render(<MemoryRouter><App /></MemoryRouter>)
+
+    expect(await screen.findByText(/master organiser must approve it before you can sign in/i)).toBeInTheDocument()
+    expect(screen.queryByText(/student workspace/i)).not.toBeInTheDocument()
   })
 
   it('calls logout with returnTo origin when sign out is clicked', () => {
@@ -250,17 +311,4 @@ describe('Auth entry flow', () => {
     expect(await screen.findByText(/verification email sent.*sign in/i)).toBeInTheDocument()
   })
 
-  it('explains that Organiser accounts come from the School when self sign-up is disabled', async () => {
-    authState = { isAuthenticated: true, isLoading: false, user: { sub: 'auth0|789' } }
-    window.sessionStorage.setItem('tutormx.pendingRole', 'ORGANISER')
-    const disabled = new Error('Organiser self-sign-up is not enabled for this environment.')
-    disabled.code = 'ORGANISER_SELF_SIGNUP_DISABLED'
-    completeOnboardingMock.mockRejectedValueOnce(disabled)
-
-    render(<MemoryRouter initialEntries={['/']}><App /></MemoryRouter>)
-
-    expect(await screen.findByText(/organiser accounts are set up by the school/i)).toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: /try again/i })).not.toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /sign out/i })).toBeInTheDocument()
-  })
 })

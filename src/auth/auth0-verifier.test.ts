@@ -54,11 +54,27 @@ describe("Auth0 access-token verifier", () => {
     await expect(verify(token())).resolves.toMatchObject({
       subject: "auth0|123",
       role: "TUTOR",
+      auth0Roles: ["TUTOR"],
     });
     expect(fetchImplementation).toHaveBeenCalledWith(
       `https://${domain}/.well-known/jwks.json`,
       expect.objectContaining({ headers: { Accept: "application/json" } }),
     );
+  });
+
+  it("keeps the Master Organiser Auth0 privilege while resolving the base Tutor MX role", async () => {
+    const verify = createAuth0AccessTokenVerifier(
+      { domain, audience, rolesClaim },
+      jwksFetch(),
+    );
+
+    await expect(
+      verify(token({ [rolesClaim]: ["MASTER_ORGANIZER", "ORGANISER"] })),
+    ).resolves.toMatchObject({
+      subject: "auth0|123",
+      role: "ORGANISER",
+      auth0Roles: ["MASTER_ORGANIZER", "ORGANISER"],
+    });
   });
 
   it("rejects expired tokens", async () => {

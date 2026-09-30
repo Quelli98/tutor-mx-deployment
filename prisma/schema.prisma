@@ -13,6 +13,12 @@ enum UserRole {
   STUDENT
 }
 
+enum OrganiserApplicationStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
 enum TimeSlotType {
   AVAILABLE
   BUSY
@@ -120,8 +126,30 @@ model Profile {
   timesheetRevisions  TimesheetRevision[] @relation("TimesheetRevisionAuthor")
   raisedDisputes      TimesheetDispute[]  @relation("TimesheetDisputeRaisedBy")
   resolvedDisputes    TimesheetDispute[]  @relation("TimesheetDisputeResolvedBy")
+  reviewedOrganiserApplications OrganiserApplication[] @relation("OrganiserApplicationReviewer")
   createdAt           DateTime         @default(now())
   updatedAt           DateTime         @updatedAt
+}
+
+/// A lecturer registration request for organiser access. Pending applicants do
+/// not receive a Tutor MX Profile or Auth0 ORGANISER role until a Master
+/// Organiser approves the request.
+model OrganiserApplication {
+  id                 Int                        @id @default(autoincrement())
+  auth0Id            String                     @unique
+  email              String                     @unique
+  fullName           String
+  motivation         String?                    @db.VarChar(1000)
+  status             OrganiserApplicationStatus @default(PENDING)
+  reviewReason       String?                    @db.VarChar(500)
+  reviewedAt         DateTime?
+  reviewerProfileId  Int?
+  reviewer           Profile?                   @relation("OrganiserApplicationReviewer", fields: [reviewerProfileId], references: [id], onDelete: SetNull)
+  createdAt          DateTime                   @default(now())
+  updatedAt          DateTime                   @updatedAt
+
+  @@index([status, createdAt])
+  @@index([reviewerProfileId])
 }
 
 model Notification {

@@ -1,49 +1,65 @@
-# Tutor Mx Self-Service Role Onboarding Setup
+# Tutor Mx Onboarding and Master Organiser Setup
 
-This version removes the need to manually add each new user to Neon or manually assign each Tutor Mx role in Auth0.
+Tutor Mx keeps Auth0 as the authentication/authorization source of truth and stores the organiser-approval audit trail in Neon.
 
-## What happens now
+## Role model
 
-1. A visitor opens the Tutor Mx front page.
-2. They choose **Student**, **Tutor** or **Organiser**.
-3. They click **Create ... account** and Auth0 Universal Login handles Google/email-password sign-up.
-4. After Auth0 has authenticated the user, React calls `POST /api/auth/onboarding` with the selected role and the normal bearer token.
-5. Express verifies the Auth0 token. Server-only code then reads the Auth0 user, checks email verification, finds the existing `ORGANISER`, `TUTOR` and `STUDENT` roles, assigns exactly the selected Tutor Mx role, and creates the matching Neon `Profile` using Prisma.
-6. The browser never receives the Neon connection string or Auth0 Management API client secret.
-7. The selected role is one-time. If the Neon profile already exists with another role, public onboarding returns `ROLE_ALREADY_SET` rather than changing it.
+Create/keep these Auth0 roles:
+
+- `STUDENT`
+- `TUTOR`
+- `ORGANISER`
+- `MASTER_ORGANIZER`
+
+`MASTER_ORGANIZER` is an extra privilege layered on top of the normal `ORGANISER` workspace role. A Master Organiser should also have `ORGANISER`. Never expose `MASTER_ORGANIZER` as a registration option.
+
+## Important organiser rule
+
+Organisers are lecturers. They are **not Students promoted into Organisers**.
+
+Student registration remains Student-only. Tutor registration remains Tutor-only. There is no **Become an organiser** option inside the Student workspace.
+
+## Lecturer organiser registration flow
+
+1. On the public landing page, the lecturer chooses the **Organiser** role and clicks **Register as organiser**.
+2. Auth0 creates/authenticates the lecturer identity and verifies the lecturer email.
+3. Tutor MX creates a pending `OrganiserApplication` containing the Auth0 user id, email and name.
+4. Tutor MX does **not** create a Student profile and does **not** assign the Auth0 `ORGANISER` role yet.
+5. The lecturer returns to the landing page. Under the Organiser role they can enter their email and choose **Check status** at any time.
+6. The Master Organiser opens **Organiser applications** and approves or rejects the lecturer registration.
+7. On approval, the backend assigns `ORGANISER` through the server-only Auth0 Management API and creates the Neon `Profile` as `ORGANISER`.
+8. The lecturer can then sign in using the Organiser role and enter the organiser workspace.
+9. If the registration is pending or rejected, the lecturer cannot enter the Student, Tutor or Organiser workspaces from that organiser registration.
 
 ## One-time Auth0 setup
 
-### A. Keep/create these three Auth0 roles
+### A. Assign the Master Organiser
 
-Auth0 Dashboard -> User Management -> Roles. Ensure these exact names exist:
+Auth0 Dashboard -> User Management -> Users -> open the designated main lecturer account -> Roles -> Assign Roles.
+
+Assign:
 
 - `ORGANISER`
-- `TUTOR`
-- `STUDENT`
+- `MASTER_ORGANIZER`
 
-You do **not** need to copy their IDs into the project. The backend resolves the IDs by exact role name.
+Only trusted project owners/administrators should assign or remove `MASTER_ORGANIZER` in Auth0.
 
-### B. Configure the server-only Machine-to-Machine application
+### B. Management API machine-to-machine application
 
-Auth0 Dashboard -> Applications -> APIs -> **Auth0 Management API** -> Machine to Machine Applications.
+The Express backend uses the server-only Auth0 Management API client. Grant only the scopes Tutor MX needs:
 
-Authorize the M2M application whose Client ID/Secret you already use on the backend and grant:
+- `read:users`
+- `read:roles`
+- `update:users`
+- `delete:users` only if the existing account-deletion feature remains enabled
 
-- `read:users` - read the authenticated user's email/name
-- `read:roles` - resolve the three Tutor Mx role IDs by name
-- `update:users` - assign/remove Tutor Mx roles
-- `delete:users` - keep this only if you want the existing account-deletion feature
+Never place the Management API Client Secret in the frontend or a `VITE_...` variable.
 
-Never put this M2M Client Secret in Cloudflare Pages or any `VITE_...` variable.
+### C. Post Login role claim
 
-### C. Keep your Auth0 Post Login role-claim Action
+Keep the Auth0 Post Login Action that writes `event.authorization.roles` to the custom claim configured by `AUTH0_ROLES_CLAIM`. The claim must include `MASTER_ORGANIZER` for the designated main lecturer account so the backend can authorize approval endpoints.
 
-Keep the existing Action that places `event.authorization.roles` into the custom access-token claim configured by `AUTH0_ROLES_CLAIM`. Newly onboarded users can continue immediately because Express resolves the just-created Neon profile if the first token predates role assignment; later tokens should contain the Auth0 role claim too.
-
-## Backend hosting environment values
-
-On the host running the Express API, set/confirm:
+## Backend environment values
 
 ```text
 AUTH0_DOMAIN=<your Auth0 tenant domain>
@@ -52,14 +68,9 @@ AUTH0_MANAGEMENT_CLIENT_ID=<M2M client id>
 AUTH0_MANAGEMENT_CLIENT_SECRET=<M2M client secret>
 DATABASE_URL=<Neon connection string>
 FRONTEND_ORIGIN=https://tutor-mx.pages.dev
-ALLOW_SELF_SERVICE_ORGANISER=true
 ```
 
-`ALLOW_SELF_SERVICE_ORGANISER=true` is required if you really want any new user to be able to choose Organiser. For a safer production-style configuration, set it to `false` and create/invite organisers separately.
-
-## Cloudflare Pages frontend values
-
-Keep the existing public frontend variables only:
+## Cloudflare Pages values
 
 ```text
 VITE_AUTH0_DOMAIN=<your Auth0 tenant domain>
@@ -70,26 +81,21 @@ VITE_API_BASE_URL=<your hosted Express API base URL>
 
 Do not add `DATABASE_URL` or `AUTH0_MANAGEMENT_CLIENT_SECRET` to Cloudflare Pages.
 
-## Deployment steps
+## Deployment and verification
 
-1. Push this source to Gitea `main` after local checks pass.
-2. Redeploy the Express backend so it gets the new onboarding endpoint and environment values.
-3. Redeploy Cloudflare Pages from the updated `frontend` build.
-4. Open `https://tutor-mx.pages.dev` in a private/incognito browser window.
-5. Choose Student first, create a brand-new account, verify the email if Auth0 asks, and return to Tutor Mx.
-6. Confirm Auth0 -> User Management -> Users -> the new user has only `STUDENT` among the Tutor Mx roles.
-7. Confirm Neon -> `Profile` contains the same Auth0 subject/email and role `STUDENT` automatically.
-8. Repeat with a new Tutor account. A brand-new Tutor with no organiser-assigned weekly-hour limit must still reach `/tutor`; the dashboard shows **Weekly hour limit not set yet** and **You have no work assigned right now** instead of failing.
-   Then sign in as an Organiser and open **Tutor management**. The Tutor should already appear by name/email. The Organiser must not copy or enter the Auth0 User ID; Tutor Mx uses the stored profile/database ID internally.
-9. Repeat with a new Organiser account only if `ALLOW_SELF_SERVICE_ORGANISER=true`.
-
-## Expected behaviour for existing unlinked Auth0 users
-
-If an older Auth0 account signs in but has no Neon `Profile`, Tutor Mx now shows **Finish setting up your account** and lets that authenticated user choose a role. It then uses the same server-side onboarding flow.
+1. Run Prisma migrations through `20261006010000_lecturer_organiser_registration` against Neon.
+2. Deploy the backend and frontend.
+3. Sign out of the Master Organiser account and sign in again so its access token contains both `ORGANISER` and `MASTER_ORGANIZER`.
+4. Confirm the Organiser sidebar shows **Organiser applications** only for the Master Organiser.
+5. Register a new lecturer using **Register as organiser**.
+6. Confirm Neon contains a `PENDING` `OrganiserApplication` with the lecturer Auth0 id/email/name and that no new Student `Profile` was created.
+7. On the public landing page, use the lecturer email in **Check organiser approval status** and confirm it shows Pending.
+8. Approve the lecturer from the Master Organiser page.
+9. Confirm Auth0 now gives the lecturer `ORGANISER`, Neon has `Profile.role = ORGANISER`, and the application is `APPROVED` with reviewer/time recorded.
+10. Check status again and confirm it shows Approved, then sign in as Organiser and verify the Organiser workspace opens.
+11. Repeat with Reject and confirm the status checker reports that the registration was not approved and no Student/Organiser profile is created for that applicant.
 
 ## Local release checks
-
-From the repository root:
 
 ```powershell
 npm ci
@@ -98,10 +104,7 @@ npm run generate
 npm run lint
 npm run typecheck
 npm test
-npm run coverage
 npm run build
 npm run security:check
 git diff --check
 ```
-
-Do not commit or deploy if one of these fails.

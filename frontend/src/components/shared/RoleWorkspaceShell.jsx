@@ -22,7 +22,9 @@ const ROLE_CONFIG = {
   STUDENT: {
     label: 'Student',
     photo: studentPhoto,
-    nav: [{ to: '/student', label: 'Student workspace', icon: 'book-open', end: true }],
+    nav: [
+      { to: '/student', label: 'Student workspace', icon: 'book-open', end: true },
+    ],
     cardTitle: 'Find tutoring work',
     cardText: 'Browse open opportunities, volunteer and keep track of your requests.',
   },

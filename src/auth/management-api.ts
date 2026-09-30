@@ -38,6 +38,25 @@ async function getManagementToken(config: Auth0ManagementConfig, domain: string,
   return body.access_token;
 }
 
+/** Read a user's verified Auth0 identity without assigning any Tutor MX role. */
+export function createAuth0UserReader(config: Auth0ManagementConfig, fetchImplementation: typeof fetch = fetch) {
+  const domain = cleanDomain(config.domain);
+  return async (auth0Id: string): Promise<Auth0ManagedUser> => {
+    const token = await getManagementToken(config, domain, fetchImplementation);
+    const response = await fetchImplementation(`https://${domain}/api/v2/users/${encodeURIComponent(auth0Id)}`, {
+      headers: { Authorization: `Bearer ${token}` },
+      signal: AbortSignal.timeout(5_000),
+    });
+    if (!response.ok) throw new Error("Auth0 user profile could not be read");
+    const user = (await response.json()) as { email?: unknown; email_verified?: unknown; name?: unknown; nickname?: unknown };
+    if (typeof user.email !== "string" || !user.email.trim()) throw new Error("Auth0 user has no usable email address");
+    const email = user.email.trim().toLowerCase();
+    const fullName = (typeof user.name === "string" && user.name.trim()) ||
+      (typeof user.nickname === "string" && user.nickname.trim()) || email.split("@")[0] || "Tutor Mx user";
+    return { email, fullName, emailVerified: user.email_verified === true };
+  };
+}
+
 export function createAuth0UserDeleter(config: Auth0ManagementConfig, fetchImplementation: typeof fetch = fetch) {
   const domain = cleanDomain(config.domain);
   return async (auth0Id: string) => {

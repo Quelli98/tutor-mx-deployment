@@ -6119,3 +6119,177 @@ textarea:focus {
 .timetable-tab-panel.active {
   display: block;
 }
+
+/* ---- Organiser application approval workflow -------------------------------- */
+.master-organiser-page {
+  padding-bottom: 32px;
+}
+
+.organiser-application-list {
+  display: grid;
+  gap: 18px;
+}
+
+.organiser-review-card {
+  display: grid;
+  gap: 18px;
+}
+
+.organiser-application-badge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 34px;
+  border-radius: 999px;
+  padding: 7px 12px;
+  font-size: 0.8rem;
+  font-weight: 850;
+  white-space: nowrap;
+}
+
+.organiser-application-badge.is-pending {
+  background: #fff4d6;
+  color: #805a00;
+}
+
+.organiser-application-badge.is-approved {
+  background: #e7f8ef;
+  color: #16623d;
+}
+
+.organiser-application-badge.is-rejected {
+  background: #fff0f2;
+  color: #a81f36;
+}
+
+.organiser-application-details {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
+  margin: 0;
+}
+
+.organiser-application-details > div {
+  min-width: 0;
+  border: 1px solid var(--border, #d8dfeb);
+  border-radius: 14px;
+  background: #f8faff;
+  padding: 13px 15px;
+}
+
+.organiser-application-details dt {
+  margin: 0 0 4px;
+  color: #667085;
+  font-size: 0.76rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.organiser-application-details dd {
+  margin: 0;
+  color: #182230;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
+.organiser-application-copy {
+  border-left: 4px solid #d8dfeb;
+  padding: 2px 0 2px 15px;
+}
+
+.organiser-application-copy strong {
+  display: block;
+  margin-bottom: 6px;
+  color: #182230;
+}
+
+.organiser-application-copy p {
+  margin: 0;
+  color: #475467;
+  line-height: 1.6;
+  white-space: pre-wrap;
+}
+
+.master-organiser-summary {
+  padding-block: 14px;
+}
+
+.organiser-application-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.organiser-application-tab {
+  border: 1px solid #d8dfeb;
+  border-radius: 999px;
+  background: #fff;
+  color: #344054;
+  padding: 9px 13px;
+  font: inherit;
+  font-size: 0.88rem;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.organiser-application-tab span {
+  display: inline-grid;
+  min-width: 23px;
+  height: 23px;
+  place-items: center;
+  margin-left: 5px;
+  border-radius: 999px;
+  background: #eef2f8;
+  font-size: 0.76rem;
+}
+
+.organiser-application-tab.active {
+  border-color: #17406e;
+  background: #17406e;
+  color: #fff;
+}
+
+.organiser-application-tab.active span {
+  background: rgba(255, 255, 255, 0.18);
+}
+
+.organiser-review-email {
+  margin-bottom: 0;
+  overflow-wrap: anywhere;
+}
+
+.organiser-review-actions {
+  margin-top: 2px;
+}
+
+.organiser-reject-panel {
+  display: grid;
+  gap: 12px;
+  border-radius: 16px;
+  background: #fff7f8;
+  padding: 16px;
+}
+
+.organiser-reject-panel textarea {
+  width: 100%;
+  resize: vertical;
+}
+
+@media (max-width: 640px) {
+  .organiser-review-card .section-heading-row {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .organiser-application-details {
+    grid-template-columns: 1fr;
+  }
+
+  .organiser-review-actions .primary-button,
+  .organiser-review-actions .secondary-button,
+  .organiser-reject-panel .primary-button,
+  .organiser-reject-panel .secondary-button,
+  .organiser-reject-panel .danger-button {
+    width: 100%;
+  }
+}

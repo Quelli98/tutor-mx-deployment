@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   createAuth0RoleProvisioner,
   createAuth0UserDeleter,
+  createAuth0UserReader,
   createAuth0VerificationEmailSender,
 } from "./management-api.js";
 
@@ -140,5 +141,30 @@ describe("Auth0 Management API role provisioning", () => {
     const provision = createAuth0RoleProvisioner({ domain: "tenant.us.auth0.com", clientId: "id", clientSecret: "secret" }, fetchImplementation);
     await expect(provision("auth0|new", "TUTOR")).resolves.toEqual({ email: "new@example.com", fullName: "new", emailVerified: false });
     expect(fetchImplementation).toHaveBeenCalledTimes(4);
+  });
+});
+
+describe("Auth0 Management API user lookup", () => {
+  it("reads lecturer identity without assigning any Tutor MX role", async () => {
+    const fetchImplementation = vi.fn<typeof fetch>()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ access_token: "management-token" }), { status: 200, headers: { "Content-Type": "application/json" } }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ email: "Lecturer@Wits.ac.za", email_verified: true, name: "Demo Lecturer" }), { status: 200, headers: { "Content-Type": "application/json" } }));
+
+    const readUser = createAuth0UserReader(
+      { domain: "tenant.us.auth0.com", clientId: "server-only-client", clientSecret: "server-only-secret" },
+      fetchImplementation,
+    );
+
+    await expect(readUser("auth0|lecturer")).resolves.toEqual({
+      email: "lecturer@wits.ac.za",
+      fullName: "Demo Lecturer",
+      emailVerified: true,
+    });
+    expect(fetchImplementation).toHaveBeenCalledTimes(2);
+    expect(fetchImplementation).toHaveBeenNthCalledWith(
+      2,
+      "https://tenant.us.auth0.com/api/v2/users/auth0%7Clecturer",
+      expect.objectContaining({ headers: { Authorization: "Bearer management-token" } }),
+    );
   });
 });
