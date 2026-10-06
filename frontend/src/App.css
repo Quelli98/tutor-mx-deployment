@@ -6385,226 +6385,217 @@ textarea:focus {
   gap: 32px;
 }
 
-/* Banner: the organiser home's light card, with a cut-out student photo on a soft halo
-   and the next session pinned beside her. */
+/* Banner: a navy card in the CSAM colours. The words sit on the left; a photo of a study
+   session sits on the right, tilted in a frame with a gem-coloured block behind it, and a thin
+   line in the logo's colours runs along the bottom. */
 .student-hero {
   position: relative;
   isolation: isolate;
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  align-items: center;
-  gap: 16px;
-  min-height: 260px;
-  padding: 32px 40px;
+  min-height: 240px;
+  padding: 34px 40px;
   overflow: hidden;
   border-radius: 26px;
-  background:
-    radial-gradient(520px 300px at 70% -10%, rgba(255, 255, 255, 0.9), transparent 70%),
-    linear-gradient(100deg, #eaf0ff 0%, #efeaff 58%, #f8eaf6 100%);
-  color: var(--csam-ink);
-  box-shadow: 0 10px 30px rgba(39, 1, 224, 0.06);
+  background: linear-gradient(115deg, #0d2a4d 0%, var(--csam-navy) 100%);
+  color: #fff;
+  box-shadow: 0 14px 34px rgba(13, 42, 77, 0.18);
+}
+
+.student-hero::after {
+  content: '';
+  position: absolute;
+  z-index: 3;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  height: 5px;
+  background: linear-gradient(90deg, #f85859, #fc2590 30%, #d143fb 60%, #2701e0);
 }
 
 .student-hero-words {
   position: relative;
-  z-index: 1;
-  display: grid;
-  justify-items: start;
-  gap: 10px;
-  min-width: 0;
-  max-width: 54%;
+  z-index: 2;
+  max-width: 50%;
 }
 
 .student-hero-eyebrow {
   margin: 0;
-  color: #2701e0;
-  font-size: 0.75rem;
+  color: #b9c8ff;
+  font-size: 0.74rem;
   font-weight: 700;
   letter-spacing: 0.14em;
   text-transform: uppercase;
 }
 
 .student-hero .student-hero-title {
-  margin: 0;
-  color: #14112b;
-  font-family: var(--csam-heading);
-  font-size: clamp(1.7rem, 2.6vw, 2.3rem);
-  font-weight: 700;
-  line-height: 1.15;
-  letter-spacing: -0.03em;
+  margin: 8px 0 0;
   overflow-wrap: anywhere;
+  color: #fff;
+  font-family: var(--csam-heading);
+  font-size: clamp(1.7rem, 3.4cqi, 2.25rem);
+  font-weight: 700;
+  line-height: 1.12;
+  letter-spacing: -0.03em;
 }
 
 .student-hero-text {
-  max-width: 520px;
-  margin: 0;
-  color: #4a4760;
-  font-size: 0.98rem;
-  line-height: 1.6;
+  max-width: 440px;
+  margin: 10px 0 0;
+  color: #dfe5ff;
+  font-size: 0.95rem;
+  line-height: 1.55;
 }
 
 .student-hero-text strong {
-  padding: 1px 8px;
-  border-radius: 999px;
-  background: #fff;
-  color: var(--csam-indigo);
-  font-weight: 700;
-  white-space: nowrap;
-  box-shadow: 0 1px 0 rgba(42, 12, 216, 0.08);
+  color: #fff;
 }
 
 .student-hero-actions {
   display: flex;
   flex-wrap: wrap;
-  gap: 10px;
-  margin-top: 8px;
-}
-
-.student-hero-primary,
-.student-hero-secondary {
-  display: inline-flex;
   align-items: center;
-  gap: 8px;
-  min-height: 44px;
-  padding: 0 18px;
-  border-radius: 14px;
-  font: inherit;
-  font-size: 0.92rem;
-  font-weight: 700;
-  text-decoration: none;
-  cursor: pointer;
-  transition: transform 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
+  gap: 10px 18px;
+  margin-top: 20px;
 }
 
 .student-hero-primary {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 42px;
+  padding: 0 18px;
   border: 0;
-  background: var(--csam-indigo);
-  color: #fff;
-  box-shadow: 0 10px 20px rgba(42, 12, 216, 0.22);
-}
-
-.student-hero-secondary {
-  border: 1px solid #d9d3fb;
+  border-radius: 12px;
   background: #fff;
-  color: var(--csam-indigo);
-}
-
-.student-hero-primary:hover,
-.student-hero-secondary:hover {
-  transform: translateY(-1px);
+  color: var(--csam-navy);
+  font: inherit;
+  font-size: 0.9rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
 }
 
 .student-hero-primary:hover {
-  box-shadow: 0 14px 26px rgba(42, 12, 216, 0.28);
+  box-shadow: 0 10px 22px rgba(0, 0, 0, 0.22);
+  transform: translateY(-1px);
 }
 
-.student-hero-secondary:hover {
-  background: #f6f4ff;
+.student-hero-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: #fff;
+  font-size: 0.9rem;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.student-hero-link:hover span {
+  text-decoration: underline;
+  text-underline-offset: 3px;
 }
 
 .student-hero-primary:focus-visible,
-.student-hero-secondary:focus-visible {
-  outline: 3px solid rgba(42, 12, 216, 0.4);
+.student-hero-link:focus-visible {
+  outline: 3px solid #8fd8ff;
   outline-offset: 3px;
 }
 
-/* The photo fills the right of the card and fades into the lavender, so the words keep a
-   calm background; the next session floats over its lower corner. */
+/* The photo: tilted a little in its frame, with a pink-to-blue block offset behind it. */
 .student-hero-photo {
   position: absolute;
-  z-index: 0;
-  top: 0;
-  right: 0;
-  bottom: 0;
-  width: 58%;
-  -webkit-mask-image: linear-gradient(90deg, transparent 0%, rgba(0, 0, 0, 0.35) 18%, #000 46%);
-  mask-image: linear-gradient(90deg, transparent 0%, rgba(0, 0, 0, 0.35) 18%, #000 46%);
+  z-index: 1;
+  top: 50%;
+  right: 44px;
+  width: 330px;
+  height: 196px;
+  transform: translateY(-50%) rotate(2deg);
+}
+
+.student-hero-photo::before {
+  content: '';
+  position: absolute;
+  inset: 12px -12px -12px 12px;
+  border-radius: 20px;
+  background: linear-gradient(135deg, #fc2590, #d143fb 50%, #2701e0);
 }
 
 .student-hero-photo img {
+  position: relative;
   display: block;
   width: 100%;
   height: 100%;
+  border-radius: 20px;
   object-fit: cover;
-  object-position: 58% 38%;
+  box-shadow: 0 16px 34px rgba(0, 0, 0, 0.3);
 }
 
-.student-hero-chip {
+.student-hero-tag {
   position: absolute;
-  z-index: 1;
-  right: 22px;
-  bottom: 22px;
+  z-index: 2;
+  right: 300px;
+  bottom: 30px;
   display: inline-flex;
   align-items: center;
-  gap: 10px;
-  padding: 10px 14px 10px 10px;
-  border-radius: 16px;
-  background: rgba(255, 255, 255, 0.94);
-  box-shadow: 0 14px 28px rgba(20, 17, 43, 0.16);
-  backdrop-filter: blur(6px);
-}
-
-.student-hero-chip-icon {
-  display: grid;
-  place-items: center;
-  width: 34px;
-  height: 34px;
-  border-radius: 11px;
-  background: var(--csam-tint-indigo);
-  color: var(--csam-indigo);
-}
-
-.student-hero-chip-words {
-  display: grid;
-  gap: 1px;
-}
-
-.student-hero-chip-words strong {
-  color: var(--csam-ink);
-  font-size: 0.82rem;
-}
-
-.student-hero-chip-words span {
-  color: var(--csam-muted);
+  gap: 7px;
+  padding: 8px 12px;
+  border-radius: 12px;
+  background: #fff;
+  color: var(--csam-navy);
   font-size: 0.78rem;
-  white-space: nowrap;
+  font-weight: 700;
+  box-shadow: 0 10px 22px rgba(0, 0, 0, 0.2);
+  transform: rotate(-3deg);
 }
 
-#available-work-heading:focus {
-  outline: none;
+.student-hero-tag-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #fc2590;
 }
 
+/* Laptop width: a smaller photo and no tag, so the words keep their room. */
 @container (max-width: 960px) {
   .student-hero-words {
-    max-width: 58%;
+    max-width: 56%;
   }
 
   .student-hero-photo {
-    width: 50%;
+    right: 26px;
+    width: 250px;
+    height: 168px;
   }
 
-  .student-hero-chip {
+  .student-hero-tag {
     display: none;
   }
 }
 
-@container (max-width: 700px) {
+/* Phones: the photo becomes a straight strip across the top of the card. */
+@container (max-width: 640px) {
   .student-hero {
-    padding: 0 0 26px;
+    display: flex;
+    flex-direction: column;
+    padding: 22px 22px 28px;
   }
 
   .student-hero-photo {
     position: relative;
-    width: 100%;
-    height: 170px;
+    top: auto;
+    right: auto;
     order: -1;
-    -webkit-mask-image: linear-gradient(180deg, #000 60%, transparent 100%);
-    mask-image: linear-gradient(180deg, #000 60%, transparent 100%);
+    width: calc(100% - 8px);
+    height: 150px;
+    margin-bottom: 26px;
+    transform: none;
+  }
+
+  .student-hero-photo::before {
+    inset: 8px -6px -8px 6px;
   }
 
   .student-hero-words {
     max-width: none;
-    padding: 0 24px;
   }
 }
 
@@ -6625,155 +6616,213 @@ textarea:focus {
   font-weight: 700;
 }
 
-/* Open work: course tiles with a colour band, like the references' course cards. */
-.member-content .student-open-work .work-list {
-  grid-template-columns: repeat(auto-fill, minmax(232px, 1fr));
+/* Open work and requests: one compact row each, like the task lists in the references. Every
+   Volunteer button is the same navy; the course colour is only on its code and date. */
+.student-work-days,
+.student-rows {
+  display: grid;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.student-work-days {
   gap: 18px;
 }
 
-.member-content .student-work-card {
-  gap: 14px;
-  padding: 0 0 18px;
-  overflow: hidden;
-  border: 1px solid var(--csam-line);
-  border-radius: 22px;
-  background: #fff;
-  box-shadow: none;
+.student-home .student-day-label {
+  margin: 0;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--csam-line);
+  color: var(--csam-navy);
+  font-family: var(--csam-text);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
 }
 
-.member-content .student-work-card:hover {
-  border-color: color-mix(in srgb, var(--tone-solid) 45%, var(--csam-line));
-  box-shadow: 0 16px 34px color-mix(in srgb, var(--tone-solid) 14%, transparent);
+.student-rows > li + li {
+  border-top: 1px solid var(--csam-line);
 }
 
-.student-work-card > :not(.work-card-band) {
-  margin-inline: 18px;
-}
-
-.work-card-band {
+.student-row {
   display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  height: 96px;
-  padding: 16px 18px;
-  background:
-    radial-gradient(140px 96px at 88% 18%, rgba(255, 255, 255, 0.85), transparent 72%),
-    var(--tone-tint);
+  align-items: center;
+  gap: 14px;
+  padding: 12px 0;
 }
 
-.work-card-band-icon {
+.student-date-tile {
   display: grid;
-  place-items: center;
-  width: 48px;
-  height: 48px;
-  border-radius: 15px;
-  background: var(--tone-solid);
-  color: #fff;
-  box-shadow: 0 10px 20px color-mix(in srgb, var(--tone-solid) 32%, transparent);
+  flex: none;
+  place-content: center;
+  width: 50px;
+  height: 54px;
+  border-radius: 12px;
+  background: var(--tone-tint, var(--csam-page));
+  text-align: center;
 }
 
-.work-card-band-hours {
-  padding: 6px 12px;
-  border-radius: 999px;
-  background: #fff;
+.student-date-tile span {
   color: var(--tone-ink, var(--tone-solid));
-  font-size: 0.82rem;
+  font-size: 0.64rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.student-date-tile strong {
+  color: var(--csam-ink);
+  font-family: var(--csam-heading);
+  font-size: 1.12rem;
+  font-weight: 600;
+  line-height: 1.05;
+}
+
+.student-row-words {
+  display: grid;
+  flex: 1;
+  gap: 4px;
+  min-width: 0;
+}
+
+.student-row-words p {
+  margin: 0;
+}
+
+.student-row-title {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+}
+
+.student-row-title strong {
+  color: var(--csam-ink);
+  font-size: 0.92rem;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
+.student-code {
+  padding: 2px 8px;
+  border-radius: 7px;
+  background: var(--tone-tint, var(--csam-page));
+  color: var(--tone-ink, var(--tone-solid, var(--csam-navy)));
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.student-row-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 12px;
+  color: var(--csam-muted);
+  font-size: 0.8rem;
+}
+
+.student-row-time {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--csam-body);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.student-row-unavailable {
+  color: #b0204c;
+  font-weight: 600;
+}
+
+.student-row-note {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 8px;
+  color: var(--csam-body);
+  font-size: 0.8rem;
+}
+
+.student-row-note-label {
+  color: var(--csam-muted);
   font-weight: 700;
 }
 
-.student-work-card .work-card-header {
-  gap: 10px;
-}
-
-.student-work-card .work-card-header h2 {
-  margin: 0;
-  font-size: 1.04rem;
-  line-height: 1.3;
-  letter-spacing: -0.01em;
-}
-
-.student-work-card .work-course-code {
-  color: var(--tone-ink, var(--tone-solid));
-  font-size: 0.76rem;
-}
-
-.student-work-card .work-details {
-  gap: 9px;
-}
-
-.student-work-card .work-details dt {
-  font-size: 0.7rem;
-}
-
-.student-work-card .work-details dd {
-  font-size: 0.9rem;
-}
-
-.member-content .student-work-card .primary-button,
-.member-content .student-work-card .secondary-button {
+.member-content .student-row-action {
+  flex: none;
   width: auto;
+  min-height: 38px;
+  padding: 0 16px;
+  font-size: 0.84rem;
 }
 
-.member-content .student-work-card .primary-button {
-  background: var(--tone-solid);
+.student-status {
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 0.74rem;
+  font-weight: 700;
 }
 
-.member-content .student-work-card .primary-button:hover:not(:disabled) {
-  background: color-mix(in srgb, var(--tone-solid) 82%, #000);
+.student-status.status-pending {
+  background: var(--csam-tint-amber);
+  color: #8a5300;
 }
 
-/* Requests: one calm row each, details beside the course. */
+.student-status.status-accepted {
+  background: var(--csam-tint-green);
+  color: var(--csam-green);
+}
+
+.student-status.status-rejected {
+  background: var(--csam-tint-red);
+  color: #b0204c;
+}
+
+.student-status.status-withdrawn {
+  background: #eef0f6;
+  color: #5e6784;
+}
+
 .student-home .my-requests {
   margin-top: 0;
 }
 
-.member-content .request-list {
-  grid-template-columns: minmax(0, 1fr);
-  gap: 12px;
+/* The schedule keeps its own column down to a laptop-width page, only narrower; below that the
+   columns stack. */
+.home-split.student-home-split {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 360px);
 }
 
-.member-content .student-request-card {
-  grid-template-columns: minmax(0, 1.15fr) minmax(0, 1.6fr) auto;
-  align-items: center;
-  gap: 12px 20px;
-  padding: 16px 18px;
-  border: 1px solid var(--csam-line);
-  border-radius: 18px;
-  background: var(--csam-page);
-  box-shadow: none;
+@container (max-width: 980px) {
+  .home-split.student-home-split {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 280px);
+  }
 }
 
-.member-content .student-request-card:hover {
-  transform: none;
-  box-shadow: none;
+@container (max-width: 680px) {
+  .home-split.student-home-split {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 
-.student-request-card .work-card-header {
-  flex-direction: column;
-  gap: 8px;
+/* A narrow schedule card: smaller calendar days, and the heading may wrap over its link. */
+.student-schedule .home-card-heading {
+  flex-wrap: wrap;
 }
 
-.student-request-card .work-card-header h2 {
-  margin: 0;
-  font-size: 0.98rem;
-}
+@container (max-width: 260px) {
+  .mini-calendar {
+    padding-inline: 6px;
+  }
 
-.student-request-card .work-details {
-  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-  gap: 8px 16px;
-}
-
-.student-request-card .work-details dt {
-  font-size: 0.7rem;
-}
-
-.student-request-card .work-details dd {
-  font-size: 0.88rem;
-}
-
-.member-content .student-request-card .secondary-button {
-  width: auto;
-  padding-inline: 18px;
+  .mini-calendar-day {
+    width: 28px;
+    height: 28px;
+    font-size: 0.78rem;
+  }
 }
 
 /* My schedule: a month at a glance and what is coming up. */
@@ -6926,18 +6975,41 @@ textarea:focus {
 }
 
 .student-home .public-holiday-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 2px 8px;
   border-color: var(--csam-line);
   border-radius: 14px;
   background: var(--csam-page);
 }
 
-@container (max-width: 640px) {
-  .member-content .student-request-card {
-    grid-template-columns: minmax(0, 1fr);
-    align-items: stretch;
+/* The side column is narrow, so the date and its badge share a line and the name sits below. */
+.student-home .public-holiday-item .holiday-date {
+  min-width: 0;
+}
+
+.student-home .public-holiday-item .holiday-name {
+  grid-column: 1 / -1;
+  grid-row: 2;
+  font-size: 0.86rem;
+}
+
+/* Phones: the action drops under the words. */
+@container (max-width: 360px) {
+  .student-row {
+    flex-wrap: wrap;
   }
 
-  .member-content .student-request-card .secondary-button {
-    width: 100%;
+  .student-row .student-row-words {
+    flex-basis: calc(100% - 64px);
+  }
+
+  .member-content .student-row-action {
+    margin-left: 64px;
+  }
+
+  .member-content .student-request-row .student-row-action {
+    margin-left: 0;
   }
 }

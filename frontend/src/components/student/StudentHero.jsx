@@ -1,5 +1,5 @@
-// Photo: Vitaly Gariev on Unsplash (Unsplash License), unsplash.com/photos/8gAbl776pc0
-import studentsPhoto from '../../assets/redesign/students-studying.webp'
+// Photo: Burst on StockSnap (CC0), stocksnap.io/photo/man-working-UN5XQREKKP
+import studyPhoto from '../../assets/redesign/student-banner-study.webp'
 import { firstNameOf } from '../shared/personName'
 import { OrganiserIcon } from '../organiser/OrganiserIcon'
 
@@ -37,30 +37,16 @@ function Summary({ summary, workReady, requestsReady }) {
   return <p className="student-hero-text">{sentences.reduce((all, sentence, index) => index ? [...all, ' ', sentence] : [sentence], [])}</p>
 }
 
-function chipFor(summary, workReady, requestsReady) {
-  if (requestsReady && summary.nextSession) {
-    const date = new Date(summary.nextSession.startsAt)
-    return {
-      title: 'Next session',
-      detail: `${date.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' })} · ${date.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', hour12: false })}`,
-    }
-  }
-  if (workReady && summary.openCount > 0) {
-    return { title: 'Open work', detail: `${summary.openCount} ${agree(summary.openCount, 'session', 'sessions')} to choose from` }
-  }
-  return null
-}
-
 /**
- * The Student home banner, in the organiser home's light style: it greets the
- * student, sums up their week and offers the two things they most often come
- * to do, beside a photo of students working together with the next session
- * pinned over it.
+ * The Student home banner: a navy card that greets the student, sums up their week and offers
+ * the two things they most often come to do, beside a framed photo of someone studying. A small
+ * tag on the photo repeats how many sessions are open; the sentence already says it, so the tag
+ * is hidden from screen readers.
  */
 export function StudentHero({ name, summary, workReady, requestsReady, now = new Date() }) {
   const firstName = firstNameOf(name)
   const today = now.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' })
-  const chip = chipFor(summary, workReady, requestsReady)
+  const openCount = workReady ? summary.openCount : 0
 
   function browseWork() {
     const heading = document.getElementById('available-work-heading')
@@ -81,22 +67,19 @@ export function StudentHero({ name, summary, workReady, requestsReady, now = new
             <OrganiserIcon name="search" size={18} />
             <span>Browse open work</span>
           </button>
-          <a className="student-hero-secondary" href="/student/timetable">
-            <OrganiserIcon name="calendar" size={18} />
+          <a className="student-hero-link" href="/student/timetable">
             <span>My timetable</span>
+            <OrganiserIcon name="arrow-right" size={17} />
           </a>
         </div>
       </div>
       <div className="student-hero-photo" aria-hidden="true">
-        <img src={studentsPhoto} alt="" width="1400" height="787" />
+        <img src={studyPhoto} alt="" width="720" height="428" />
       </div>
-      {chip && (
-        <span className="student-hero-chip" aria-hidden="true">
-          <span className="student-hero-chip-icon"><OrganiserIcon name="calendar" size={16} /></span>
-          <span className="student-hero-chip-words">
-            <strong>{chip.title}</strong>
-            <span>{chip.detail}</span>
-          </span>
+      {openCount > 0 && (
+        <span className="student-hero-tag" aria-hidden="true">
+          <span className="student-hero-tag-dot" />
+          {openCount} {agree(openCount, 'session', 'sessions')} open
         </span>
       )}
     </section>

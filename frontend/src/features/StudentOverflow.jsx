@@ -10,10 +10,7 @@ import { StatTile } from '../components/shared/StatTile'
 import { OrganiserIcon } from '../components/organiser/OrganiserIcon'
 import { StudentHero } from '../components/student/StudentHero'
 import { StudentSchedule } from '../components/student/StudentSchedule'
-import { studentSummary } from './studentHome'
-
-// The same colour family as the organiser's quick actions, one per card in turn.
-const CARD_ACCENTS = ['accent-pink', 'accent-blue', 'accent-orchid', 'accent-coral']
+import { courseTones, sameDay, splitRequests, studentSummary, workByDay } from './studentHome'
 
 function shortWhen(value) {
     const date = new Date(value)
@@ -45,6 +42,28 @@ function formatDate(value) {
     }).format(new Date(`${value}T00:00:00.000Z`))
 }
 
+const clock = (value) => new Date(value).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', hour12: false })
+
+/** "14:15–17:00"; a session that runs past midnight names the day it ends. */
+function timeWindow(startsAt, endsAt) {
+    const start = new Date(startsAt)
+    const end = new Date(endsAt)
+    if (start.toDateString() === end.toDateString()) return `${clock(start)}–${clock(end)}`
+    return `${clock(start)} – ${end.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' })}, ${clock(end)}`
+}
+
+function longDay(date) {
+    return date.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' })
+}
+
+/** "Today, Tuesday 6 October", "Tomorrow, …" or just the day. */
+function dayHeading(date, now = new Date()) {
+    const tomorrow = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1)
+    if (sameDay(date, now)) return `Today, ${longDay(date)}`
+    if (sameDay(date, tomorrow)) return `Tomorrow, ${longDay(date)}`
+    return longDay(date)
+}
+
 function upcomingHolidays(holidays) {
     const today = new Date().toISOString().slice(0, 10)
     return holidays
@@ -64,91 +83,92 @@ function requestStatusLabel(status) {
     return REQUEST_STATUS_LABELS[status] ?? 'Pending'
 }
 
-function WorkCard({ work, onVolunteer, accent = CARD_ACCENTS[0] }) {
+function WorkRow({ work, tone, onVolunteer }) {
     const isOpen = work.status === 'OPEN'
+    const start = new Date(work.startsAt)
+    const titleId = `open-work-${work.id}-title`
+    const metaId = `open-work-${work.id}-meta`
 
     return (
-        <article className={`work-card student-work-card ${accent}`}>
-            <div className="work-card-band" aria-hidden="true">
-                <span className="work-card-band-icon"><OrganiserIcon name="book-open" size={22} /></span>
-                <span className="work-card-band-hours">{work.hours} h</span>
+        <article className={`student-row ${tone}`} aria-labelledby={titleId}>
+            <span className="student-date-tile" aria-hidden="true">
+                <span>{start.toLocaleDateString('en-GB', { weekday: 'short' })}</span>
+                <strong>{start.getDate()}</strong>
+            </span>
+            <div className="student-row-words">
+                <p className="student-row-title" id={titleId}>
+                    <span className="student-code">{work.courseCode}</span>{' '}
+                    <strong>{work.courseName}</strong>
+                </p>
+                <p className="student-row-meta" id={metaId}>
+                    <span className="visually-hidden">{longDay(start)},</span>{' '}
+                    <span className="student-row-time">
+                        <OrganiserIcon name="clock" size={14} />
+                        {timeWindow(work.startsAt, work.endsAt)}
+                    </span>{' '}
+                    <span>{work.hours} hours</span>{' '}
+                    {isOpen && work.closesAt && <span>Closes {shortWhen(work.closesAt)}</span>}
+                    {!isOpen && <span className="student-row-unavailable">No longer available</span>}
+                </p>
             </div>
-            <div className="work-card-header">
-                <div>
-                    <p className="work-course-code">{work.courseCode}</p>
-                    <h2>{work.courseName}</h2>
-                </div>
-
-                <span className={`work-status ${isOpen ? 'open' : 'closed'}`}>
-                    {isOpen ? 'Open' : 'Closed'}
-                </span>
-            </div>
-
-            <dl className="work-details">
-                <div>
-                    <dt>Date and time</dt>
-                    <dd>{sessionWindow(work.startsAt, work.endsAt)}</dd>
-                </div>
-
-                <div>
-                    <dt>Expected hours</dt>
-                    <dd>{work.hours} hours</dd>
-                </div>
-
-                <div>
-                    <dt>Availability</dt>
-                    <dd>{isOpen ? 'Available to volunteer' : 'No longer available'}</dd>
-                </div>
-            </dl>
-
             {isOpen ? (
-                <button type="button" className="primary-button" onClick={() => onVolunteer(work)}>Volunteer</button>
+                <button
+                    type="button"
+                    className="primary-button student-row-action"
+                    aria-describedby={`${titleId} ${metaId}`}
+                    onClick={() => onVolunteer(work)}
+                >
+                    Volunteer
+                </button>
             ) : (
-                <button type="button" className="secondary-button" disabled>Unavailable</button>
+                <button type="button" className="secondary-button student-row-action" disabled>Unavailable</button>
             )}
         </article>
     )
 }
 
-function RequestCard({ request, onWithdraw }) {
+function RequestRow({ request, tone, onWithdraw }) {
+    const titleId = `volunteer-request-${request.id}-title`
+
     return (
-        <article className="work-card student-request-card">
-            <div className="work-card-header">
-                <div>
-                    <p className="work-course-code">{request.courseCode}</p>
-                    <h2>{request.courseName}</h2>
-                </div>
-
-                <span className={`work-status request-${String(request.status).toLowerCase()}`}>
-                    {requestStatusLabel(request.status)}
-                </span>
-            </div>
-
-            <dl className="work-details">
-                <div>
-                    <dt>Date and time</dt>
-                    <dd>{sessionWindow(request.startsAt, request.endsAt)}</dd>
-                </div>
-
-                <div>
-                    <dt>Expected hours</dt>
-                    <dd>{request.hours} hours</dd>
-                </div>
-
+        <article className={`student-row student-request-row ${tone}`} aria-labelledby={titleId}>
+            <div className="student-row-words">
+                <p className="student-row-title" id={titleId}>
+                    <span className="student-code">{request.courseCode}</span>{' '}
+                    <strong>{request.courseName}</strong>
+                </p>
+                <p className="student-row-meta">
+                    <span className={`student-status status-${String(request.status).toLowerCase()}`}>
+                        {requestStatusLabel(request.status)}
+                    </span>{' '}
+                    <span>{sessionWindow(request.startsAt, request.endsAt)}</span>{' '}
+                    <span>{request.hours} hours</span>
+                </p>
                 {request.reviewReason ? (
-                    <div>
-                        <dt>Review note</dt>
-                        <dd>{request.reviewReason}</dd>
-                    </div>
+                    <p className="student-row-note">
+                        <span className="student-row-note-label">Note</span>{' '}
+                        <span>{request.reviewReason}</span>
+                    </p>
                 ) : null}
-            </dl>
-
+            </div>
             {request.status === 'PENDING' ? (
-                <button type="button" className="secondary-button" onClick={() => onWithdraw(request)}>Withdraw</button>
+                <button
+                    type="button"
+                    className="secondary-button student-row-action"
+                    aria-describedby={titleId}
+                    onClick={() => onWithdraw(request)}
+                >
+                    Withdraw
+                </button>
             ) : null}
         </article>
     )
 }
+
+const REQUEST_TABS = [
+    { id: 'current', label: 'Current', empty: 'Nothing is waiting for an organiser or coming up. Earlier requests are under Past.' },
+    { id: 'past', label: 'Past', empty: 'Finished, withdrawn and unsuccessful requests will appear here.' },
+]
 
 export function StudentOverflow({ loadWorkItems, claimWork, loadRequests, loadHolidays, withdrawRequest, loadSchedule, studentName = null }) {
     const tokenOrGetter = useApiToken()
@@ -209,6 +229,9 @@ export function StudentOverflow({ loadWorkItems, claimWork, loadRequests, loadHo
     const [selectedWork, setSelectedWork] = useState(null)
     const [claimStatus, setClaimStatus] = useState('idle')
     const [claimMessage, setClaimMessage] = useState('')
+
+    const [requestTab, setRequestTab] = useState(null)
+    const requestTabRefs = useRef({})
 
     const [withdrawTarget, setWithdrawTarget] = useState(null)
     const [withdrawStatus, setWithdrawStatus] = useState('idle')
@@ -498,6 +521,26 @@ export function StudentOverflow({ loadWorkItems, claimWork, loadRequests, loadHo
     const requestsReady = requestsStatus === 'success'
     const requestsFailed = requestsStatus === 'error'
 
+    const tones = useMemo(
+        () => courseTones([...workItems, ...requests].map((item) => item.courseCode)),
+        [requests, workItems],
+    )
+    const workDays = useMemo(() => workByDay(workItems), [workItems])
+    const requestGroups = useMemo(() => splitRequests(requests), [requests])
+    // Until the student picks a tab, show Past when nothing is current.
+    const shownRequestTab = requestTab ?? (
+        requestGroups.current.length === 0 && requestGroups.past.length > 0 ? 'past' : 'current'
+    )
+
+    function onRequestTabKeyDown(event, index) {
+        if (event.key !== 'ArrowRight' && event.key !== 'ArrowLeft') return
+        event.preventDefault()
+        const step = event.key === 'ArrowRight' ? 1 : REQUEST_TABS.length - 1
+        const next = REQUEST_TABS[(index + step) % REQUEST_TABS.length]
+        setRequestTab(next.id)
+        requestTabRefs.current[next.id]?.focus()
+    }
+
     return (
         <main id="main-content" className="dashboard-shell student-home student-overflow-page">
             <h1 className="visually-hidden">Student workspace</h1>
@@ -605,15 +648,20 @@ export function StudentOverflow({ loadWorkItems, claimWork, loadRequests, loadHo
                         )}
 
                         {status === 'success' && workItems.length > 0 && (
-                            <section className="work-list" aria-label="Available volunteer work">
-                                {workItems.map((work, index) => (
-                                    <WorkCard
-                                        key={work.id}
-                                        work={work}
-                                        onVolunteer={handleVolunteer}
-                                        accent={CARD_ACCENTS[index % CARD_ACCENTS.length]}
-                                    />))}
-                            </section>
+                            <ol className="student-work-days" aria-label="Available volunteer work by day">
+                                {workDays.map((day) => (
+                                    <li key={day.key}>
+                                        <h3 className="student-day-label">{dayHeading(day.date)}</h3>
+                                        <ul className="student-rows">
+                                            {day.items.map((work) => (
+                                                <li key={work.id}>
+                                                    <WorkRow work={work} tone={tones.get(work.courseCode)} onVolunteer={handleVolunteer} />
+                                                </li>
+                                            ))}
+                                        </ul>
+                                    </li>
+                                ))}
+                            </ol>
                         )}
 
                         {status === 'success' && hasClosedWork && workItems.length > 0 && (
@@ -657,10 +705,54 @@ export function StudentOverflow({ loadWorkItems, claimWork, loadRequests, loadHo
                         )}
 
                         {requestsStatus === 'success' && requests.length > 0 && (
-                            <div className="work-list request-list">
-                                {requests.map((request) => (
-                                    <RequestCard key={request.id} request={request} onWithdraw={handleWithdraw} />))}
-                            </div>
+                            <>
+                                <div className="approval-tabs student-request-tabs" role="tablist" aria-label="Volunteer requests">
+                                    {REQUEST_TABS.map((entry, index) => {
+                                        const count = requestGroups[entry.id].length
+                                        const selected = entry.id === shownRequestTab
+                                        return (
+                                            <button
+                                                key={entry.id}
+                                                ref={(element) => { requestTabRefs.current[entry.id] = element }}
+                                                type="button"
+                                                role="tab"
+                                                id={`student-requests-tab-${entry.id}`}
+                                                aria-selected={selected}
+                                                aria-controls={`student-requests-panel-${entry.id}`}
+                                                tabIndex={selected ? 0 : -1}
+                                                className={`approval-tab${selected ? ' active' : ''}`}
+                                                onClick={() => setRequestTab(entry.id)}
+                                                onKeyDown={(event) => onRequestTabKeyDown(event, index)}
+                                            >
+                                                <span>{entry.label}</span>
+                                                <span className="approval-tab-count" aria-hidden="true">{count}</span>
+                                                <span className="visually-hidden">, {count} {count === 1 ? 'request' : 'requests'}</span>
+                                            </button>
+                                        )
+                                    })}
+                                </div>
+                                {REQUEST_TABS.map((entry) => (
+                                    <div
+                                        key={entry.id}
+                                        id={`student-requests-panel-${entry.id}`}
+                                        role="tabpanel"
+                                        aria-labelledby={`student-requests-tab-${entry.id}`}
+                                        hidden={entry.id !== shownRequestTab}
+                                    >
+                                        {requestGroups[entry.id].length === 0 ? (
+                                            <p className="home-empty">{entry.empty}</p>
+                                        ) : (
+                                            <ul className="student-rows">
+                                                {requestGroups[entry.id].map((request) => (
+                                                    <li key={request.id}>
+                                                        <RequestRow request={request} tone={tones.get(request.courseCode)} onWithdraw={handleWithdraw} />
+                                                    </li>
+                                                ))}
+                                            </ul>
+                                        )}
+                                    </div>
+                                ))}
+                            </>
                         )}
 
                         {requestsStatus === 'error' && (

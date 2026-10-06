@@ -44,6 +44,20 @@ describe('StudentHero', () => {
     expect(text()).toBe('No sessions need volunteers right now.')
   })
 
+  it('tags the photo with how many sessions are open, without repeating it to screen readers', () => {
+    const { container, rerender } = render(<StudentHero name="Thandi" workReady requestsReady summary={{ ...empty, openCount: 5 }} />)
+    const tag = container.querySelector('.student-hero-tag')
+    expect(tag).toHaveTextContent('5 sessions open')
+    expect(tag).toHaveAttribute('aria-hidden', 'true')
+    expect(container.querySelector('.student-hero-photo img')).toHaveAttribute('alt', '')
+
+    rerender(<StudentHero name="Thandi" workReady requestsReady summary={{ ...empty, openCount: 1 }} />)
+    expect(container.querySelector('.student-hero-tag')).toHaveTextContent('1 session open')
+
+    rerender(<StudentHero name="Thandi" workReady requestsReady summary={empty} />)
+    expect(container.querySelector('.student-hero-tag')).not.toBeInTheDocument()
+  })
+
   it('takes the student to the open work or their timetable', () => {
     render(
       <>

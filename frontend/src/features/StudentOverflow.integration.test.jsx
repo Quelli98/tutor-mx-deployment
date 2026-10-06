@@ -92,7 +92,6 @@ describe('StudentOverflow — API integration', () => {
     expect(await screen.findByText('OPEN101')).toBeInTheDocument()
     expect(screen.getByText('Open Course')).toBeInTheDocument()
     expect(screen.getByText('2 hours')).toBeInTheDocument()
-    expect(screen.getByText('Available to volunteer')).toBeInTheDocument()
     expect(
       screen.getByRole('button', { name: /^volunteer$/i }),
     ).toBeInTheDocument()

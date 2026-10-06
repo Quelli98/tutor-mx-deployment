@@ -51,7 +51,7 @@ describe('StudentOverflow at the agreed 360px phone width', () => {
     expect(
       screen.getByRole('heading', { name: /upcoming public holidays/i }),
     ).toBeVisible()
-    expect(container.querySelector('.work-list')).toBeInTheDocument()
+    expect(screen.getByRole('list', { name: 'Available volunteer work by day' })).toBeVisible()
     expect(container.querySelector('.public-holidays-section')).toBeInTheDocument()
   })
 })

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { monthGrid, sameDay, scheduleItems, studentSummary } from './studentHome'
+import { courseTones, monthGrid, sameDay, scheduleItems, splitRequests, studentSummary, workByDay } from './studentHome'
 
 const now = new Date('2026-10-06T12:00:00')
 
@@ -90,3 +90,45 @@ describe('monthGrid', () => {
     expect(sameDay(new Date('2026-10-06T23:59:00'), new Date('2026-10-07T00:01:00'))).toBe(false)
   })
 })
+
+describe('workByDay', () => {
+  it('groups open work by the day it starts, soonest first', () => {
+    const work = (id, startsAt) => ({ id, startsAt })
+    const days = workByDay([
+      work(3, '2026-10-09T14:00:00'),
+      work(1, '2026-10-07T14:15:00'),
+      work(2, '2026-10-07T09:00:00'),
+    ])
+
+    expect(days.map((day) => day.date.getDate())).toEqual([7, 9])
+    expect(days[0].items.map((item) => item.id)).toEqual([2, 1])
+  })
+})
+
+describe('splitRequests', () => {
+  it('keeps waiting and still-to-come approved requests current, and the rest past', () => {
+    const { current, past } = splitRequests([
+      request({ id: 1, status: 'PENDING', startsAt: '2026-10-09T09:00:00', endsAt: '2026-10-09T11:00:00' }),
+      request({ id: 2, status: 'ACCEPTED' }),
+      request({ id: 3, status: 'ACCEPTED', startsAt: '2026-10-01T09:00:00', endsAt: '2026-10-01T11:00:00' }),
+      request({ id: 4, status: 'REJECTED', startsAt: '2026-10-04T09:00:00', endsAt: '2026-10-04T11:00:00' }),
+      request({ id: 5, status: 'WITHDRAWN', startsAt: '2026-10-12T09:00:00', endsAt: '2026-10-12T11:00:00' }),
+      // A request still waiting stays current even once its session has passed.
+      request({ id: 6, status: 'PENDING', startsAt: '2026-10-02T09:00:00', endsAt: '2026-10-02T11:00:00' }),
+    ], now)
+
+    expect(current.map((entry) => entry.id)).toEqual([6, 2, 1])
+    expect(past.map((entry) => entry.id)).toEqual([5, 4, 3])
+  })
+})
+
+describe('courseTones', () => {
+  it('gives each course one colour in code order, whatever order they arrive in', () => {
+    expect([...courseTones(['COMS3', 'COMS1', 'COMS3', null, 'COMS2'])]).toEqual([
+      ['COMS1', 'accent-pink'],
+      ['COMS2', 'accent-blue'],
+      ['COMS3', 'accent-orchid'],
+    ])
+  })
+})
+

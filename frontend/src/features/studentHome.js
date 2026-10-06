@@ -83,3 +83,43 @@ export function sameDay(a, b) {
 export function daysFrom(now, days) {
   return new Date(now.valueOf() + days * DAY_MS)
 }
+
+const COURSE_TONES = ['accent-pink', 'accent-blue', 'accent-orchid', 'accent-coral', 'accent-navy', 'accent-purple']
+
+/** One colour per course code, in code order, so a course looks the same in every list. */
+export function courseTones(codes) {
+  const unique = [...new Set(codes.filter(Boolean))].sort()
+  return new Map(unique.map((code, index) => [code, COURSE_TONES[index % COURSE_TONES.length]]))
+}
+
+const dayKey = (value) => {
+  const date = new Date(value)
+  return `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`
+}
+
+/** Open work grouped by the day each session starts, soonest first. */
+export function workByDay(workItems) {
+  const days = new Map()
+  for (const work of [...workItems].sort((a, b) => new Date(a.startsAt) - new Date(b.startsAt))) {
+    const key = dayKey(work.startsAt)
+    if (!days.has(key)) {
+      const start = new Date(work.startsAt)
+      days.set(key, { key, date: new Date(start.getFullYear(), start.getMonth(), start.getDate()), items: [] })
+    }
+    days.get(key).items.push(work)
+  }
+  return [...days.values()]
+}
+
+/**
+ * Requests still in play (waiting for an organiser, or approved and not over yet), soonest first,
+ * and the rest (finished, not approved or withdrawn), most recent first.
+ */
+export function splitRequests(requests, now = new Date()) {
+  const isCurrent = (request) =>
+    request.status === 'PENDING' || (request.status === 'ACCEPTED' && isFuture(request.endsAt, now))
+  return {
+    current: requests.filter(isCurrent).sort((a, b) => new Date(a.startsAt) - new Date(b.startsAt)),
+    past: requests.filter((request) => !isCurrent(request)).sort((a, b) => new Date(b.startsAt) - new Date(a.startsAt)),
+  }
+}

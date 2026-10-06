@@ -115,8 +115,35 @@ describe('StudentOverflow', () => {
     expect(await screen.findByText('DEMO101')).toBeInTheDocument()
     expect(screen.getByText('Demo Course')).toBeInTheDocument()
     expect(screen.getByText('2 hours')).toBeInTheDocument()
-    expect(screen.getByText('Available to volunteer')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /^volunteer$/i })).toBeInTheDocument()
+    // One row per session, under the day it falls on, with its time and a Volunteer button that
+    // says which session it is for.
+    const start = new Date(openWork.startsAt)
+    const time = (value) => value.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', hour12: false })
+    expect(screen.getByText(`${time(start)}–${time(new Date(openWork.endsAt))}`)).toBeInTheDocument()
+    const button = screen.getByRole('button', { name: /^volunteer$/i })
+    expect(button).toHaveAccessibleDescription(new RegExp(`^DEMO101 Demo Course \\w+ ${start.getDate()} \\w+, \\d\\d:\\d\\d–\\d\\d:\\d\\d 2 hours$`))
+  })
+
+  it('lists open work under the day each session falls on', async () => {
+    const at = (days, hour) => {
+      const date = new Date()
+      date.setDate(date.getDate() + days)
+      date.setHours(hour, 0, 0, 0)
+      return date.toISOString()
+    }
+    const session = (id, code, days, hour) => ({
+      ...openWork, id, courseCode: code, courseName: `${code} course`, startsAt: at(days, hour), endsAt: at(days, hour + 2),
+    })
+    renderPage(vi.fn().mockResolvedValue([session(3, 'LATER3', 5, 9), session(1, 'TODAY1', 0, 22), session(2, 'TOMORROW2', 1, 9)]))
+
+    const days = await screen.findByRole('list', { name: 'Available volunteer work by day' })
+    const headings = within(days).getAllByRole('heading', { level: 3 }).map((heading) => heading.textContent)
+    expect(headings[0]).toMatch(/^Today, /)
+    expect(headings[1]).toMatch(/^Tomorrow, /)
+    expect(headings[2]).not.toMatch(/^(Today|Tomorrow)/)
+    const tomorrow = screen.getByRole('heading', { name: headings[1] }).closest('li')
+    expect(within(tomorrow).getByText('TOMORROW2')).toBeInTheDocument()
+    expect(within(days).getAllByRole('button', { name: 'Volunteer' })).toHaveLength(3)
   })
 
   it('shows an empty state when there is no open work', async () => {
@@ -554,6 +581,47 @@ describe('StudentOverflow', () => {
       await screen.findByRole('heading', { name: 'Volunteer request successful' }),
     ).toBeInTheDocument()
     expect(claimWork).toHaveBeenCalledTimes(1)
+  })
+
+  it('keeps requests still in play under Current and the rest under Past', async () => {
+    const soon = new Date(Date.now() + 2 * 86_400_000)
+    const upcoming = {
+      ...approvedRequest,
+      startsAt: soon.toISOString(),
+      endsAt: new Date(soon.valueOf() + 3_600_000).toISOString(),
+    }
+    renderPage(
+      vi.fn().mockResolvedValue([]),
+      undefined,
+      vi.fn().mockResolvedValue([pendingRequest, upcoming, rejectedRequest, withdrawnRequest]),
+    )
+
+    const current = await screen.findByRole('tab', { name: 'Current, 2 requests' })
+    const past = screen.getByRole('tab', { name: 'Past, 2 requests' })
+    expect(current).toHaveAttribute('aria-selected', 'true')
+    const currentPanel = screen.getByRole('tabpanel', { name: 'Current, 2 requests' })
+    expect(within(currentPanel).getByText('Pending')).toBeInTheDocument()
+    expect(within(currentPanel).getByText('Approved')).toBeInTheDocument()
+    expect(within(currentPanel).getByRole('button', { name: 'Withdraw' })).toBeInTheDocument()
+    expect(screen.queryByRole('tabpanel', { name: 'Past, 2 requests' })).not.toBeInTheDocument()
+
+    fireEvent.click(past)
+    const pastPanel = screen.getByRole('tabpanel', { name: 'Past, 2 requests' })
+    expect(within(pastPanel).getByText('Rejected')).toBeInTheDocument()
+    expect(within(pastPanel).getByText('Another student was selected.')).toBeInTheDocument()
+    expect(within(pastPanel).getByText('Withdrawn')).toBeInTheDocument()
+
+    // The arrow keys move between the two tabs, as in any tab list.
+    fireEvent.keyDown(past, { key: 'ArrowRight' })
+    expect(current).toHaveFocus()
+    expect(current).toHaveAttribute('aria-selected', 'true')
+  })
+
+  it('opens on Past when nothing is waiting or coming up', async () => {
+    renderPage(vi.fn().mockResolvedValue([]), undefined, vi.fn().mockResolvedValue([rejectedRequest]))
+
+    expect(await screen.findByRole('tab', { name: 'Past, 1 request' })).toHaveAttribute('aria-selected', 'true')
+    expect(screen.getByRole('tabpanel', { name: 'Past, 1 request' })).toHaveTextContent('Rejected')
   })
 
   it('offers a withdraw action only for pending requests', async () => {
