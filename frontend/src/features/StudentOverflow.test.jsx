@@ -899,3 +899,51 @@ describe('StudentOverflow', () => {
     })
   })
 })
+
+describe('StudentOverflow home', () => {
+  function renderHome(overrides = {}) {
+    return render(
+      <MemoryRouter>
+        <StudentOverflow
+          studentName="Thandi Mokoena"
+          loadWorkItems={vi.fn().mockResolvedValue([openWork, closedWork])}
+          claimWork={vi.fn()}
+          loadRequests={vi.fn().mockResolvedValue([pendingRequest, approvedRequest])}
+          loadHolidays={vi.fn().mockResolvedValue({ source: 'fallback', holidays: [], retrievedAt: null })}
+          loadSchedule={vi.fn().mockResolvedValue([])}
+          {...overrides}
+        />
+      </MemoryRouter>,
+    )
+  }
+
+  function tile(label) {
+    return screen.getByText(label, { selector: '.stat-tile-label' }).closest('.stat-tile')
+  }
+
+  it('greets the student and sums up their work at a glance', async () => {
+    renderHome()
+
+    expect(screen.getByRole('heading', { name: /, Thandi$/ })).toBeInTheDocument()
+    await screen.findByText('DEMO202')
+    expect(within(tile('Open work')).getByText('1')).toBeInTheDocument()
+    expect(within(tile('Awaiting a decision')).getByText('1')).toBeInTheDocument()
+    expect(within(tile('Volunteer hours')).getByText('1 h')).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'My schedule' })).toBeInTheDocument()
+  })
+
+  it('says a figure is unavailable instead of guessing when requests fail', async () => {
+    renderHome({ loadRequests: vi.fn().mockRejectedValue(new Error('down')) })
+
+    await screen.findByText('Your volunteer requests could not be loaded.')
+    expect(tile('Awaiting a decision')).toHaveTextContent('Could not be loaded')
+    expect(within(tile('Open work')).getByText('1')).toBeInTheDocument()
+  })
+
+  it('keeps the page working when the timetable cannot be loaded', async () => {
+    renderHome({ loadSchedule: vi.fn().mockRejectedValue(new Error('down')) })
+
+    expect(await screen.findByText(/timetable could not be loaded/)).toBeInTheDocument()
+    expect(await screen.findByRole('button', { name: 'Volunteer' })).toBeInTheDocument()
+  })
+})

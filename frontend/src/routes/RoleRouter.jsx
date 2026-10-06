@@ -197,7 +197,7 @@ export function RoleRouter({ currentRole, onSignOut, user = null }) {
       <Route path="/student/timetable" element={protect(currentRole, ['STUDENT'], <MyTimetable role="STUDENT" bookingId={bookingId} />)} />
       <Route
         path="/student"
-        element={protect(currentRole, ['STUDENT'], <StudentOverflow />)}
+        element={protect(currentRole, ['STUDENT'], <StudentOverflow studentName={user?.data?.profile?.fullName ?? null} />)}
       />
       <Route
         path="/settings"

@@ -6360,3 +6360,346 @@ textarea:focus {
 .member-shell .primary-button:hover:not(:disabled) { background: var(--csam-navy-deep); }
 .compact-mode button { min-height: 2.75rem; }
 .density-toggle input:focus-visible { outline: 3px solid #1d4ed8; outline-offset: 3px; }
+
+/* ---------- Student home ----------
+   After design-refs/student dashboard and student-dashboard2.webp, in the organiser home's
+   language: a greeting banner, four figure tiles, colourful work cards, and a right-hand
+   column with the month, what is coming up and public holidays. */
+
+.student-home {
+  gap: 32px;
+}
+
+.student-home-main,
+.student-home-side {
+  display: grid;
+  align-content: start;
+  gap: 24px;
+  min-width: 0;
+}
+
+.student-count-chip {
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: var(--csam-tint-indigo);
+  color: var(--csam-indigo);
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+/* Open work: course tiles with a colour band, like the references' course cards. */
+.member-content .student-open-work .work-list {
+  grid-template-columns: repeat(auto-fill, minmax(232px, 1fr));
+  gap: 18px;
+}
+
+.member-content .student-work-card {
+  gap: 14px;
+  padding: 0 0 18px;
+  overflow: hidden;
+  border: 1px solid var(--csam-line);
+  border-radius: 22px;
+  background: #fff;
+  box-shadow: none;
+}
+
+.member-content .student-work-card:hover {
+  border-color: color-mix(in srgb, var(--tone-solid) 45%, var(--csam-line));
+  box-shadow: 0 16px 34px color-mix(in srgb, var(--tone-solid) 14%, transparent);
+}
+
+.student-work-card > :not(.work-card-band) {
+  margin-inline: 18px;
+}
+
+.work-card-band {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  height: 96px;
+  padding: 16px 18px;
+  background:
+    radial-gradient(140px 96px at 88% 18%, rgba(255, 255, 255, 0.85), transparent 72%),
+    var(--tone-tint);
+}
+
+.work-card-band-icon {
+  display: grid;
+  place-items: center;
+  width: 48px;
+  height: 48px;
+  border-radius: 15px;
+  background: var(--tone-solid);
+  color: #fff;
+  box-shadow: 0 10px 20px color-mix(in srgb, var(--tone-solid) 32%, transparent);
+}
+
+.work-card-band-hours {
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: #fff;
+  color: var(--tone-ink, var(--tone-solid));
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.student-work-card .work-card-header {
+  gap: 10px;
+}
+
+.student-work-card .work-card-header h2 {
+  margin: 0;
+  font-size: 1.04rem;
+  line-height: 1.3;
+  letter-spacing: -0.01em;
+}
+
+.student-work-card .work-course-code {
+  color: var(--tone-ink, var(--tone-solid));
+  font-size: 0.76rem;
+}
+
+.student-work-card .work-details {
+  gap: 9px;
+}
+
+.student-work-card .work-details dt {
+  font-size: 0.7rem;
+}
+
+.student-work-card .work-details dd {
+  font-size: 0.9rem;
+}
+
+.member-content .student-work-card .primary-button,
+.member-content .student-work-card .secondary-button {
+  width: auto;
+}
+
+.member-content .student-work-card .primary-button {
+  background: var(--tone-solid);
+}
+
+.member-content .student-work-card .primary-button:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--tone-solid) 82%, #000);
+}
+
+/* Requests: one calm row each, details beside the course. */
+.student-home .my-requests {
+  margin-top: 0;
+}
+
+.member-content .request-list {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 12px;
+}
+
+.member-content .student-request-card {
+  grid-template-columns: minmax(0, 1.15fr) minmax(0, 1.6fr) auto;
+  align-items: center;
+  gap: 12px 20px;
+  padding: 16px 18px;
+  border: 1px solid var(--csam-line);
+  border-radius: 18px;
+  background: var(--csam-page);
+  box-shadow: none;
+}
+
+.member-content .student-request-card:hover {
+  transform: none;
+  box-shadow: none;
+}
+
+.student-request-card .work-card-header {
+  flex-direction: column;
+  gap: 8px;
+}
+
+.student-request-card .work-card-header h2 {
+  margin: 0;
+  font-size: 0.98rem;
+}
+
+.student-request-card .work-details {
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 8px 16px;
+}
+
+.student-request-card .work-details dt {
+  font-size: 0.7rem;
+}
+
+.student-request-card .work-details dd {
+  font-size: 0.88rem;
+}
+
+.member-content .student-request-card .secondary-button {
+  width: auto;
+  padding-inline: 18px;
+}
+
+/* My schedule: a month at a glance and what is coming up. */
+.mini-calendar {
+  padding: 14px 12px 8px;
+  border-radius: 18px;
+  background: var(--csam-page);
+}
+
+.mini-calendar-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 4px 8px;
+}
+
+.mini-calendar-head p {
+  margin: 0;
+  color: var(--csam-ink);
+  font-weight: 700;
+}
+
+.mini-calendar-grid {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+  text-align: center;
+}
+
+.mini-calendar-grid th {
+  padding: 4px 0 6px;
+  color: var(--csam-indigo);
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
+.mini-calendar-grid td {
+  padding: 2px 0;
+}
+
+.mini-calendar-day {
+  position: relative;
+  display: inline-grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 10px;
+  color: var(--csam-body);
+  font-size: 0.84rem;
+}
+
+.mini-calendar-day.has-plans {
+  background: var(--csam-tint-indigo);
+  color: var(--csam-indigo);
+  font-weight: 700;
+}
+
+.mini-calendar-day.volunteering::after {
+  content: '';
+  position: absolute;
+  bottom: 4px;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--csam-magenta);
+}
+
+.mini-calendar-day.today {
+  background: var(--csam-indigo);
+  color: #fff;
+  font-weight: 700;
+  box-shadow: 0 6px 14px rgba(42, 12, 216, 0.28);
+}
+
+.student-agenda {
+  display: grid;
+  gap: 10px;
+}
+
+.student-agenda h3 {
+  margin: 4px 0 0;
+  font-size: 1rem;
+}
+
+.student-agenda-group {
+  margin: 4px 0 0;
+  color: var(--csam-muted);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.student-agenda-list {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.student-agenda-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--csam-line);
+  border-radius: 16px;
+  background: #fff;
+}
+
+.student-agenda-icon {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 12px;
+  background: var(--tone-tint);
+  color: var(--tone-solid);
+}
+
+.student-agenda-words {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.student-agenda-words strong {
+  overflow: hidden;
+  color: var(--csam-ink);
+  font-size: 0.92rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.student-agenda-words span {
+  color: var(--csam-muted);
+  font-size: 0.8rem;
+}
+
+/* Public holidays sit in the side column as a plain home card. */
+.student-home .public-holidays-section {
+  margin: 0;
+  padding: 24px;
+  border: 0;
+  border-radius: 24px;
+  background: #fff;
+  box-shadow: var(--csam-shadow);
+}
+
+.student-home .public-holiday-item {
+  border-color: var(--csam-line);
+  border-radius: 14px;
+  background: var(--csam-page);
+}
+
+@container (max-width: 640px) {
+  .member-content .student-request-card {
+    grid-template-columns: minmax(0, 1fr);
+    align-items: stretch;
+  }
+
+  .member-content .student-request-card .secondary-button {
+    width: 100%;
+  }
+}

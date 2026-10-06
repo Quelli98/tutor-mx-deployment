@@ -1,16 +1,46 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { getStudentOverflowWork } from '../api/studentOverflow'
+import { listOwnTimeSlots } from '../api/availability'
 import { EmptyState, ErrorState, LoadingState, SuccessState } from '../components/shared/StatusMessage'
 import { getVolunteerRequests, volunteerForWork, withdrawVolunteerRequest } from '../api/studentVolunteer'
 import { getPublicHolidays } from '../api/publicHolidays'
 import { ConfirmationDialog } from '../components/shared/ConfirmationDialog'
 import { useApiToken } from '../api/client'
+import { StatTile } from '../components/shared/StatTile'
+import { OrganiserIcon } from '../components/organiser/OrganiserIcon'
+import { StudentHero } from '../components/student/StudentHero'
+import { StudentSchedule } from '../components/student/StudentSchedule'
+import { studentSummary } from './studentHome'
+import openWorkArt from '../assets/organiser/group-project.svg'
+import waitingArt from '../assets/organiser/check-boxes.svg'
+import comingUpArt from '../assets/organiser/calendar.svg'
+import hoursArt from '../assets/organiser/alarm-clock.svg'
+
+// The same colour family as the organiser's quick actions, one per card in turn.
+const CARD_ACCENTS = ['accent-pink', 'accent-blue', 'accent-orchid', 'accent-coral']
+
+function shortWhen(value) {
+    const date = new Date(value)
+    return `${date.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' })}, ${date.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', hour12: false })}`
+}
 
 function formatDateTime(value) {
     return new Intl.DateTimeFormat( 'en-ZA', {
         dateStyle: 'medium',
         timeStyle: 'short',
     }).format(new Date(value))
+}
+
+/** A session on one day reads "Thu 8 Oct 2026 · 10:00–12:00"; one that crosses midnight keeps both dates. */
+function sessionWindow(startsAt, endsAt) {
+    const start = new Date(startsAt)
+    const end = new Date(endsAt)
+    if (start.toDateString() !== end.toDateString()) {
+        return `${formatDateTime(startsAt)} – ${formatDateTime(endsAt)}`
+    }
+    const time = (value) => value.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', hour12: false })
+    const day = start.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' })
+    return `${day} · ${time(start)}–${time(end)}`
 }
 
 function formatDate(value) {
@@ -38,11 +68,15 @@ function requestStatusLabel(status) {
     return REQUEST_STATUS_LABELS[status] ?? 'Pending'
 }
 
-function WorkCard({ work, onVolunteer }) {
+function WorkCard({ work, onVolunteer, accent = CARD_ACCENTS[0] }) {
     const isOpen = work.status === 'OPEN'
 
     return (
-        <article className="work-card">
+        <article className={`work-card student-work-card ${accent}`}>
+            <div className="work-card-band" aria-hidden="true">
+                <span className="work-card-band-icon"><OrganiserIcon name="book-open" size={22} /></span>
+                <span className="work-card-band-hours">{work.hours} h</span>
+            </div>
             <div className="work-card-header">
                 <div>
                     <p className="work-course-code">{work.courseCode}</p>
@@ -57,9 +91,7 @@ function WorkCard({ work, onVolunteer }) {
             <dl className="work-details">
                 <div>
                     <dt>Date and time</dt>
-                    <dd>
-                        {formatDateTime(work.startsAt)} -{' '} {formatDateTime(work.endsAt)}
-                    </dd>
+                    <dd>{sessionWindow(work.startsAt, work.endsAt)}</dd>
                 </div>
 
                 <div>
@@ -84,7 +116,7 @@ function WorkCard({ work, onVolunteer }) {
 
 function RequestCard({ request, onWithdraw }) {
     return (
-        <article className="work-card">
+        <article className="work-card student-request-card">
             <div className="work-card-header">
                 <div>
                     <p className="work-course-code">{request.courseCode}</p>
@@ -99,9 +131,7 @@ function RequestCard({ request, onWithdraw }) {
             <dl className="work-details">
                 <div>
                     <dt>Date and time</dt>
-                    <dd>
-                        {formatDateTime(request.startsAt)} -{' '} {formatDateTime(request.endsAt)}
-                    </dd>
+                    <dd>{sessionWindow(request.startsAt, request.endsAt)}</dd>
                 </div>
 
                 <div>
@@ -124,7 +154,7 @@ function RequestCard({ request, onWithdraw }) {
     )
 }
 
-export function StudentOverflow({ loadWorkItems, claimWork, loadRequests, loadHolidays, withdrawRequest }) {
+export function StudentOverflow({ loadWorkItems, claimWork, loadRequests, loadHolidays, withdrawRequest, loadSchedule, studentName = null }) {
     const tokenOrGetter = useApiToken()
 
     const defaultLoadWorkItems = useCallback(
@@ -157,6 +187,21 @@ export function StudentOverflow({ loadWorkItems, claimWork, loadRequests, loadHo
     const resolvedLoadRequests = loadRequests ?? defaultLoadRequests
     const resolvedLoadHolidays = loadHolidays ?? defaultLoadHolidays
     const resolvedWithdrawRequest = withdrawRequest ?? defaultWithdrawRequest
+
+    const defaultLoadSchedule = useCallback(
+        () => listOwnTimeSlots(tokenOrGetter),
+        [tokenOrGetter],
+    )
+    const resolvedLoadSchedule = loadSchedule ?? defaultLoadSchedule
+    const [schedule, setSchedule] = useState({ status: 'loading', data: [] })
+
+    useEffect(() => {
+        let active = true
+        resolvedLoadSchedule()
+            .then((slots) => { if (active) setSchedule({ status: 'success', data: Array.isArray(slots) ? slots : [] }) })
+            .catch(() => { if (active) setSchedule({ status: 'error', data: [] }) })
+        return () => { active = false }
+    }, [resolvedLoadSchedule])
 
     const [workItems, setWorkItems] = useState([])
     const [status, setStatus] = useState('loading')
@@ -442,175 +487,255 @@ export function StudentOverflow({ loadWorkItems, claimWork, loadRequests, loadHo
 
     const hasClosedWork = workItems.some((work) => work.status !== 'OPEN')
     const visibleHolidays = upcomingHolidays(holidays)
+    const summary = useMemo(
+        () => studentSummary({
+            workItems: status === 'success' ? workItems : [],
+            requests: requestsStatus === 'success' ? requests : [],
+        }),
+        [requests, requestsStatus, status, workItems],
+    )
+    const figure = (ready, failed, compute) => {
+        if (failed) return { value: '—', sub: 'Could not be loaded' }
+        if (!ready) return { value: '…', sub: 'Loading…' }
+        return compute()
+    }
+    const requestsReady = requestsStatus === 'success'
+    const requestsFailed = requestsStatus === 'error'
 
     return (
-        <main id="main-content" className="dashboard-shell student-overflow-page">
-            <header className="dashboard-header">
-                <div>
-                    <p className="eyebrow">Student workspace</p>
-                    <h1>Available volunteer work</h1>
-                    <p className="helper-text">
-                        Find open tutoring work, volunteer and follow each request outcome.
-                    </p>
+        <main id="main-content" className="dashboard-shell student-home student-overflow-page">
+            <h1 className="visually-hidden">Student workspace</h1>
+
+            <StudentHero
+                name={studentName}
+                summary={summary}
+                workReady={status === 'success'}
+                requestsReady={requestsReady}
+            />
+
+            <section className="home-section" aria-labelledby="student-glance-heading">
+                <div className="home-section-heading">
+                    <h2 id="student-glance-heading">At a glance</h2>
                 </div>
-            </header>
-
-            {status === 'loading' && (
-               <LoadingState
-                   title="Loading available work..."
-                    message="Please wait while we find open volunteer opportunities."
-                />
-            )}
-
-            {status === 'error' && (
-               <ErrorState
-                    title="Unable to load volunteer work"
-                    message={errorMessage}
-                    onRetry={loadWork}
-                />
-            )}
-
-            {status === 'success' && workItems.length === 0 && (
-                <EmptyState
-                    title="No open volunteer work"
-                    message="There are currently no open volunteer opportunities. Please check again later."
-                />
-            )}
-
-            {status === 'success' && workItems.length > 0 && (
-                <section className="work-list" aria-label="Available volunteer work">
-                    {workItems.map((work) => (
-                        <WorkCard key={work.id} work={work} onVolunteer={handleVolunteer} />))}
-                </section>
-            )}
-
-            {status === 'success' && hasClosedWork && workItems.length > 0 && (
-                <p className="status-note" role="status">
-                    Some work items are no longer available and cannot be volunteered for.
-                </p>
-            )}
-
-            <section className="my-requests" aria-labelledby="my-volunteer-requests-heading">
-                <h2 id="my-volunteer-requests-heading">My volunteer requests</h2>
-
-                {requestsStatus === 'loading' && (
-                    <p className="status-note" role="status">
-                        Loading your volunteer requests…
-                    </p>
-                )}
-
-                {requestsStatus === 'success' && requests.length === 0 && (
-                    <p className="status-note" role="status">
-                        You have not submitted any volunteer requests yet.
-                    </p>
-                )}
-
-                {requestsStatus === 'success' && requests.length > 0 && (
-                    <div className="work-list">
-                        {requests.map((request) => (
-                            <RequestCard key={request.id} request={request} onWithdraw={handleWithdraw} />))}
-                    </div>
-                )}
-
-                {requestsStatus === 'error' && (
-                    <div className="inline-status-action" role="alert">
-                        <p className="status-note">
-                            Your volunteer requests could not be loaded.
-                        </p>
-                        <button
-                            type="button"
-                            className="secondary-button"
-                            onClick={loadRequestsList}
-                        >
-                            Retry requests
-                        </button>
-                    </div>
-                )}
+                <ul className="stat-grid">
+                    <StatTile
+                        label="Open work"
+                        art={openWorkArt}
+                        {...figure(status === 'success', status === 'error', () => ({
+                            value: String(summary.openCount),
+                            sub: summary.openCount > 0 ? 'Sessions looking for volunteers' : 'Nothing open right now',
+                        }))}
+                    />
+                    <StatTile
+                        label="Awaiting a decision"
+                        art={waitingArt}
+                        {...figure(requestsReady, requestsFailed, () => ({
+                            value: String(summary.pendingCount),
+                            sub: 'Requests an organiser will review',
+                        }))}
+                    />
+                    <StatTile
+                        label="Coming up"
+                        art={comingUpArt}
+                        {...figure(requestsReady, requestsFailed, () => ({
+                            value: String(summary.upcomingCount),
+                            sub: summary.nextSession ? `Next: ${shortWhen(summary.nextSession.startsAt)}` : 'No approved sessions ahead',
+                        }))}
+                    />
+                    <StatTile
+                        label="Volunteer hours"
+                        art={hoursArt}
+                        {...figure(requestsReady, requestsFailed, () => ({
+                            value: `${summary.approvedHours} h`,
+                            sub: 'From sessions you were approved for',
+                        }))}
+                    />
+                </ul>
             </section>
 
-            {withdrawStatus === 'success' && (
-                <div ref={withdrawStatusRef} tabIndex={-1}>
-                    <SuccessState title="Volunteer request withdrawn" message={withdrawMessage} />
+            <div className="home-split student-home-split">
+                <div className="student-home-main">
+                    <section className="home-card student-open-work" aria-labelledby="available-work-heading">
+                        <div className="home-card-heading">
+                            <div>
+                                <h2 id="available-work-heading">Available volunteer work</h2>
+                                <p className="helper-text">Sessions an organiser has opened for student volunteers.</p>
+                            </div>
+                            {status === 'success' && workItems.length > 0 && (
+                                <span className="student-count-chip">{workItems.length} listed</span>
+                            )}
+                        </div>
+
+                        {claimStatus === 'success' && (
+                            <div ref={claimStatusRef} tabIndex={-1}>
+                                <SuccessState title="Volunteer request successful" message={claimMessage} />
+                            </div>
+                        )}
+
+                        {claimStatus === 'error' && (
+                            <div ref={claimStatusRef} tabIndex={-1}>
+                                <ErrorState
+                                    title="Volunteer request unsuccessful"
+                                    message={claimMessage}
+                                    onRetry={selectedWork ? handleConfirmVolunteer : undefined}
+                                />
+                            </div>
+                        )}
+
+                        {status === 'loading' && (
+                            <LoadingState
+                                title="Loading available work..."
+                                message="Please wait while we find open volunteer opportunities."
+                            />
+                        )}
+
+                        {status === 'error' && (
+                            <ErrorState
+                                title="Unable to load volunteer work"
+                                message={errorMessage}
+                                onRetry={loadWork}
+                            />
+                        )}
+
+                        {status === 'success' && workItems.length === 0 && (
+                            <EmptyState
+                                title="No open volunteer work"
+                                message="There are currently no open volunteer opportunities. Please check again later."
+                            />
+                        )}
+
+                        {status === 'success' && workItems.length > 0 && (
+                            <section className="work-list" aria-label="Available volunteer work">
+                                {workItems.map((work, index) => (
+                                    <WorkCard
+                                        key={work.id}
+                                        work={work}
+                                        onVolunteer={handleVolunteer}
+                                        accent={CARD_ACCENTS[index % CARD_ACCENTS.length]}
+                                    />))}
+                            </section>
+                        )}
+
+                        {status === 'success' && hasClosedWork && workItems.length > 0 && (
+                            <p className="status-note" role="status">
+                                Some work items are no longer available and cannot be volunteered for.
+                            </p>
+                        )}
+                    </section>
+
+                    <section className="home-card my-requests" aria-labelledby="my-volunteer-requests-heading">
+                        <div className="home-card-heading">
+                            <h2 id="my-volunteer-requests-heading">My volunteer requests</h2>
+                        </div>
+
+                        {withdrawStatus === 'success' && (
+                            <div ref={withdrawStatusRef} tabIndex={-1}>
+                                <SuccessState title="Volunteer request withdrawn" message={withdrawMessage} />
+                            </div>
+                        )}
+
+                        {withdrawStatus === 'error' && (
+                            <div ref={withdrawStatusRef} tabIndex={-1}>
+                                <ErrorState
+                                    title="Withdrawal unsuccessful"
+                                    message={withdrawMessage}
+                                    onRetry={withdrawTarget ? handleConfirmWithdraw : undefined}
+                                />
+                            </div>
+                        )}
+
+                        {requestsStatus === 'loading' && (
+                            <p className="status-note" role="status">
+                                Loading your volunteer requests…
+                            </p>
+                        )}
+
+                        {requestsStatus === 'success' && requests.length === 0 && (
+                            <p className="status-note" role="status">
+                                You have not submitted any volunteer requests yet.
+                            </p>
+                        )}
+
+                        {requestsStatus === 'success' && requests.length > 0 && (
+                            <div className="work-list request-list">
+                                {requests.map((request) => (
+                                    <RequestCard key={request.id} request={request} onWithdraw={handleWithdraw} />))}
+                            </div>
+                        )}
+
+                        {requestsStatus === 'error' && (
+                            <div className="inline-status-action" role="alert">
+                                <p className="status-note">
+                                    Your volunteer requests could not be loaded.
+                                </p>
+                                <button
+                                    type="button"
+                                    className="secondary-button"
+                                    onClick={loadRequestsList}
+                                >
+                                    Retry requests
+                                </button>
+                            </div>
+                        )}
+                    </section>
                 </div>
-            )}
 
-            {withdrawStatus === 'error' && (
-                <div ref={withdrawStatusRef} tabIndex={-1}>
-                    <ErrorState
-                        title="Withdrawal unsuccessful"
-                        message={withdrawMessage}
-                        onRetry={withdrawTarget ? handleConfirmWithdraw : undefined}
-                    />
+                <div className="student-home-side">
+                    <StudentSchedule slots={schedule} requests={requestsReady ? requests : []} />
+
+                    {status === 'success' && (
+                        <section className="home-card public-holidays-section" aria-label="Upcoming public holidays">
+                            <h2>Upcoming public holidays</h2>
+                            <p className="helper-text">
+                                Public holidays may affect session scheduling.
+                            </p>
+
+                            {holidaysStatus === 'success' && holidaysSource === 'external' && (
+                                <p className="holiday-source-note">
+                                    <span className="holiday-source-badge">External data</span>
+                                    {holidaysRetrievedAt ? (
+                                        <span>Updated {formatDateTime(holidaysRetrievedAt)}</span>
+                                    ) : null}
+                                </p>
+                            )}
+
+                            {holidaysStatus === 'loading' && (
+                                <p className="status-note" role="status">Loading public holidays…</p>
+                            )}
+
+                            {holidaysStatus === 'error' && (
+                                <p className="status-note" role="status">
+                                    Public holiday information is temporarily unavailable.
+                                </p>
+                            )}
+
+                            {holidaysStatus === 'success' && holidaysSource === 'fallback' && holidays.length === 0 && (
+                                <p className="status-note" role="status">
+                                    Public holiday information is temporarily unavailable.
+                                </p>
+                            )}
+
+                            {holidaysStatus === 'success' && visibleHolidays.length === 0 && holidaysSource !== 'fallback' && (
+                                <p className="status-note" role="status">No upcoming public holidays.</p>
+                            )}
+
+                            {holidaysStatus === 'success' && visibleHolidays.length > 0 && (
+                                <ul className="public-holidays-list">
+                                    {visibleHolidays.map((holiday) => (
+                                        <li key={`${holiday.date}-${holiday.name}`} className="public-holiday-item">
+                                            <span className="holiday-date">{formatDate(holiday.date)}</span>
+                                            <span className="holiday-name">{holiday.name}</span>
+                                            {holiday.nationalHoliday && (
+                                                <span className="holiday-badge" aria-label="National holiday">National</span>
+                                            )}
+                                        </li>
+                                    ))}
+                                </ul>
+                            )}
+                        </section>
+                    )}
                 </div>
-            )}
-
-            {status === 'success' && (
-                <section className="public-holidays-section" aria-label="Upcoming public holidays">
-                    <h2>Upcoming public holidays</h2>
-                    <p className="helper-text">
-                        Public holidays may affect session scheduling.
-                    </p>
-
-                    {holidaysStatus === 'success' && holidaysSource === 'external' && (
-                        <p className="holiday-source-note">
-                            <span className="holiday-source-badge">External data</span>
-                            {holidaysRetrievedAt ? (
-                                <span>Updated {formatDateTime(holidaysRetrievedAt)}</span>
-                            ) : null}
-                        </p>
-                    )}
-
-                    {holidaysStatus === 'loading' && (
-                        <p className="status-note" role="status">Loading public holidays…</p>
-                    )}
-
-                    {holidaysStatus === 'error' && (
-                        <p className="status-note" role="status">
-                            Public holiday information is temporarily unavailable.
-                        </p>
-                    )}
-
-                    {holidaysStatus === 'success' && holidaysSource === 'fallback' && holidays.length === 0 && (
-                        <p className="status-note" role="status">
-                            Public holiday information is temporarily unavailable.
-                        </p>
-                    )}
-
-                    {holidaysStatus === 'success' && visibleHolidays.length === 0 && holidaysSource !== 'fallback' && (
-                        <p className="status-note" role="status">No upcoming public holidays.</p>
-                    )}
-
-                    {holidaysStatus === 'success' && visibleHolidays.length > 0 && (
-                        <ul className="public-holidays-list">
-                            {visibleHolidays.map((holiday) => (
-                                <li key={`${holiday.date}-${holiday.name}`} className="public-holiday-item">
-                                    <span className="holiday-date">{formatDate(holiday.date)}</span>
-                                    <span className="holiday-name">{holiday.name}</span>
-                                    {holiday.nationalHoliday && (
-                                        <span className="holiday-badge" aria-label="National holiday">National</span>
-                                    )}
-                                </li>
-                            ))}
-                        </ul>
-                    )}
-                </section>
-            )}
-
-            {claimStatus === 'success' && (
-                <div ref={claimStatusRef} tabIndex={-1}>
-                    <SuccessState title="Volunteer request successful" message={claimMessage} />
-                </div>
-            )}
-
-            {claimStatus === 'error' && (
-                <div ref={claimStatusRef} tabIndex={-1}>
-                    <ErrorState
-                        title="Volunteer request unsuccessful"
-                        message={claimMessage}
-                        onRetry={selectedWork ? handleConfirmVolunteer : undefined}
-                    />
-                </div>
-            )}
+            </div>
 
             {selectedWork && claimStatus !== 'success' && (
                 <ConfirmationDialog open title="Confirm volunteer" onConfirm={handleConfirmVolunteer} onCancel={handleCancelVolunteer} isPending={claimStatus === 'pending'} >
