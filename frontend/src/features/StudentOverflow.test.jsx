@@ -924,7 +924,7 @@ describe('StudentOverflow home', () => {
   it('greets the student and sums up their work at a glance', async () => {
     renderHome()
 
-    expect(screen.getByRole('heading', { name: /, Thandi$/ })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Welcome back, Thandi!' })).toBeInTheDocument()
     await screen.findByText('DEMO202')
     expect(within(tile('Open work')).getByText('1')).toBeInTheDocument()
     expect(within(tile('Awaiting a decision')).getByText('1')).toBeInTheDocument()

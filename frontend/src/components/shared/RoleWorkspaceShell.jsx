@@ -135,10 +135,13 @@ export function RoleWorkspaceShell({ role, user, onSignOut, children }) {
             <OrganiserIcon name={menuOpen ? 'x' : 'menu'} />
             <span>{menuOpen ? 'Close menu' : 'Menu'}</span>
           </button>
-          <div className="organiser-greeting">
-            <span className="organiser-avatar" aria-hidden="true">{initialsOf(name)}</span>
-            <div><p className="organiser-greeting-hello">Welcome back</p><p className="organiser-greeting-name">{name}</p></div>
-          </div>
+          {/* The Student home greets the student in its own banner instead. */}
+          {!(role === 'STUDENT' && page === 'home') && (
+            <div className="organiser-greeting">
+              <span className="organiser-avatar" aria-hidden="true">{initialsOf(name)}</span>
+              <div><p className="organiser-greeting-hello">Welcome back</p><p className="organiser-greeting-name">{name}</p></div>
+            </div>
+          )}
           <div className="organiser-tools">
             <CommandPalette variant="field" role={role} />
             <DensityToggle compact={compact} onChange={setCompact}/><NotificationBell icon={<OrganiserIcon name="bell" size={22} />} />

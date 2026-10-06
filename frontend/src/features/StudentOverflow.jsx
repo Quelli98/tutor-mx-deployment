@@ -558,7 +558,7 @@ export function StudentOverflow({ loadWorkItems, claimWork, loadRequests, loadHo
                     <section className="home-card student-open-work" aria-labelledby="available-work-heading">
                         <div className="home-card-heading">
                             <div>
-                                <h2 id="available-work-heading">Available volunteer work</h2>
+                                <h2 id="available-work-heading" tabIndex={-1}>Available volunteer work</h2>
                                 <p className="helper-text">Sessions an organiser has opened for student volunteers.</p>
                             </div>
                             {status === 'success' && workItems.length > 0 && (

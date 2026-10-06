@@ -13,31 +13,52 @@ afterEach(() => { vi.useRealTimers() })
 const empty = { openCount: 0, pendingCount: 0, upcomingCount: 0, nextSession: null, approvedHours: 0 }
 
 describe('StudentHero', () => {
-  it('greets the student by first name with the day and their week in a sentence', () => {
+  const text = () => document.querySelector('.student-hero-text').textContent
+
+  it('welcomes the student by first name with the day and their week, figures picked out', () => {
     render(<StudentHero name="Thandi Mokoena" workReady requestsReady
       summary={{ ...empty, openCount: 3, nextSession: { startsAt: '2026-10-07T09:00:00' } }} />)
 
-    expect(screen.getByRole('heading', { name: 'Good afternoon, Thandi' })).toBeInTheDocument()
-    expect(screen.getByText('Tuesday 6 October')).toBeInTheDocument()
-    expect(screen.getByText(/^3 sessions are looking for volunteers, and your next volunteer session is on Wed 7 Oct at 09:00\.$/)).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Welcome back, Thandi!' })).toBeInTheDocument()
+    expect(screen.getByText('Good afternoon · Tuesday 6 October')).toBeInTheDocument()
+    expect(text()).toBe('3 sessions are looking for volunteers. Your next volunteer session is on Wed 7 Oct at 09:00.')
+    expect(screen.getByText('3', { selector: 'strong' })).toBeInTheDocument()
+    expect(screen.getByText('Wed 7 Oct at 09:00', { selector: 'strong' })).toBeInTheDocument()
   })
 
   it('never greets someone by their email address', () => {
     render(<StudentHero name="woyac78803@cwsgear.com" workReady requestsReady={false} summary={empty} />)
-    expect(screen.getByRole('heading', { name: 'Good afternoon' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Welcome back!' })).toBeInTheDocument()
     expect(screen.queryByText(/cwsgear/)).not.toBeInTheDocument()
   })
 
-  it('mentions waiting requests when nothing is booked, and copes without a name or data', () => {
+  it('mentions waiting requests when nothing is booked, and copes without data', () => {
     const { rerender } = render(<StudentHero name={null} workReady requestsReady summary={{ ...empty, openCount: 1, pendingCount: 2 }} />)
-    expect(screen.getByRole('heading', { name: 'Good afternoon' })).toBeInTheDocument()
-    expect(screen.getByText('1 session is looking for volunteers, and 2 requests are waiting for an organiser.')).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Welcome back!' })).toBeInTheDocument()
+    expect(text()).toBe('1 session is looking for volunteers. 2 requests are waiting for an organiser.')
 
     rerender(<StudentHero name="Thandi" workReady={false} requestsReady={false} summary={empty} />)
-    expect(screen.getByText('Find open tutoring work, volunteer and follow each request outcome.')).toBeInTheDocument()
+    expect(text()).toBe('Find open tutoring work, volunteer and follow each request outcome.')
 
     rerender(<StudentHero name="Thandi" workReady requestsReady={false} summary={empty} />)
-    expect(screen.getByText('No sessions need volunteers right now.')).toBeInTheDocument()
+    expect(text()).toBe('No sessions need volunteers right now.')
+  })
+
+  it('takes the student to the open work or their timetable', () => {
+    render(
+      <>
+        <StudentHero name="Thandi" workReady requestsReady summary={empty} />
+        <h2 id="available-work-heading" tabIndex={-1}>Available volunteer work</h2>
+      </>,
+    )
+    const heading = screen.getByRole('heading', { name: 'Available volunteer work' })
+    heading.scrollIntoView = vi.fn()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Browse open work' }))
+
+    expect(heading.scrollIntoView).toHaveBeenCalledWith({ behavior: 'smooth', block: 'start' })
+    expect(heading).toHaveFocus()
+    expect(screen.getByRole('link', { name: 'My timetable' })).toHaveAttribute('href', '/student/timetable')
   })
 })
 

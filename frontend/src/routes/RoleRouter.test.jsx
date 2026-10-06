@@ -165,6 +165,17 @@ describe('RoleRouter', () => {
     expect(screen.getByRole('link', { name: /account settings/i })).toBeInTheDocument()
   })
 
+  it('links a student to their own timetable', () => {
+    renderRole('STUDENT')
+    const navigation = screen.getByRole('navigation', { name: /primary navigation/i })
+    expect(within(navigation).getByRole('link', { name: /my timetable/i })).toHaveAttribute('href', '/student/timetable')
+  })
+
+  it('keeps the student timetable route away from other roles', () => {
+    renderRole('TUTOR', '/student/timetable')
+    expect(screen.getByRole('heading', { name: /access denied/i })).toBeInTheDocument()
+  })
+
   it('shows tutor navigation for a tutor', () => {
     renderRole('TUTOR')
     expect(screen.getByRole('link', { name: /tutor workspace/i })).toBeInTheDocument()
@@ -449,6 +460,12 @@ describe('RoleRouter', () => {
     expect(screen.queryByRole('link', { name: /start bulk allocation/i })).not.toBeInTheDocument()
     expect(screen.getByText('Welcome back')).toBeInTheDocument()
     expect(screen.getByRole('link', { name: /tutor workspace/i })).toBeInTheDocument()
+  })
+
+  it('lets the student home banner do the greeting instead of the top bar', () => {
+    renderRole('STUDENT', '/student')
+    expect(screen.queryByText('Welcome back')).not.toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Welcome back!' })).toBeInTheDocument()
   })
 
   it('does not greet an account by its email address when it has no name', () => {
