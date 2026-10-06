@@ -451,6 +451,13 @@ describe('RoleRouter', () => {
     expect(screen.getByRole('link', { name: /tutor workspace/i })).toBeInTheDocument()
   })
 
+  it('does not greet an account by its email address when it has no name', () => {
+    renderRole('STUDENT', '/settings', vi.fn(), { data: { profile: { id: 3, fullName: 'woyac78803@cwsgear.com', role: 'STUDENT' } } })
+
+    expect(screen.getByText('Welcome back')).toBeInTheDocument()
+    expect(screen.queryByText(/cwsgear/)).not.toBeInTheDocument()
+  })
+
   it('keeps course management away from a tutor', () => {
     renderRole('TUTOR', '/organiser/courses')
 

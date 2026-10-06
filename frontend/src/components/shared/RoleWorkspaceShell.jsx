@@ -6,6 +6,7 @@ import { CsamMark } from './CsamMark'
 import { CommandPalette } from './CommandPalette'
 import { NotificationBell } from './NotificationBell'
 import { OrganiserIcon } from '../organiser/OrganiserIcon'
+import { personName } from './personName'
 import tutorPhoto from '../../assets/redesign/tutor-online.png'
 import studentPhoto from '../../assets/redesign/student-support.webp'
 
@@ -37,10 +38,7 @@ const ROLE_CONFIG = {
 
 function profileName(user, auth0User, fallback) {
   const profile = user?.data?.profile ?? user?.profile ?? user
-  const profileNameValue = typeof profile?.fullName === 'string' ? profile.fullName.trim() : ''
-  if (profileNameValue) return profileNameValue
-  const authName = typeof auth0User?.name === 'string' && !auth0User.name.includes('@') ? auth0User.name.trim() : ''
-  return authName || fallback
+  return personName(profile?.fullName) ?? personName(auth0User?.name) ?? fallback
 }
 
 function initialsOf(name) {

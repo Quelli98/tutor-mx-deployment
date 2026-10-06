@@ -1,4 +1,5 @@
 import welcomeScene from '../../assets/redesign/student-support.webp'
+import { firstNameOf } from '../shared/personName'
 
 function greeting(hour) {
   if (hour < 12) return 'Good morning'
@@ -17,7 +18,7 @@ function sessionWhen(value) {
 
 /** The colour banner at the top of the Student home: a greeting and the week in a sentence. */
 export function StudentHero({ name, summary, workReady, requestsReady, now = new Date() }) {
-  const firstName = name ? name.trim().split(/\s+/)[0] : null
+  const firstName = firstNameOf(name)
   const today = now.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' })
 
   const parts = []

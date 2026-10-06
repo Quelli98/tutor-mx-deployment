@@ -22,6 +22,12 @@ describe('StudentHero', () => {
     expect(screen.getByText(/^3 sessions are looking for volunteers, and your next volunteer session is on Wed 7 Oct at 09:00\.$/)).toBeInTheDocument()
   })
 
+  it('never greets someone by their email address', () => {
+    render(<StudentHero name="woyac78803@cwsgear.com" workReady requestsReady={false} summary={empty} />)
+    expect(screen.getByRole('heading', { name: 'Good afternoon' })).toBeInTheDocument()
+    expect(screen.queryByText(/cwsgear/)).not.toBeInTheDocument()
+  })
+
   it('mentions waiting requests when nothing is booked, and copes without a name or data', () => {
     const { rerender } = render(<StudentHero name={null} workReady requestsReady summary={{ ...empty, openCount: 1, pendingCount: 2 }} />)
     expect(screen.getByRole('heading', { name: 'Good afternoon' })).toBeInTheDocument()
