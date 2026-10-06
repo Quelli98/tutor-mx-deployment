@@ -1133,3 +1133,91 @@ describe('Sprint 4 shared own-schedule HTTP contract', () => {
     expect((await request(app).post('/api/navigation/resolve').set('Authorization', 'Bearer valid').send({ destinationId: 'settings', notificationId: 1 })).status).toBe(400);
   });
 });
+
+describe('skipping or moving one week of a repeating entry', () => {
+  function signedInAs(role: TutorRole, overrides: Partial<AppDependencies> = {}) {
+    return makeApp({
+      findProfileByAuth0Id: async () => ({ id: 21, email: 'person@tutormx.example', fullName: 'Signed In', role }),
+      verifyAccessToken: async () => ({ ...auth(role), subject: `auth0|${role.toLowerCase()}` }),
+      ...overrides,
+    });
+  }
+  const updated = { id: 5, type: 'BUSY', startsAt: '2031-02-04T08:00:00.000Z', endsAt: '2031-02-04T09:30:00.000Z',
+    recurrence: 'WEEKLY', label: 'Lecture', recurrenceUntil: null, exceptions: [] };
+
+  it('skips and restores one occurrence for a Student', async () => {
+    const saveOwnOccurrenceException = vi.fn().mockResolvedValue(updated);
+    const removeOwnOccurrenceException = vi.fn().mockResolvedValue(updated);
+    const app = signedInAs('STUDENT', { saveOwnOccurrenceException, removeOwnOccurrenceException });
+
+    const skipped = await request(app).put('/api/me/time-slots/5/exceptions/2031-02-11')
+      .set('Authorization', 'Bearer token').send({ exceptionType: 'CANCELLED' });
+    const restored = await request(app).delete('/api/me/time-slots/5/exceptions/2031-02-11')
+      .set('Authorization', 'Bearer token');
+
+    expect(skipped.status).toBe(200);
+    expect(skipped.body.data.timeSlot).toMatchObject({ id: 5 });
+    expect(restored.status).toBe(200);
+    expect(saveOwnOccurrenceException).toHaveBeenCalledWith('auth0|student', 5, '2031-02-11', { exceptionType: 'CANCELLED' });
+    expect(removeOwnOccurrenceException).toHaveBeenCalledWith('auth0|student', 5, '2031-02-11');
+  });
+
+  it('moves one occurrence for a Tutor', async () => {
+    const saveOwnOccurrenceException = vi.fn().mockResolvedValue(updated);
+    const response = await request(signedInAs('TUTOR', { saveOwnOccurrenceException }))
+      .put('/api/me/time-slots/5/exceptions/2031-02-11').set('Authorization', 'Bearer token')
+      .send({ exceptionType: 'MOVED', newStartsAt: '2031-02-12T12:00:00.000Z', newEndsAt: '2031-02-12T13:30:00.000Z' });
+
+    expect(response.status).toBe(200);
+    expect(saveOwnOccurrenceException).toHaveBeenCalledWith('auth0|tutor', 5, '2031-02-11', {
+      exceptionType: 'MOVED', newStartsAt: new Date('2031-02-12T12:00:00.000Z'), newEndsAt: new Date('2031-02-12T13:30:00.000Z'),
+    });
+  });
+
+  it.each([
+    ['an impossible date', '/api/me/time-slots/5/exceptions/2031-02-30', { exceptionType: 'CANCELLED' }],
+    ['a bad entry id', '/api/me/time-slots/zero/exceptions/2031-02-11', { exceptionType: 'CANCELLED' }],
+    ['an unknown type', '/api/me/time-slots/5/exceptions/2031-02-11', { exceptionType: 'DELETED' }],
+    ['times on a skipped week', '/api/me/time-slots/5/exceptions/2031-02-11', { exceptionType: 'CANCELLED', newStartsAt: '2031-02-12T12:00:00.000Z' }],
+    ['a move without times', '/api/me/time-slots/5/exceptions/2031-02-11', { exceptionType: 'MOVED' }],
+    ['a move ending before it starts', '/api/me/time-slots/5/exceptions/2031-02-11', { exceptionType: 'MOVED', newStartsAt: '2031-02-12T13:00:00.000Z', newEndsAt: '2031-02-12T12:00:00.000Z' }],
+    ['an ownership injection', '/api/me/time-slots/5/exceptions/2031-02-11', { exceptionType: 'CANCELLED', ownerId: 9 }],
+  ])('refuses %s before reaching the service', async (_name, path, body) => {
+    const saveOwnOccurrenceException = vi.fn()
+    const response = await request(signedInAs('STUDENT', { saveOwnOccurrenceException })).put(path)
+      .set('Authorization', 'Bearer token').send(body);
+
+    expect(response.status).toBe(400);
+    expect(saveOwnOccurrenceException).not.toHaveBeenCalled();
+  });
+
+  it('refuses a bad restore request and an Organiser', async () => {
+    const removeOwnOccurrenceException = vi.fn();
+    const badDate = await request(signedInAs('STUDENT', { removeOwnOccurrenceException }))
+      .delete('/api/me/time-slots/5/exceptions/next-week').set('Authorization', 'Bearer token');
+    const organiser = await request(signedInAs('ORGANISER', { removeOwnOccurrenceException }))
+      .delete('/api/me/time-slots/5/exceptions/2031-02-11').set('Authorization', 'Bearer token');
+
+    expect(badDate.status).toBe(400);
+    expect(organiser.status).toBe(403);
+    expect(removeOwnOccurrenceException).not.toHaveBeenCalled();
+  });
+
+  it('passes service refusals through and reports a missing service', async () => {
+    const saveOwnOccurrenceException = vi.fn().mockRejectedValue(
+      createRouteError(409, 'TIME_SLOT_NOT_REPEATING', 'Only a repeating entry has a single week to skip or move.'),
+    );
+    const refused = await request(signedInAs('TUTOR', { saveOwnOccurrenceException }))
+      .put('/api/me/time-slots/5/exceptions/2031-02-11').set('Authorization', 'Bearer token').send({ exceptionType: 'CANCELLED' });
+    const unconfigured = await Promise.all([
+      request(signedInAs('TUTOR')).put('/api/me/time-slots/5/exceptions/2031-02-11')
+        .set('Authorization', 'Bearer token').send({ exceptionType: 'CANCELLED' }),
+      request(signedInAs('TUTOR')).delete('/api/me/time-slots/5/exceptions/2031-02-11')
+        .set('Authorization', 'Bearer token'),
+    ]);
+
+    expect(refused.status).toBe(409);
+    expect(refused.body.error.code).toBe('TIME_SLOT_NOT_REPEATING');
+    expect(unconfigured.map((response) => response.status)).toEqual([503, 503]);
+  });
+});

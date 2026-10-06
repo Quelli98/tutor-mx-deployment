@@ -56,6 +56,7 @@ import {
   type TimetableImportRequest,
 } from "./services/timetable-import.js";
 import type { TimetableImportCommitResult } from "./services/timetable-import-service.js";
+import type { OccurrenceExceptionInput } from "./services/occurrence-exceptions.js";
 import type {
   TimesheetCorrectionInput,
   TimesheetCorrectionResult,
@@ -821,6 +822,19 @@ export interface AppDependencies {
     input: TutorTimeSlotWriteInput,
   ) => Promise<TutorTimeSlotSummary>;
   deleteTutorTimeSlot: (auth0Id: string, timeSlotId: number) => Promise<void>;
+  /** Skips or moves one occurrence of the caller's own repeating entry. */
+  saveOwnOccurrenceException?: (
+    auth0Id: string,
+    timeSlotId: number,
+    occurrenceDate: string,
+    input: OccurrenceExceptionInput,
+  ) => Promise<TutorTimeSlotSummary>;
+  /** Puts one occurrence of the caller's own repeating entry back. */
+  removeOwnOccurrenceException?: (
+    auth0Id: string,
+    timeSlotId: number,
+    occurrenceDate: string,
+  ) => Promise<TutorTimeSlotSummary>;
   updateTutorWeeklyCapacity: (
     auth0Id: string,
     input: TutorWeeklyCapacity,
@@ -1748,6 +1762,26 @@ function parseDateOnly(value: unknown) {
     parsed.toISOString().slice(0, 10) === value
     ? value
     : null;
+}
+
+function parseOccurrenceExceptionInput(body: unknown) {
+  if (hasOnlyFields(body, ["exceptionType"]) && body.exceptionType === "CANCELLED") {
+    return { value: { exceptionType: "CANCELLED" } } as const;
+  }
+  if (
+    hasOnlyFields(body, ["exceptionType", "newStartsAt", "newEndsAt"]) &&
+    body.exceptionType === "MOVED"
+  ) {
+    const newStartsAt = parseIsoDateTime(body.newStartsAt);
+    const newEndsAt = parseIsoDateTime(body.newEndsAt);
+    if (newStartsAt && newEndsAt && newEndsAt > newStartsAt) {
+      return { value: { exceptionType: "MOVED", newStartsAt, newEndsAt } } as const;
+    }
+    return { error: "A moved week needs a new start and a later new end." } as const;
+  }
+  return {
+    error: "Send exceptionType CANCELLED to skip the week, or MOVED with newStartsAt and newEndsAt.",
+  } as const;
 }
 
 function parseWeekStart(value: unknown): Date | null {
@@ -4054,6 +4088,63 @@ export function createApp(
           (request as AuthenticatedRequest).auth!.subject, timeSlotId.value,
         );
         response.status(204).end();
+      } catch (value) {
+        sendRouteError(response, value);
+      }
+    },
+  );
+
+  // One occurrence of a repeating entry, named by the date it starts on.
+  app.put(
+    ["/api/tutor/time-slots/:timeSlotId/exceptions/:occurrenceDate", "/api/me/time-slots/:timeSlotId/exceptions/:occurrenceDate"],
+    authenticate,
+    resolveProfileRole,
+    (request, response, next) => requireRole(...(request.path.startsWith("/api/tutor/") ? ["TUTOR"] as const : ["TUTOR", "STUDENT"] as const))(request, response, next),
+    async (request, response) => {
+      const timeSlotId = parseNumericId(request.params.timeSlotId, "Time slot");
+      const occurrenceDate = parseDateOnly(request.params.occurrenceDate);
+      const parsed = parseOccurrenceExceptionInput(request.body);
+      if ("error" in timeSlotId || !occurrenceDate || "error" in parsed) {
+        const message = "error" in parsed && parsed.error
+          ? parsed.error
+          : "Provide a valid time-slot identifier and occurrence date (YYYY-MM-DD).";
+        response.status(400).json({ error: { code: "VALIDATION_ERROR", message } });
+        return;
+      }
+      try {
+        if (!dependencies.saveOwnOccurrenceException) {
+          throw createRouteError(503, "OCCURRENCE_EXCEPTIONS_UNAVAILABLE", "Changing a single week is not configured.");
+        }
+        const timeSlot = await dependencies.saveOwnOccurrenceException(
+          (request as AuthenticatedRequest).auth!.subject, timeSlotId.value, occurrenceDate, parsed.value,
+        );
+        response.status(200).json({ data: { timeSlot } });
+      } catch (value) {
+        sendRouteError(response, value);
+      }
+    },
+  );
+
+  app.delete(
+    ["/api/tutor/time-slots/:timeSlotId/exceptions/:occurrenceDate", "/api/me/time-slots/:timeSlotId/exceptions/:occurrenceDate"],
+    authenticate,
+    resolveProfileRole,
+    (request, response, next) => requireRole(...(request.path.startsWith("/api/tutor/") ? ["TUTOR"] as const : ["TUTOR", "STUDENT"] as const))(request, response, next),
+    async (request, response) => {
+      const timeSlotId = parseNumericId(request.params.timeSlotId, "Time slot");
+      const occurrenceDate = parseDateOnly(request.params.occurrenceDate);
+      if ("error" in timeSlotId || !occurrenceDate) {
+        response.status(400).json({ error: { code: "VALIDATION_ERROR", message: "Provide a valid time-slot identifier and occurrence date (YYYY-MM-DD)." } });
+        return;
+      }
+      try {
+        if (!dependencies.removeOwnOccurrenceException) {
+          throw createRouteError(503, "OCCURRENCE_EXCEPTIONS_UNAVAILABLE", "Changing a single week is not configured.");
+        }
+        const timeSlot = await dependencies.removeOwnOccurrenceException(
+          (request as AuthenticatedRequest).auth!.subject, timeSlotId.value, occurrenceDate,
+        );
+        response.status(200).json({ data: { timeSlot } });
       } catch (value) {
         sendRouteError(response, value);
       }

@@ -9,6 +9,7 @@ import { createMutualAvailabilityService } from './services/mutual-availability.
 import type { PlanningStore } from './services/planning-store.js';
 import { resolveNavigation } from './services/navigation-targets.js';
 import { saveManualSchedule } from "./services/manual-schedule.js";
+import { removeOccurrenceException, saveOccurrenceException } from "./services/occurrence-exceptions.js";
 import "dotenv/config";
 import {
   createApp,
@@ -268,6 +269,17 @@ async function listTimeSlots(ownerId: number, tutorOnly = false) {
     select: timeSlotSelect,
   });
   return timeSlots.map(toTimeSlotSummary);
+}
+
+async function findOwnTimeSlotSummary(ownerId: number, timeSlotId: number) {
+  const timeSlot = await prisma.timeSlot.findFirst({
+    where: { id: timeSlotId, ownerId },
+    select: timeSlotSelect,
+  });
+  if (!timeSlot) {
+    throw createRouteError(404, "TIME_SLOT_NOT_FOUND", "The requested time slot could not be found.");
+  }
+  return toTimeSlotSummary(timeSlot);
 }
 
 function toTutorMarkSummary(
@@ -1365,6 +1377,16 @@ const app = createApp(
         }
         throw error;
       }
+    },
+    async saveOwnOccurrenceException(auth0Id, timeSlotId, occurrenceDate, input) {
+      const ownerId = await findScheduleOwnerId(auth0Id);
+      await saveOccurrenceException(queryClient, ownerId, timeSlotId, occurrenceDate, input);
+      return findOwnTimeSlotSummary(ownerId, timeSlotId);
+    },
+    async removeOwnOccurrenceException(auth0Id, timeSlotId, occurrenceDate) {
+      const ownerId = await findScheduleOwnerId(auth0Id);
+      await removeOccurrenceException(queryClient, ownerId, timeSlotId, occurrenceDate);
+      return findOwnTimeSlotSummary(ownerId, timeSlotId);
     },
     async deleteTutorTimeSlot(auth0Id, timeSlotId) {
       const tutorId = await findScheduleOwnerId(auth0Id);
