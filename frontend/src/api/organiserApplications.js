@@ -1,4 +1,4 @@
-import { API_BASE_URL, fetchWithBearerToken } from './client'
+import { fetchWithBearerToken } from './client'
 
 export async function getOwnOrganiserApplication(tokenOrGetter) {
   const body = await fetchWithBearerToken(
@@ -7,22 +7,6 @@ export async function getOwnOrganiserApplication(tokenOrGetter) {
     tokenOrGetter,
   )
   return body?.data?.application ?? null
-}
-
-export async function checkOrganiserApplicationStatus(email) {
-  const response = await fetch(`${API_BASE_URL}/api/auth/organiser-application-status`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ email }),
-  })
-  const body = await response.json().catch(() => ({}))
-  if (!response.ok) {
-    const error = new Error(body?.error?.message || 'Organiser application status could not be checked.')
-    error.code = body?.error?.code || 'REQUEST_FAILED'
-    error.status = response.status
-    throw error
-  }
-  return body?.data?.status ?? 'NOT_FOUND'
 }
 
 export async function listOrganiserApplications(tokenOrGetter) {
