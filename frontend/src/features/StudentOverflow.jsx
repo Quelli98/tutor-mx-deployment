@@ -11,10 +11,6 @@ import { OrganiserIcon } from '../components/organiser/OrganiserIcon'
 import { StudentHero } from '../components/student/StudentHero'
 import { StudentSchedule } from '../components/student/StudentSchedule'
 import { studentSummary } from './studentHome'
-import openWorkArt from '../assets/organiser/group-project.svg'
-import waitingArt from '../assets/organiser/check-boxes.svg'
-import comingUpArt from '../assets/organiser/calendar.svg'
-import hoursArt from '../assets/organiser/alarm-clock.svg'
 
 // The same colour family as the organiser's quick actions, one per card in turn.
 const CARD_ACCENTS = ['accent-pink', 'accent-blue', 'accent-orchid', 'accent-coral']
@@ -520,7 +516,8 @@ export function StudentOverflow({ loadWorkItems, claimWork, loadRequests, loadHo
                 <ul className="stat-grid">
                     <StatTile
                         label="Open work"
-                        art={openWorkArt}
+                        icon="megaphone"
+                        tone="accent-pink"
                         {...figure(status === 'success', status === 'error', () => ({
                             value: String(summary.openCount),
                             sub: summary.openCount > 0 ? 'Sessions looking for volunteers' : 'Nothing open right now',
@@ -528,7 +525,8 @@ export function StudentOverflow({ loadWorkItems, claimWork, loadRequests, loadHo
                     />
                     <StatTile
                         label="Awaiting a decision"
-                        art={waitingArt}
+                        icon="clock"
+                        tone="accent-orchid"
                         {...figure(requestsReady, requestsFailed, () => ({
                             value: String(summary.pendingCount),
                             sub: 'Requests an organiser will review',
@@ -536,7 +534,8 @@ export function StudentOverflow({ loadWorkItems, claimWork, loadRequests, loadHo
                     />
                     <StatTile
                         label="Coming up"
-                        art={comingUpArt}
+                        icon="calendar"
+                        tone="accent-blue"
                         {...figure(requestsReady, requestsFailed, () => ({
                             value: String(summary.upcomingCount),
                             sub: summary.nextSession ? `Next: ${shortWhen(summary.nextSession.startsAt)}` : 'No approved sessions ahead',
@@ -544,7 +543,8 @@ export function StudentOverflow({ loadWorkItems, claimWork, loadRequests, loadHo
                     />
                     <StatTile
                         label="Volunteer hours"
-                        art={hoursArt}
+                        icon="chart-column"
+                        tone="accent-coral"
                         {...figure(requestsReady, requestsFailed, () => ({
                             value: `${summary.approvedHours} h`,
                             sub: 'From sessions you were approved for',

@@ -3243,6 +3243,18 @@ textarea:focus {
   object-position: right center;
 }
 
+/* A quiet line icon for dashboards without pictures, as on the reference's stat cards. */
+.stat-tile-icon {
+  display: grid;
+  justify-self: end;
+  place-items: center;
+  width: 42px;
+  height: 42px;
+  border: 1px solid color-mix(in srgb, var(--tone-solid) 22%, #fff);
+  border-radius: 50%;
+  color: color-mix(in srgb, var(--tone-solid) 80%, #fff);
+}
+
 .stat-tile-sub {
   color: var(--csam-muted);
   font-size: 0.82rem;
@@ -5939,6 +5951,8 @@ textarea:focus {
 }
 .member-sidebar-photo { height: 142px; overflow: hidden; border-radius: 15px; background: #fff; }
 .member-sidebar-photo img { width: 100%; height: 100%; object-fit: cover; object-position: center 28%; }
+/* The student card shows the same photo as the Student home banner. */
+.member-shell-student .member-sidebar-photo img { object-position: 52% 40%; }
 .member-sidebar-card h2 { margin: 2px 2px 0; font-size: 1rem; }
 .member-sidebar-card p { margin: 0 2px 4px; color: #bfd0e6; font-size: .82rem; line-height: 1.5; }
 
@@ -6371,73 +6385,50 @@ textarea:focus {
   gap: 32px;
 }
 
-/* Banner: a bold colour card with white words, as in the references, in the CSAM indigo. */
+/* Banner: the organiser home's light card, with a cut-out student photo on a soft halo
+   and the next session pinned beside her. */
 .student-hero {
   position: relative;
   isolation: isolate;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(220px, 400px);
+  grid-template-columns: minmax(0, 1fr);
   align-items: center;
-  gap: 12px 24px;
-  min-height: 236px;
-  padding: 34px 28px 34px 40px;
+  gap: 16px;
+  min-height: 260px;
+  padding: 32px 40px;
   overflow: hidden;
-  border-radius: 28px;
+  border-radius: 26px;
   background:
-    radial-gradient(420px 260px at 82% 8%, rgba(255, 255, 255, 0.22), transparent 70%),
-    radial-gradient(300px 220px at 8% 110%, rgba(252, 76, 149, 0.35), transparent 70%),
-    linear-gradient(118deg, #2a0cd8 0%, #3a2cf0 42%, #3f7dff 100%);
-  color: #fff;
-  box-shadow: 0 18px 40px rgba(42, 12, 216, 0.22);
-}
-
-/* Two soft rings for depth, as in the reference banner. */
-.student-hero::before,
-.student-hero::after {
-  content: '';
-  position: absolute;
-  z-index: -1;
-  border: 2px solid rgba(255, 255, 255, 0.14);
-  border-radius: 50%;
-  pointer-events: none;
-}
-
-.student-hero::before {
-  top: -120px;
-  right: 18%;
-  width: 280px;
-  height: 280px;
-}
-
-.student-hero::after {
-  right: -90px;
-  bottom: -140px;
-  width: 360px;
-  height: 360px;
-  background: rgba(255, 255, 255, 0.06);
+    radial-gradient(520px 300px at 70% -10%, rgba(255, 255, 255, 0.9), transparent 70%),
+    linear-gradient(100deg, #eaf0ff 0%, #efeaff 58%, #f8eaf6 100%);
+  color: var(--csam-ink);
+  box-shadow: 0 10px 30px rgba(39, 1, 224, 0.06);
 }
 
 .student-hero-words {
+  position: relative;
+  z-index: 1;
   display: grid;
   justify-items: start;
   gap: 10px;
   min-width: 0;
+  max-width: 54%;
 }
 
 .student-hero-eyebrow {
   margin: 0;
-  color: rgba(255, 255, 255, 0.82);
-  font-size: 0.78rem;
+  color: #2701e0;
+  font-size: 0.75rem;
   font-weight: 700;
-  letter-spacing: 0.12em;
+  letter-spacing: 0.14em;
   text-transform: uppercase;
 }
 
 .student-hero .student-hero-title {
   margin: 0;
-  color: #fff;
+  color: #14112b;
   font-family: var(--csam-heading);
-  font-size: clamp(1.7rem, 2.6vw, 2.35rem);
+  font-size: clamp(1.7rem, 2.6vw, 2.3rem);
   font-weight: 700;
   line-height: 1.15;
   letter-spacing: -0.03em;
@@ -6447,18 +6438,19 @@ textarea:focus {
 .student-hero-text {
   max-width: 520px;
   margin: 0;
-  color: rgba(255, 255, 255, 0.9);
-  font-size: 1rem;
-  line-height: 1.55;
+  color: #4a4760;
+  font-size: 0.98rem;
+  line-height: 1.6;
 }
 
 .student-hero-text strong {
   padding: 1px 8px;
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.18);
-  color: #fff;
+  background: #fff;
+  color: var(--csam-indigo);
   font-weight: 700;
   white-space: nowrap;
+  box-shadow: 0 1px 0 rgba(42, 12, 216, 0.08);
 }
 
 .student-hero-actions {
@@ -6481,20 +6473,20 @@ textarea:focus {
   font-weight: 700;
   text-decoration: none;
   cursor: pointer;
-  transition: transform 0.15s ease, background 0.15s ease;
+  transition: transform 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
 }
 
 .student-hero-primary {
   border: 0;
-  background: #fff;
-  color: var(--csam-indigo);
-  box-shadow: 0 8px 18px rgba(8, 8, 21, 0.18);
+  background: var(--csam-indigo);
+  color: #fff;
+  box-shadow: 0 10px 20px rgba(42, 12, 216, 0.22);
 }
 
 .student-hero-secondary {
-  border: 1px solid rgba(255, 255, 255, 0.55);
-  background: rgba(255, 255, 255, 0.1);
-  color: #fff;
+  border: 1px solid #d9d3fb;
+  background: #fff;
+  color: var(--csam-indigo);
 }
 
 .student-hero-primary:hover,
@@ -6502,29 +6494,80 @@ textarea:focus {
   transform: translateY(-1px);
 }
 
+.student-hero-primary:hover {
+  box-shadow: 0 14px 26px rgba(42, 12, 216, 0.28);
+}
+
 .student-hero-secondary:hover {
-  background: rgba(255, 255, 255, 0.2);
+  background: #f6f4ff;
 }
 
 .student-hero-primary:focus-visible,
 .student-hero-secondary:focus-visible {
-  outline: 3px solid #fff;
+  outline: 3px solid rgba(42, 12, 216, 0.4);
   outline-offset: 3px;
 }
 
-.student-hero-art {
-  align-self: end;
-  justify-self: end;
-  width: 100%;
-  max-width: 400px;
-  margin-bottom: -34px;
+/* The photo fills the right of the card and fades into the lavender, so the words keep a
+   calm background; the next session floats over its lower corner. */
+.student-hero-photo {
+  position: absolute;
+  z-index: 0;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 58%;
+  -webkit-mask-image: linear-gradient(90deg, transparent 0%, rgba(0, 0, 0, 0.35) 18%, #000 46%);
+  mask-image: linear-gradient(90deg, transparent 0%, rgba(0, 0, 0, 0.35) 18%, #000 46%);
 }
 
-.student-hero-art img {
+.student-hero-photo img {
   display: block;
   width: 100%;
-  height: auto;
-  filter: drop-shadow(0 18px 24px rgba(8, 8, 21, 0.25));
+  height: 100%;
+  object-fit: cover;
+  object-position: 58% 38%;
+}
+
+.student-hero-chip {
+  position: absolute;
+  z-index: 1;
+  right: 22px;
+  bottom: 22px;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px 10px 10px;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.94);
+  box-shadow: 0 14px 28px rgba(20, 17, 43, 0.16);
+  backdrop-filter: blur(6px);
+}
+
+.student-hero-chip-icon {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 11px;
+  background: var(--csam-tint-indigo);
+  color: var(--csam-indigo);
+}
+
+.student-hero-chip-words {
+  display: grid;
+  gap: 1px;
+}
+
+.student-hero-chip-words strong {
+  color: var(--csam-ink);
+  font-size: 0.82rem;
+}
+
+.student-hero-chip-words span {
+  color: var(--csam-muted);
+  font-size: 0.78rem;
+  white-space: nowrap;
 }
 
 #available-work-heading:focus {
@@ -6532,21 +6575,36 @@ textarea:focus {
 }
 
 @container (max-width: 960px) {
-  .student-hero {
-    grid-template-columns: minmax(0, 1fr) 230px;
-    padding-right: 20px;
+  .student-hero-words {
+    max-width: 58%;
+  }
+
+  .student-hero-photo {
+    width: 50%;
+  }
+
+  .student-hero-chip {
+    display: none;
   }
 }
 
-@container (max-width: 780px) {
+@container (max-width: 700px) {
   .student-hero {
-    grid-template-columns: minmax(0, 1fr);
-    min-height: 0;
-    padding: 28px 24px;
+    padding: 0 0 26px;
   }
 
-  .student-hero-art {
-    display: none;
+  .student-hero-photo {
+    position: relative;
+    width: 100%;
+    height: 170px;
+    order: -1;
+    -webkit-mask-image: linear-gradient(180deg, #000 60%, transparent 100%);
+    mask-image: linear-gradient(180deg, #000 60%, transparent 100%);
+  }
+
+  .student-hero-words {
+    max-width: none;
+    padding: 0 24px;
   }
 }
 

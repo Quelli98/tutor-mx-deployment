@@ -8,7 +8,7 @@ import { NotificationBell } from './NotificationBell'
 import { OrganiserIcon } from '../organiser/OrganiserIcon'
 import { personName } from './personName'
 import tutorPhoto from '../../assets/redesign/tutor-online.png'
-import studentPhoto from '../../assets/redesign/student-support.webp'
+import studentPhoto from '../../assets/redesign/students-studying.webp'
 
 const ROLE_CONFIG = {
   TUTOR: {

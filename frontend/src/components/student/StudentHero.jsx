@@ -1,4 +1,5 @@
-import welcomeScene from '../../assets/redesign/student-support.webp'
+// Photo: Vitaly Gariev on Unsplash (Unsplash License), unsplash.com/photos/8gAbl776pc0
+import studentsPhoto from '../../assets/redesign/students-studying.webp'
 import { firstNameOf } from '../shared/personName'
 import { OrganiserIcon } from '../organiser/OrganiserIcon'
 
@@ -36,14 +37,30 @@ function Summary({ summary, workReady, requestsReady }) {
   return <p className="student-hero-text">{sentences.reduce((all, sentence, index) => index ? [...all, ' ', sentence] : [sentence], [])}</p>
 }
 
+function chipFor(summary, workReady, requestsReady) {
+  if (requestsReady && summary.nextSession) {
+    const date = new Date(summary.nextSession.startsAt)
+    return {
+      title: 'Next session',
+      detail: `${date.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' })} · ${date.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', hour12: false })}`,
+    }
+  }
+  if (workReady && summary.openCount > 0) {
+    return { title: 'Open work', detail: `${summary.openCount} ${agree(summary.openCount, 'session', 'sessions')} to choose from` }
+  }
+  return null
+}
+
 /**
- * The Student home banner, after design-refs/student dashboard: a bold colour
- * card that greets the student, sums up their week and offers the two things
- * they most often come to do.
+ * The Student home banner, in the organiser home's light style: it greets the
+ * student, sums up their week and offers the two things they most often come
+ * to do, beside a photo of students working together with the next session
+ * pinned over it.
  */
 export function StudentHero({ name, summary, workReady, requestsReady, now = new Date() }) {
   const firstName = firstNameOf(name)
   const today = now.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' })
+  const chip = chipFor(summary, workReady, requestsReady)
 
   function browseWork() {
     const heading = document.getElementById('available-work-heading')
@@ -70,9 +87,18 @@ export function StudentHero({ name, summary, workReady, requestsReady, now = new
           </a>
         </div>
       </div>
-      <span className="student-hero-art" aria-hidden="true">
-        <img src={welcomeScene} alt="" width="420" height="281" />
-      </span>
+      <div className="student-hero-photo" aria-hidden="true">
+        <img src={studentsPhoto} alt="" width="1400" height="787" />
+      </div>
+      {chip && (
+        <span className="student-hero-chip" aria-hidden="true">
+          <span className="student-hero-chip-icon"><OrganiserIcon name="calendar" size={16} /></span>
+          <span className="student-hero-chip-words">
+            <strong>{chip.title}</strong>
+            <span>{chip.detail}</span>
+          </span>
+        </span>
+      )}
     </section>
   )
 }
