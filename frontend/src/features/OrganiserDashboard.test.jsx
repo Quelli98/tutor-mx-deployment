@@ -726,3 +726,114 @@ describe('OrganiserDashboard session-length check', () => {
     })
   })
 })
+
+describe('OrganiserDashboard ranking overrides and keyboard use', () => {
+  beforeEach(() => {
+    listCourses.mockReset().mockResolvedValue(courses)
+    listAllocationCandidates.mockReset()
+    listAllocations.mockReset().mockResolvedValue([])
+    createAllocation.mockReset().mockResolvedValue({ id: 11 })
+    updateAllocation.mockReset().mockResolvedValue({ id: 11 })
+    removeAllocation.mockReset().mockResolvedValue(undefined)
+    getAccessTokenSilently.mockReset()
+    quietHomeData()
+  })
+
+  const topTutor = { ...eligibleCandidate, tutorId: 7, fullName: 'Top Tutor', mark: 92, markBand: 90 }
+  const secondTutor = { ...eligibleCandidate, tutorId: 9, fullName: 'Second Tutor', mark: 81, markBand: 80 }
+
+  async function showRanked() {
+    listAllocationCandidates.mockResolvedValue([topTutor, secondTutor])
+    await openBoard()
+    fillBoard()
+    fireEvent.click(screen.getByRole('button', { name: /check candidates/i }))
+    await screen.findByRole('heading', { name: /^eligible tutors$/i })
+  }
+
+  it('needs no reason for the top-ranked tutor', async () => {
+    await showRanked()
+    fireEvent.click(screen.getByRole('button', { name: /select Top Tutor/i }))
+
+    expect(screen.queryByLabelText(/instead of Top Tutor/i)).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: /save allocation/i }))
+    await waitFor(() => expect(createAllocation).toHaveBeenCalled())
+    expect(createAllocation.mock.calls[0][0]).not.toHaveProperty('overrideReason')
+  })
+
+  it('asks why before saving anyone else, and sends the reason with the allocation', async () => {
+    await showRanked()
+    fireEvent.click(screen.getByRole('button', { name: /select Second Tutor/i }))
+
+    const reason = screen.getByLabelText(/why Second Tutor instead of Top Tutor/i)
+    const save = screen.getByRole('button', { name: /save allocation/i })
+    expect(save).toBeDisabled()
+    expect(screen.getByText(/give a reason for choosing a different tutor/i)).toBeInTheDocument()
+
+    fireEvent.change(reason, { target: { value: '  Second Tutor ran this lab last year.  ' } })
+    expect(save).toBeEnabled()
+    fireEvent.click(save)
+
+    await waitFor(() => {
+      expect(createAllocation).toHaveBeenCalledWith(
+        expect.objectContaining({ tutorId: 9, overrideReason: 'Second Tutor ran this lab last year.' }),
+        getAccessTokenSilently,
+      )
+    })
+  })
+
+  it("shows the server's refusal when the ranking changed before saving", async () => {
+    createAllocation.mockRejectedValue({
+      code: 'OVERRIDE_REASON_REQUIRED',
+      message: 'Someone Else is ranked first for this session. Give a reason for choosing a different tutor.',
+    })
+    await showRanked()
+    fireEvent.click(screen.getByRole('button', { name: /select Top Tutor/i }))
+    fireEvent.click(screen.getByRole('button', { name: /save allocation/i }))
+
+    expect(await screen.findByText(/Someone Else is ranked first/i)).toBeInTheDocument()
+  })
+
+  it('shows the recorded reason when an overridden allocation is opened', async () => {
+    listAllocations.mockResolvedValue([{ ...allocation, overrideReason: 'Asked for this slot.' }])
+    render(<OrganiserDashboard />, { wrapper: MemoryRouter })
+
+    const chip = await screen.findByRole('button', { name: /chosen over the top-ranked tutor, COMS3011.*edit or remove$/i })
+    expect(within(chip).getByText('Override')).toBeInTheDocument()
+    fireEvent.click(chip)
+
+    expect(screen.getByText(/chosen over the top-ranked tutor:/i).closest('p')).toHaveTextContent('Asked for this slot.')
+  })
+
+  it('puts the keyboard on the top-ranked tutor and moves between tutors with the arrow keys', async () => {
+    await showRanked()
+    const first = screen.getByRole('button', { name: /select Top Tutor/i })
+    const second = screen.getByRole('button', { name: /select Second Tutor/i })
+    const group = screen.getByRole('group', { name: /eligible tutors, best ranked first/i })
+
+    await waitFor(() => expect(first).toHaveFocus())
+    fireEvent.keyDown(first, { key: 'ArrowDown' })
+    expect(second).toHaveFocus()
+    fireEvent.keyDown(second, { key: 'ArrowDown' })
+    expect(second).toHaveFocus()
+    fireEvent.keyDown(second, { key: 'Home' })
+    expect(first).toHaveFocus()
+    fireEvent.keyDown(first, { key: 'End' })
+    expect(second).toHaveFocus()
+    fireEvent.keyDown(second, { key: 'ArrowUp' })
+    expect(first).toHaveFocus()
+    expect(group).toHaveAccessibleDescription(/move between tutors/i)
+  })
+
+  it('saves with Ctrl+Enter or Cmd+Enter, but never past a missing reason', async () => {
+    await showRanked()
+    fireEvent.click(screen.getByRole('button', { name: /select Second Tutor/i }))
+    fireEvent.keyDown(document, { key: 'Enter', ctrlKey: true })
+    expect(createAllocation).not.toHaveBeenCalled()
+
+    fireEvent.click(screen.getByRole('button', { name: /select Top Tutor/i }))
+    fireEvent.keyDown(document, { key: 'Enter', metaKey: true })
+    await waitFor(() => {
+      expect(createAllocation).toHaveBeenCalledWith(expect.objectContaining({ tutorId: 7 }), getAccessTokenSilently)
+    })
+  })
+})

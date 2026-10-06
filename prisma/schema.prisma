@@ -500,6 +500,8 @@ model StaffingRequirement {
   tutorsNeeded  Int
   status        StaffingRequirementStatus @default(OPEN)
   notes         String?
+  /// Why it was closed or cancelled while still short; cleared on reopening.
+  statusReason  String?
   createdById   Int?
   course        Course                    @relation(fields: [courseId], references: [id], onDelete: Restrict)
   createdBy     Profile?                  @relation(fields: [createdById], references: [id], onDelete: SetNull)

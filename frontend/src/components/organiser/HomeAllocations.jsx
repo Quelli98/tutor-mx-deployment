@@ -43,12 +43,14 @@ function TutorChip({ allocation, session, day, disabled, onEdit }) {
       style={allocation.occurrenceStatus === 'SKIPPED' ? sickStyle : undefined}
       onClick={(event) => onEdit(allocation, event.currentTarget)}
       disabled={disabled}
-      aria-label={`${allocation.tutorName}${label ? ` (${label.toLowerCase()})` : ''}, ${session.courseCode}, ${longDay(day)}, ${timeRange(session.startsAt, session.endsAt)}: edit or remove`}
+      aria-label={`${allocation.tutorName}${label ? ` (${label.toLowerCase()})` : ''}${allocation.overrideReason ? ', chosen over the top-ranked tutor' : ''}, ${session.courseCode}, ${longDay(day)}, ${timeRange(session.startsAt, session.endsAt)}: edit or remove`}
+      title={allocation.overrideReason ? `Chosen over the top-ranked tutor: ${allocation.overrideReason}` : undefined}
     >
       <span className="tutor-chip-avatar" aria-hidden="true">{initials(allocation.tutorName)}</span>
       <span className="tutor-chip-name">
         {allocation.tutorName}
         {label && <small>{label}</small>}
+        {allocation.overrideReason && <small className="tutor-chip-override">Override</small>}
       </span>
     </button>
   )

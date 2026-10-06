@@ -9,6 +9,7 @@ const decideVolunteerClaim = vi.fn()
 const decideExcuse = vi.fn()
 const listTimesheetDisputes = vi.fn()
 const resolveTimesheetDispute = vi.fn()
+const approveTimesheets = vi.fn()
 const getAccessTokenSilently = vi.fn()
 
 vi.mock('../api/organiser', () => ({
@@ -18,6 +19,7 @@ vi.mock('../api/organiser', () => ({
   decideExcuse: (...args) => decideExcuse(...args),
   listTimesheetDisputes: (...args) => listTimesheetDisputes(...args),
   resolveTimesheetDispute: (...args) => resolveTimesheetDispute(...args),
+  approveTimesheets: (...args) => approveTimesheets(...args),
 }))
 
 vi.mock('@auth0/auth0-react', () => ({
@@ -311,5 +313,73 @@ describe('Member 5 organiser approval recovery', () => {
     expect(screen.getByRole('button', { name: /approve claim/i })).toBeDisabled()
     finish({ id: 31, status: 'APPROVED' })
     await screen.findByText(/request was approved/i)
+  })
+})
+
+describe('OrganiserApprovals bulk timesheet approval', () => {
+  const second = { ...timesheet, id: 32, tutorName: 'Lee Tutor', tutorEmail: 'lee@tutormx.example', totalHours: 3 }
+  const third = { ...timesheet, id: 33, tutorName: 'Kim Tutor', tutorEmail: 'kim@tutormx.example', totalHours: 4 }
+
+  beforeEach(() => {
+    listOrganiserApprovals.mockReset()
+    listTimesheetDisputes.mockReset().mockResolvedValue([])
+    approveTimesheets.mockReset()
+    getAccessTokenSilently.mockReset()
+  })
+
+  it('approves the selected timesheets together after confirmation', async () => {
+    listOrganiserApprovals
+      .mockResolvedValueOnce({ ...emptyQueues, timesheets: [timesheet, second, third] })
+      .mockResolvedValue({ ...emptyQueues, timesheets: [third] })
+    approveTimesheets.mockResolvedValue([
+      { timesheetId: 31, outcome: 'approved' },
+      { timesheetId: 32, outcome: 'approved' },
+    ])
+    render(<OrganiserApprovals />)
+
+    const approveSelected = await screen.findByRole('button', { name: /approve selected \(0\)/i })
+    expect(approveSelected).toBeDisabled()
+    fireEvent.click(screen.getByLabelText(/select Sam Tutor's timesheet/i))
+    fireEvent.click(screen.getByLabelText(/select Lee Tutor's timesheet/i))
+    fireEvent.click(screen.getByRole('button', { name: /approve selected \(2\)/i }))
+
+    const dialog = await screen.findByRole('dialog', { name: /approve 2 timesheets/i })
+    expect(within(dialog).getByText(/5 hours in total/i)).toBeInTheDocument()
+    expect(within(dialog).getByText(/Lee Tutor, week of/i)).toBeInTheDocument()
+    fireEvent.click(within(dialog).getByRole('button', { name: /approve timesheets/i }))
+
+    await waitFor(() => expect(approveTimesheets).toHaveBeenCalledWith([31, 32], getAccessTokenSilently))
+    expect(await screen.findByText('2 timesheets were approved.')).toBeInTheDocument()
+    expect(screen.queryByText('Sam Tutor')).not.toBeInTheDocument()
+    expect(screen.getByText('Kim Tutor')).toBeInTheDocument()
+  })
+
+  it('selects every waiting timesheet at once', async () => {
+    listOrganiserApprovals.mockResolvedValue({ ...emptyQueues, timesheets: [timesheet, second] })
+    render(<OrganiserApprovals />)
+
+    fireEvent.click(await screen.findByLabelText(/select all 2 timesheets/i))
+    expect(screen.getByRole('button', { name: /approve selected \(2\)/i })).toBeEnabled()
+    fireEvent.click(screen.getByLabelText(/select all 2 timesheets/i))
+    expect(screen.getByRole('button', { name: /approve selected \(0\)/i })).toBeDisabled()
+  })
+
+  it('reports timesheets that could not be approved and keeps them in the queue', async () => {
+    listOrganiserApprovals
+      .mockResolvedValueOnce({ ...emptyQueues, timesheets: [timesheet, second] })
+      .mockResolvedValue({ ...emptyQueues, timesheets: [second] })
+    approveTimesheets.mockResolvedValue([
+      { timesheetId: 31, outcome: 'approved' },
+      { timesheetId: 32, outcome: 'failed', code: 'TIMESHEET_DECISION_CONFLICT', message: 'The timesheet changed before this decision could be applied.' },
+    ])
+    render(<OrganiserApprovals />)
+
+    fireEvent.click(await screen.findByLabelText(/select all 2 timesheets/i))
+    fireEvent.click(screen.getByRole('button', { name: /approve selected \(2\)/i }))
+    fireEvent.click(within(await screen.findByRole('dialog')).getByRole('button', { name: /approve timesheets/i }))
+
+    expect(await screen.findByText('1 timesheet was approved.')).toBeInTheDocument()
+    expect(screen.getByRole('alert')).toHaveTextContent(/1 timesheet was not approved: The timesheet changed/i)
+    expect(screen.getByText('Lee Tutor')).toBeInTheDocument()
   })
 })

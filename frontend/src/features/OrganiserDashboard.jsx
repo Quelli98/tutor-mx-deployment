@@ -65,10 +65,31 @@ function safeErrorMessage(error, fallback) {
   if (error?.code === 'ALLOCATION_NOT_FOUND') {
     return 'That allocation was already removed. The list has been refreshed.'
   }
-  if (ALLOCATION_RULE_CODES.has(error?.code)) {
+  if (ALLOCATION_RULE_CODES.has(error?.code) || error?.code === 'OVERRIDE_REASON_REQUIRED') {
     return error.message
   }
   return fallback
+}
+
+const CANDIDATE_MOVE_KEYS = new Set(['ArrowDown', 'ArrowRight', 'ArrowUp', 'ArrowLeft', 'Home', 'End'])
+
+// Arrow keys move between the eligible tutors' Select buttons, so a keyboard user
+// can pick from the ranking without tabbing through every rule on every card.
+function moveBetweenCandidates(event) {
+  if (!CANDIDATE_MOVE_KEYS.has(event.key)) return
+  const buttons = Array.from(event.currentTarget.querySelectorAll('[data-candidate-select]:not(:disabled)'))
+  const index = buttons.indexOf(document.activeElement)
+  if (index === -1) return
+  event.preventDefault()
+  const next =
+    event.key === 'Home'
+      ? 0
+      : event.key === 'End'
+        ? buttons.length - 1
+        : event.key === 'ArrowDown' || event.key === 'ArrowRight'
+          ? Math.min(index + 1, buttons.length - 1)
+          : Math.max(index - 1, 0)
+  buttons[next].focus()
 }
 
 function dateTimeLocalValue(isoValue) {
@@ -181,6 +202,7 @@ function CandidateCard({ candidate, minimumMark, requestedHours, selected, onSel
           onClick={onSelect}
           disabled={disabled}
           aria-pressed={selected}
+          data-candidate-select
         >
           {selected ? 'Selected' : `Select ${candidate.fullName}`}
         </button>}
@@ -242,7 +264,11 @@ export default function OrganiserDashboard() {
   const [saveMessage, setSaveMessage] = useState('')
   const [saveError, setSaveError] = useState('')
   const [panelOpen, setPanelOpen] = useState(false)
+  const [overrideReason, setOverrideReason] = useState('')
   const panelOpenerRef = useRef(null)
+  const candidateGridRef = useRef(null)
+  const focusFirstCandidateRef = useRef(false)
+  const saveShortcutRef = useRef(() => {})
   const [weekStart, setWeekStart] = useState(() => localMonday(new Date()))
   const week = useOrganiserWeek(weekStart)
 
@@ -297,6 +323,19 @@ export default function OrganiserDashboard() {
 
   const isMutating = mutationStatus !== 'idle'
 
+  // The server ranks the candidates; the first eligible one is its suggestion.
+  // Anyone else needs a reason, which is recorded with the allocation. Keeping
+  // the tutor an allocation already has is not a new choice.
+  const topCandidate = eligibleCandidates[0] ?? null
+  const keepsCurrentTutor = Boolean(
+    editingAllocation && selectedCandidate && editingAllocation.tutorId === selectedCandidate.tutorId,
+  )
+  const needsOverrideReason = Boolean(
+    selectedCandidate && topCandidate && selectedCandidate.tutorId !== topCandidate.tutorId && !keepsCurrentTutor,
+  )
+  const overrideReasonMissing = needsOverrideReason && !overrideReason.trim()
+  const canSave = canSelectCandidate(selectedCandidate) && !overrideReasonMissing && !isMutating
+
   function boardInput() {
     return {
       courseId: Number(form.courseId),
@@ -314,6 +353,7 @@ export default function OrganiserDashboard() {
     setCandidateStatus('idle')
     setCandidates([])
     setSelectedTutorId(null)
+    setOverrideReason('')
     setSaveMessage('')
     setSaveError('')
   }
@@ -330,6 +370,8 @@ export default function OrganiserDashboard() {
     setCandidateStatus('loading')
     try {
       const result = await listAllocationCandidates(boardInput(), getAccessTokenSilently)
+      focusFirstCandidateRef.current = true
+      setOverrideReason('')
       setCandidates(result)
       setSelectedTutorId(
         result.some((candidate) => candidate.tutorId === preferredTutorId && canSelectCandidate(candidate))
@@ -366,6 +408,7 @@ export default function OrganiserDashboard() {
     setCandidateStatus('idle')
     setCandidates([])
     setSelectedTutorId(null)
+    setOverrideReason('')
     setSaveMessage('')
     setSaveError('')
     setPanelOpen(true)
@@ -380,6 +423,7 @@ export default function OrganiserDashboard() {
     setCandidateStatus('idle')
     setCandidates([])
     setSelectedTutorId(null)
+    setOverrideReason('')
     setCandidateError('')
     setSaveMessage('')
     setSaveError('')
@@ -417,6 +461,7 @@ export default function OrganiserDashboard() {
     setCandidateStatus('idle')
     setCandidates([])
     setSelectedTutorId(null)
+    setOverrideReason('')
     setCandidateError('')
     setSaveError('')
   }
@@ -461,7 +506,7 @@ export default function OrganiserDashboard() {
   }
 
   async function handleSaveAllocation() {
-    if (!canSelectCandidate(selectedCandidate)) return
+    if (!canSave) return
     const input = boardInput()
     setMutationStatus('saving')
     setSaveMessage('')
@@ -472,6 +517,7 @@ export default function OrganiserDashboard() {
         ...input,
         tutorId: selectedCandidate.tutorId,
         status: editingAllocation?.status ?? 'CONFIRMED',
+        ...(needsOverrideReason ? { overrideReason: overrideReason.trim() } : {}),
       }
       let savedAllocation
       if (editingAllocation) {
@@ -492,6 +538,7 @@ export default function OrganiserDashboard() {
           : `The allocation was saved for ${selectedCandidate.fullName}. Use Refresh or Check candidates to load the latest board.`,
       )
       setEditingAllocation(null)
+      setOverrideReason('')
     } catch (error) {
       setSaveError(
         safeErrorMessage(
@@ -543,6 +590,30 @@ export default function OrganiserDashboard() {
     }
   }
 
+
+  // After an explicit check, put the keyboard on the top-ranked tutor.
+  useEffect(() => {
+    if (candidateStatus !== 'success' || !focusFirstCandidateRef.current) return
+    focusFirstCandidateRef.current = false
+    candidateGridRef.current?.querySelector('[data-candidate-select]:not(:disabled)')?.focus()
+  }, [candidateStatus, candidates])
+
+  useEffect(() => {
+    saveShortcutRef.current = () => {
+      if (canSave) void handleSaveAllocation()
+    }
+  })
+  useEffect(() => {
+    if (!panelOpen) return undefined
+    function saveOnShortcut(event) {
+      if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
+        event.preventDefault()
+        saveShortcutRef.current()
+      }
+    }
+    document.addEventListener('keydown', saveOnShortcut)
+    return () => document.removeEventListener('keydown', saveOnShortcut)
+  }, [panelOpen])
 
   const statusNotes = (
     <>
@@ -629,6 +700,11 @@ export default function OrganiserDashboard() {
                 {`${editingAllocation.allocatedHours}\u00a0h`} ·{' '}
                 {editingAllocation.status.charAt(0) + editingAllocation.status.slice(1).toLowerCase()}
               </p>
+              {editingAllocation.overrideReason && (
+                <p className="panel-current-meta override-note">
+                  <strong>Chosen over the top-ranked tutor:</strong> {editingAllocation.overrideReason}
+                </p>
+              )}
             </div>
             <button type="button" className="danger-button" onClick={() => requestRemoval(editingAllocation)} disabled={isMutating}>
               Remove allocation
@@ -808,9 +884,21 @@ export default function OrganiserDashboard() {
                   <>
                     <p className="helper-text">
                       <strong>Ranked by mark band, then who is least busy that week.</strong>{' '}
-                      These tutors meet all allocation rules. Select one to assign.
+                      These tutors meet all allocation rules. Select one to assign; choosing anyone
+                      other than the first needs a reason.
                     </p>
-                    <div className="candidate-grid">
+                    <p className="keyboard-hint" id="candidate-keyboard-hint">
+                      <kbd>↑</kbd> <kbd>↓</kbd> move between tutors · <kbd>Enter</kbd> selects ·{' '}
+                      <kbd>Ctrl</kbd>/<kbd>⌘</kbd> + <kbd>Enter</kbd> saves
+                    </p>
+                    <div
+                      className="candidate-grid"
+                      ref={candidateGridRef}
+                      role="group"
+                      aria-label="Eligible tutors, best ranked first"
+                      aria-describedby="candidate-keyboard-hint"
+                      onKeyDown={moveBetweenCandidates}
+                    >
                       {eligibleCandidates.map((candidate) => (
                         <CandidateCard
                           key={candidate.tutorId}
@@ -862,6 +950,35 @@ export default function OrganiserDashboard() {
           </section>
         )}
 
+        {needsOverrideReason && (
+          <section className="panel-step override-reason" aria-labelledby="override-reason-heading">
+            <h3 id="override-reason-heading">
+              <span className="panel-step-number" aria-hidden="true">3</span>
+              Why this tutor?
+            </h3>
+            <div className="field-group">
+              <label htmlFor="allocation-override-reason">
+                Why {selectedCandidate.fullName} instead of {topCandidate.fullName}, who is ranked first?
+              </label>
+              <textarea
+                id="allocation-override-reason"
+                value={overrideReason}
+                maxLength={1000}
+                rows={3}
+                disabled={isMutating}
+                onChange={(event) => setOverrideReason(event.target.value)}
+                aria-invalid={overrideReasonMissing}
+                aria-describedby="allocation-override-reason-help"
+              />
+              <p id="allocation-override-reason-help" className={overrideReasonMissing ? 'error-text' : 'helper-text'}>
+                {overrideReasonMissing
+                  ? 'Give a reason for choosing a different tutor. It is recorded with the allocation.'
+                  : 'Recorded with the allocation so the decision can be explained later.'}
+              </p>
+            </div>
+          </section>
+        )}
+
         {panelOpen && statusNotes}
 
         {candidateStatus === 'success' && candidates.length > 0 && (
@@ -872,7 +989,7 @@ export default function OrganiserDashboard() {
             <button
               type="button"
               className="primary-button"
-              disabled={!canSelectCandidate(selectedCandidate) || isMutating}
+              disabled={!canSave}
               onClick={handleSaveAllocation}
             >
               {mutationStatus === 'saving'

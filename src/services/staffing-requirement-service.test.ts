@@ -15,6 +15,7 @@ function row(overrides: Record<string, unknown> = {}) {
     endsAt: END,
     tutorsNeeded: 2,
     status: "OPEN",
+    statusReason: null,
     notes: "Two extra tutors for the lab",
     createdById: 8,
     createdAt: CREATED,
@@ -27,7 +28,7 @@ function row(overrides: Record<string, unknown> = {}) {
 interface HarnessOptions {
   organiser?: { id: number; role: string } | null;
   course?: { id: number } | null;
-  requirement?: { id: number; status?: string; endsAt?: Date } | null;
+  requirement?: { id: number; status?: string; statusReason?: string | null; endsAt?: Date } | null;
   /** Confirmed hours the shortage query reports for requirement 12. */
   assignedHours?: number;
 }
@@ -44,7 +45,7 @@ function createHarness(options: HarnessOptions = {}) {
     profile: { findUnique: vi.fn().mockResolvedValue(organiser) },
     course: { findUnique: vi.fn().mockResolvedValue(course) },
     staffingRequirement: {
-      findUnique: vi.fn().mockResolvedValue(requirement),
+      findUnique: vi.fn().mockResolvedValue(requirement === null ? null : row(requirement)),
       findMany: vi.fn().mockResolvedValue([row()]),
       create: vi.fn().mockResolvedValue(row()),
       update: vi.fn().mockResolvedValue(row()),
@@ -157,6 +158,7 @@ describe("staffing requirement service", () => {
           shortageTutors: 2,
           fillState: "unfilled",
           status: "OPEN",
+          statusReason: null,
           notes: "Two extra tutors for the lab",
           createdById: 8,
           createdAt: "2026-09-21T09:00:00.000Z",
@@ -396,9 +398,10 @@ describe("staffing requirement service", () => {
 
   describe("changing status", () => {
     it.each(["CLOSED", "CANCELLED"] as const)(
-      "moves an open requirement to %s",
+      "moves a fully staffed open requirement to %s without a reason",
       async (status) => {
-        harness = createHarness({ requirement: { id: 12, status: "OPEN", endsAt: END } });
+        // 4 hours x 2 tutors = 8 required hours, all assigned.
+        harness = createHarness({ requirement: { id: 12, status: "OPEN", endsAt: END }, assignedHours: 8 });
         harness.transaction.staffingRequirement.update.mockResolvedValue(
           row({ status }),
         );
@@ -406,10 +409,56 @@ describe("staffing requirement service", () => {
           harness.service.setStaffingRequirementStatus(12, status),
         ).resolves.toMatchObject({ status });
         expect(harness.transaction.staffingRequirement.update).toHaveBeenCalledWith(
-          expect.objectContaining({ where: { id: 12 }, data: { status } }),
+          expect.objectContaining({ where: { id: 12 }, data: { status, statusReason: null } }),
         );
       },
     );
+
+    it.each([
+      ["CLOSED", 0, "2 tutors short", "closing"],
+      ["CANCELLED", 4, "1 tutor short", "cancelling"],
+    ] as const)(
+      "needs a reason to make still-short work %s",
+      async (status, assignedHours, shortText, verb) => {
+        harness = createHarness({ requirement: { id: 12, status: "OPEN", endsAt: END }, assignedHours });
+        await expect(
+          harness.service.setStaffingRequirementStatus(12, status),
+        ).rejects.toMatchObject({
+          status: 409,
+          code: "STATUS_REASON_REQUIRED",
+          message: `This session is still ${shortText}. Give a reason for ${verb} it anyway.`,
+        });
+        expect(harness.transaction.staffingRequirement.update).not.toHaveBeenCalled();
+      },
+    );
+
+    it("records the reason when still-short work is closed", async () => {
+      harness = createHarness({ requirement: { id: 12, status: "OPEN", endsAt: END } });
+      harness.transaction.staffingRequirement.update.mockResolvedValue(
+        row({ status: "CLOSED", statusReason: "The lecturer cancelled the lab." }),
+      );
+
+      await expect(
+        harness.service.setStaffingRequirementStatus(12, "CLOSED", "The lecturer cancelled the lab."),
+      ).resolves.toMatchObject({ status: "CLOSED", statusReason: "The lecturer cancelled the lab." });
+      expect(harness.transaction.staffingRequirement.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: { status: "CLOSED", statusReason: "The lecturer cancelled the lab." },
+        }),
+      );
+    });
+
+    it("clears the old reason when a requirement is reopened", async () => {
+      harness = createHarness({
+        requirement: { id: 12, status: "CLOSED", statusReason: "Lab moved.", endsAt: END },
+      });
+      harness.transaction.staffingRequirement.update.mockResolvedValue(row({ status: "OPEN" }));
+
+      await harness.service.setStaffingRequirementStatus(12, "OPEN");
+      expect(harness.transaction.staffingRequirement.update).toHaveBeenCalledWith(
+        expect.objectContaining({ data: { status: "OPEN", statusReason: null } }),
+      );
+    });
 
     it.each(["CLOSED", "CANCELLED"])(
       "reopens a %s requirement",
@@ -469,12 +518,8 @@ describe("staffing requirement service", () => {
   it("runs every write inside a single transaction", async () => {
     await harness.service.createStaffingRequirement("auth0|organiser", validInput);
     await harness.service.updateStaffingRequirement(12, validInput);
-    harness.transaction.staffingRequirement.findUnique.mockResolvedValue({
-      id: 12,
-      status: "OPEN",
-      endsAt: END,
-    });
-    await harness.service.setStaffingRequirementStatus(12, "CLOSED");
+    harness.transaction.staffingRequirement.findUnique.mockResolvedValue(row());
+    await harness.service.setStaffingRequirementStatus(12, "CLOSED", "No longer needed.");
     expect(harness.client.$transaction).toHaveBeenCalledTimes(3);
   });
 });

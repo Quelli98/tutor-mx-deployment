@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import StudentSickNoteQueue from './StudentSickNoteQueue'
+import { ConfirmationDialog } from '../components/shared/ConfirmationDialog'
 import { EmptyState, ErrorState, LoadingState } from '../components/shared/StatusMessage'
 import { useOrganiserApprovals } from './useOrganiserApprovals'
 
@@ -30,7 +31,22 @@ export default function OrganiserApprovals() {
     updateReason,
     submitDecision,
     submitDisputeResolution,
+    selectedTimesheetIds,
+    toggleTimesheet,
+    selectAllTimesheets,
+    approveSelectedTimesheets,
   } = useOrganiserApprovals()
+  const [confirmingBulk, setConfirmingBulk] = useState(false)
+
+  const selectedTimesheets = queues.timesheets.filter((timesheet) => selectedTimesheetIds.includes(timesheet.id))
+  const allTimesheetsSelected =
+    queues.timesheets.length > 0 && selectedTimesheets.length === queues.timesheets.length
+  const selectedHours = selectedTimesheets.reduce((total, timesheet) => total + Number(timesheet.totalHours), 0)
+
+  async function confirmBulkApproval() {
+    await approveSelectedTimesheets()
+    setConfirmingBulk(false)
+  }
 
   return (
     <main id="main-content" className="dashboard-shell organiser-approvals">
@@ -77,6 +93,31 @@ export default function OrganiserApprovals() {
                 message="Submitted tutor timesheets will appear here for review."
               />
             ) : (
+              <>
+              <div className="bulk-approve-bar">
+                <div className="checkbox-field">
+                  <input
+                    id="timesheets-select-all"
+                    type="checkbox"
+                    checked={allTimesheetsSelected}
+                    disabled={Boolean(pendingKey)}
+                    onChange={(event) => selectAllTimesheets(event.target.checked)}
+                  />
+                  <label htmlFor="timesheets-select-all">
+                    Select all {queues.timesheets.length} {queues.timesheets.length === 1 ? 'timesheet' : 'timesheets'}
+                  </label>
+                </div>
+                <button
+                  type="button"
+                  className="primary-button"
+                  disabled={selectedTimesheets.length === 0 || Boolean(pendingKey)}
+                  onClick={() => setConfirmingBulk(true)}
+                >
+                  {pendingKey === 'timesheet-bulk-APPROVE'
+                    ? 'Approving...'
+                    : `Approve selected (${selectedTimesheets.length})`}
+                </button>
+              </div>
               <div className="approval-list">
                 {queues.timesheets.map((timesheet) => {
                   const key = `timesheet-${timesheet.id}`
@@ -84,6 +125,18 @@ export default function OrganiserApprovals() {
                   return (
                     <article className="approval-card" key={timesheet.id}>
                       <div className="approval-card-header">
+                        <div className="checkbox-field approval-select">
+                          <input
+                            id={`${key}-select`}
+                            type="checkbox"
+                            checked={selectedTimesheetIds.includes(timesheet.id)}
+                            disabled={busy}
+                            onChange={() => toggleTimesheet(timesheet.id)}
+                          />
+                          <label htmlFor={`${key}-select`} className="visually-hidden">
+                            Select {timesheet.tutorName}&apos;s timesheet for the week of {formatDate(timesheet.weekStart)}
+                          </label>
+                        </div>
                         <div>
                           <h3>{timesheet.tutorName}</h3>
                           <p>{timesheet.tutorEmail}</p>
@@ -149,6 +202,7 @@ export default function OrganiserApprovals() {
                   )
                 })}
               </div>
+              </>
             )}
           </section>
 
@@ -370,6 +424,25 @@ export default function OrganiserApprovals() {
           </section>
         </div>
       )}
+      <ConfirmationDialog
+        open={confirmingBulk}
+        title={`Approve ${selectedTimesheets.length} ${selectedTimesheets.length === 1 ? 'timesheet' : 'timesheets'}?`}
+        confirmLabel="Approve timesheets"
+        onConfirm={confirmBulkApproval}
+        onCancel={() => setConfirmingBulk(false)}
+        isPending={pendingKey === 'timesheet-bulk-APPROVE'}
+      >
+        <p>
+          {selectedHours} hours in total will be signed off for payroll, and each tutor will be notified.
+        </p>
+        <ul className="bulk-approve-list">
+          {selectedTimesheets.map((timesheet) => (
+            <li key={timesheet.id}>
+              {timesheet.tutorName}, week of {formatDate(timesheet.weekStart)}: {timesheet.totalHours} hours
+            </li>
+          ))}
+        </ul>
+      </ConfirmationDialog>
     </main>
   )
 }

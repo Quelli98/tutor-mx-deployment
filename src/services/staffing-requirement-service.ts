@@ -35,6 +35,7 @@ export interface StaffingRequirementService {
   setStaffingRequirementStatus(
     requirementId: number,
     status: StaffingRequirementStatus,
+    reason?: string,
   ): Promise<StaffingRequirementSummary>;
 }
 
@@ -45,6 +46,7 @@ const requirementSelection = {
   endsAt: true,
   tutorsNeeded: true,
   status: true,
+  statusReason: true,
   notes: true,
   createdById: true,
   createdAt: true,
@@ -59,6 +61,7 @@ interface RequirementRow {
   endsAt: Date;
   tutorsNeeded: number;
   status: StaffingRequirementStatus;
+  statusReason: string | null;
   notes: string | null;
   createdById: number | null;
   createdAt: Date;
@@ -157,6 +160,7 @@ function toStaffingRequirementSummary(
     shortageTutors: Math.ceil(shortageHours / windowHours),
     fillState: fillStateFor(assignedHours, shortageHours, row.status),
     status: row.status,
+    statusReason: row.statusReason,
     notes: row.notes,
     createdById: row.createdById,
     createdAt: row.createdAt.toISOString(),
@@ -311,11 +315,11 @@ export function createStaffingRequirementService(
       });
     },
 
-    async setStaffingRequirementStatus(requirementId, status) {
+    async setStaffingRequirementStatus(requirementId, status, reason) {
       return await client.$transaction(async (transaction) => {
         const current = await transaction.staffingRequirement.findUnique({
           where: { id: requirementId },
-          select: { id: true, status: true, endsAt: true },
+          select: requirementSelection,
         });
         if (!current) {
           requirementNotFound();
@@ -338,9 +342,23 @@ export function createStaffingRequirementService(
           );
         }
 
+        // Closing or cancelling work that is still short overrides the
+        // shortage, so it needs a reason. Fully staffed work can close without.
+        if (status !== "OPEN" && current.status === "OPEN" && !reason) {
+          const { shortageTutors } = await withAssignedHoursForOne(current);
+          if (shortageTutors > 0) {
+            throw createRouteError(
+              409,
+              "STATUS_REASON_REQUIRED",
+              `This session is still ${shortageTutors} ${shortageTutors === 1 ? "tutor" : "tutors"} short. Give a reason for ${status === "CLOSED" ? "closing" : "cancelling"} it anyway.`,
+            );
+          }
+        }
+
         const updated = await transaction.staffingRequirement.update({
           where: { id: requirementId },
-          data: { status },
+          // Reopening clears the old reason: it no longer explains anything.
+          data: { status, statusReason: status === "OPEN" ? null : reason ?? null },
           select: requirementSelection,
         });
         return await withAssignedHoursForOne(updated);

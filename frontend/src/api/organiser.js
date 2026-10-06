@@ -112,7 +112,11 @@ function isOrganiserAllocation(value) {
     typeof value.tutorName === 'string' &&
     typeof value.tutorEmail === 'string' &&
     typeof value.courseCode === 'string' &&
-    typeof value.courseName === 'string'
+    typeof value.courseName === 'string' &&
+    // Why this tutor was chosen over the top-ranked one; absent from older servers.
+    (value.overrideReason === undefined ||
+      value.overrideReason === null ||
+      typeof value.overrideReason === 'string')
   )
 }
 
@@ -286,6 +290,7 @@ function allocationPayload(input) {
     minimumMark: input.minimumMark,
     requestedHours: input.requestedHours,
     status: input.status,
+    ...(input.overrideReason ? { overrideReason: input.overrideReason } : {}),
   }
 }
 
@@ -349,6 +354,30 @@ export async function listOrganiserApprovals(tokenOrGetter) {
     throw new Error('The organiser-approval response did not match the agreed contract.')
   }
   return { timesheets, volunteerClaims, excuses }
+}
+
+function isBulkTimesheetResult(value) {
+  return (
+    !!value &&
+    typeof value === 'object' &&
+    Number.isInteger(value.timesheetId) &&
+    (value.outcome === 'approved' ||
+      (value.outcome === 'failed' && typeof value.code === 'string' && typeof value.message === 'string'))
+  )
+}
+
+/** Approves several submitted timesheets; each succeeds or fails on its own. */
+export async function approveTimesheets(timesheetIds, tokenOrGetter) {
+  const body = await fetchWithBearerToken(
+    '/api/timesheets/bulk-decision',
+    { method: 'POST', body: JSON.stringify({ timesheetIds, decision: 'APPROVE' }) },
+    tokenOrGetter,
+  )
+  const results = body?.data?.results
+  if (!Array.isArray(results) || !results.every(isBulkTimesheetResult)) {
+    throw new Error('The bulk approval response did not match the agreed contract.')
+  }
+  return results
 }
 
 export async function decideTimesheet(input, tokenOrGetter) {
@@ -450,6 +479,10 @@ function isStaffingRequirement(value) {
     Number.isInteger(value.shortageTutors) &&
     STAFFING_REQUIREMENT_FILL_STATES.includes(value.fillState) &&
     STAFFING_REQUIREMENT_STATUSES.includes(value.status) &&
+    // Why it was closed or cancelled while short; absent from older servers.
+    (value.statusReason === undefined ||
+      value.statusReason === null ||
+      typeof value.statusReason === 'string') &&
     (value.notes === null || typeof value.notes === 'string') &&
     (value.createdById === null || Number.isInteger(value.createdById)) &&
     isDate(value.createdAt) &&
@@ -513,7 +546,10 @@ export async function updateStaffingRequirement(input, tokenOrGetter) {
 export async function setStaffingRequirementStatus(input, tokenOrGetter) {
   const body = await fetchWithBearerToken(
     `/api/staffing-requirements/${input.requirementId}/status`,
-    { method: 'PATCH', body: JSON.stringify({ status: input.status }) },
+    {
+      method: 'PATCH',
+      body: JSON.stringify({ status: input.status, ...(input.reason ? { reason: input.reason } : {}) }),
+    },
     tokenOrGetter,
   )
   return staffingRequirementFrom(body)

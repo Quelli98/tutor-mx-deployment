@@ -314,3 +314,17 @@ describe("the shortage query agrees with timeRangesOverlap", () => {
     expect(overlapsInJs).toBe(expected);
   });
 });
+
+describe("a requirement's status reason", () => {
+  it("stores a reason and refuses a blank one", async () => {
+    await sql(`UPDATE "StaffingRequirement" SET "status"='CLOSED', "statusReason"='Lab moved online.' WHERE "id"=${REQUIREMENT}`);
+    const stored = await database.query<{ statusReason: string }>(
+      `SELECT "statusReason" FROM "StaffingRequirement" WHERE "id"=${REQUIREMENT}`,
+    );
+    expect(stored.rows[0]?.statusReason).toBe("Lab moved online.");
+
+    await expect(
+      sql(`UPDATE "StaffingRequirement" SET "statusReason"='   ' WHERE "id"=${REQUIREMENT}`),
+    ).rejects.toThrow(/StaffingRequirement_statusReason_not_blank/);
+  });
+});

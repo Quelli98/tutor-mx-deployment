@@ -13,6 +13,8 @@ export function ConfirmationDialog({
   onCancel,
   isPending = false,
   returnFocusRef,
+  // For a dialog that collects something first, such as a required reason.
+  confirmDisabled = false,
 }) {
   const dialogRef = useRef(null)
   const cancelButtonRef = useRef(null)
@@ -139,7 +141,7 @@ export function ConfirmationDialog({
               type="button"
               className="primary-button"
               onClick={onConfirm}
-              disabled={isPending}
+              disabled={isPending || confirmDisabled}
             >
               {isPending ? 'Confirming...' : confirmLabel}
             </button>
