@@ -41,6 +41,7 @@ vi.mock('../api/organiser', () => ({
   updateTutor: vi.fn(),
   listAllocations: vi.fn().mockResolvedValue([]),
   listAllocationCandidates: vi.fn().mockResolvedValue([]),
+  canSelectCandidate: vi.fn().mockReturnValue(false),
   listOrganiserApprovals: vi
     .fn()
     .mockResolvedValue({ timesheets: [], volunteerClaims: [], excuses: [] }),
