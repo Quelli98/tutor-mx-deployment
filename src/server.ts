@@ -10,6 +10,7 @@ import type { PlanningStore } from './services/planning-store.js';
 import { resolveNavigation } from './services/navigation-targets.js';
 import { saveManualSchedule } from "./services/manual-schedule.js";
 import { removeOccurrenceException, saveOccurrenceException } from "./services/occurrence-exceptions.js";
+import { computeTutorObligations } from "./services/tutor-obligations.js";
 import "dotenv/config";
 import {
   createApp,
@@ -893,6 +894,7 @@ const app = createApp(
               status: true,
               course: { select: { code: true, name: true } },
               excuses: { select: attendanceSelection },
+              workLogs: { select: { id: true }, take: 1 },
             },
           },
         },
@@ -904,6 +906,36 @@ const app = createApp(
           "No tutor profile is linked to this account.",
         );
       }
+
+      const openTimesheets = await prisma.timesheet.findMany({
+        where: { tutorId: profile.id, status: { in: ["DRAFT", "RETURNED"] } },
+        select: {
+          id: true,
+          weekStart: true,
+          status: true,
+          reviewedAt: true,
+          _count: { select: { workLogs: true } },
+        },
+      });
+      const obligations = computeTutorObligations({
+        now: new Date(),
+        sessions: profile.allocations.map((allocation) => ({
+          id: allocation.id,
+          courseCode: allocation.course.code,
+          startsAt: allocation.startsAt,
+          endsAt: allocation.endsAt,
+          status: allocation.status,
+          workLogEligible: allocationAttendance(allocation.excuses).workLogEligible,
+          logged: (allocation.workLogs?.length ?? 0) > 0,
+        })),
+        timesheets: openTimesheets.map((timesheet) => ({
+          id: timesheet.id,
+          weekStart: timesheet.weekStart,
+          status: timesheet.status,
+          reviewedAt: timesheet.reviewedAt,
+          workLogCount: timesheet._count.workLogs,
+        })),
+      });
 
       const weekStart = mondayUtcFor(new Date());
       const hourSummary = await getTutorHourSummary(
@@ -959,6 +991,7 @@ const app = createApp(
         usedHours: dashboardHours.usedHours,
         remainingHours: dashboardHours.remainingHours,
         ...(hasSchedule === undefined ? {} : { hasSchedule }),
+        obligations,
       };
     },
     async createTutorTimeSlot(auth0Id, input) {

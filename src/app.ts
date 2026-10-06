@@ -57,6 +57,7 @@ import {
 } from "./services/timetable-import.js";
 import type { TimetableImportCommitResult } from "./services/timetable-import-service.js";
 import type { OccurrenceExceptionInput } from "./services/occurrence-exceptions.js";
+import type { TutorObligation } from "./services/tutor-obligations.js";
 import type {
   TimesheetCorrectionInput,
   TimesheetCorrectionResult,
@@ -137,6 +138,8 @@ export interface TutorDashboardSummary {
   usedHours: number;
   remainingHours: number | null;
   hasSchedule?: boolean;
+  /** What the tutor still owes (hours to log, timesheets to submit) and when. */
+  obligations?: TutorObligation[];
 }
 
 export interface TutorTimeSlotWriteInput {

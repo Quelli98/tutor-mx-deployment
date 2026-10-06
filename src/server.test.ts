@@ -29,6 +29,7 @@ const mocks = vi.hoisted(() => ({
   timeSlotUpdate: vi.fn(),
   timeSlotFindMany: vi.fn(),
   timesheetUpsert: vi.fn(),
+  timesheetFindMany: vi.fn(),
   transaction: vi.fn(),
   tutorMarkFindMany: vi.fn(),
   tutorMarkDeleteMany: vi.fn(),
@@ -71,6 +72,9 @@ vi.mock("./database.js", () => ({
     },
     excuse: {
       create: mocks.excuseCreate,
+    },
+    timesheet: {
+      findMany: mocks.timesheetFindMany,
     },
     timeSlot: {
       create: mocks.timeSlotCreate,
@@ -149,6 +153,7 @@ beforeEach(() => {
   mocks.academicTermFindMany.mockResolvedValue([]);
   mocks.timeSlotFindMany.mockResolvedValue([]);
   mocks.timeSlotFindFirst.mockResolvedValue({ id: 8 });
+  mocks.timesheetFindMany.mockResolvedValue([]);
   mocks.transaction.mockImplementation(
     async (callback: (transaction: unknown) => unknown) =>
       callback({
@@ -498,6 +503,7 @@ describe("server-side API persistence", () => {
       weeklyLimit: 10,
       usedHours: 6,
       remainingHours: 4,
+      obligations: [],
     });
     expect(mocks.profileFindUnique).toHaveBeenCalledWith(
       expect.objectContaining({ where: { auth0Id: "auth0|current-tutor" } }),
@@ -521,7 +527,37 @@ describe("server-side API persistence", () => {
       weeklyLimit: null,
       usedHours: 0,
       remainingHours: null,
+      obligations: [],
     });
+  });
+
+  it("tells a tutor which ended sessions and timesheets they still owe", async () => {
+    await import("./server.js");
+    const dependencies = capturedDependencies();
+    mocks.profileFindUnique.mockResolvedValueOnce({
+      id: 7,
+      role: "TUTOR",
+      allocations: [
+        { id: 4, startsAt: new Date("2026-09-29T08:00:00.000Z"), endsAt: new Date("2026-09-29T10:00:00.000Z"),
+          allocatedHours: "2.00", status: "CONFIRMED", course: { code: "DEMO101", name: "Demo" }, workLogs: [] },
+        { id: 5, startsAt: new Date("2026-09-30T08:00:00.000Z"), endsAt: new Date("2026-09-30T10:00:00.000Z"),
+          allocatedHours: "2.00", status: "CONFIRMED", course: { code: "DEMO101", name: "Demo" }, workLogs: [{ id: 1 }] },
+      ],
+    });
+    mocks.getTutorHourSummary.mockResolvedValueOnce(null);
+    mocks.timesheetFindMany.mockResolvedValueOnce([
+      { id: 12, weekStart: new Date("2026-09-21T00:00:00.000Z"), status: "RETURNED", reviewedAt: new Date("2026-09-26T08:00:00.000Z"), _count: { workLogs: 2 } },
+    ]);
+
+    const dashboard = await dependencies.getTutorDashboard("auth0|current-tutor");
+
+    expect(dashboard.obligations?.map((item) => [item.kind, item.allocationId ?? item.timesheetId])).toEqual([
+      ["RESUBMIT_TIMESHEET", 12],
+      ["LOG_HOURS", 4],
+    ]);
+    expect(mocks.timesheetFindMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: { tutorId: 7, status: { in: ["DRAFT", "RETURNED"] } },
+    }));
   });
 
   it("persists own-tutor availability, work logs and excuses", async () => {

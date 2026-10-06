@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { useAuth0 } from '@auth0/auth0-react'
 import { fetchTutorDashboard, isValidWeeklyCapacity, saveWeeklyCapacity } from '../api/tutorDashboard'
 import { ErrorState } from '../components/shared/StatusMessage'
+import OwedWork from './OwedWork'
 
 function formatSessionDate(startsAt, endsAt) {
   const start = new Date(startsAt)
@@ -195,6 +196,8 @@ export default function TutorDashboard() {
           </ul>
         )}
       </section>
+
+      <OwedWork obligations={data.obligations ?? []} />
 
       <section className="role-card hours-summary" aria-labelledby="weekly-hours-heading">
         <h2 id="weekly-hours-heading">Weekly work capacity</h2>

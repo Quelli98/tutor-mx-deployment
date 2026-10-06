@@ -39,6 +39,9 @@
 .notification-item { display: grid; gap: 6px; padding: 12px; border: 1px solid #e2e6f1; border-radius: 12px; background: #fafbfe; }
 .notification-item.unread { border-color: #9bb9ef; background: #f1f6ff; }
 .notification-item-button { border: 0; background: transparent; padding: 0; color: inherit; text-align: left; cursor: pointer; }
+.owed-work .owed-when { color: #4b5470; font-size: .9rem; }
+.owed-work .owed-when.overdue { color: #b42318; font-weight: 600; }
+.owed-work li .secondary-button { justify-self: start; }
 .notification-item-button strong, .notification-item-button span { display: block; }
 .notification-item-button span, .notification-time { margin-top: 4px; color: #68728c; font-size: .86rem; }
 .command-palette-backdrop { position: fixed; z-index: 150; inset: 0; display: grid; place-items: start center; padding: 12vh 18px 18px; background: rgba(18, 25, 45, .52); backdrop-filter: blur(4px); }
