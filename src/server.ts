@@ -4,6 +4,7 @@ import {createStudentSickNoteService} from './services/student-sick-note-service
 import {createBookingService} from './services/booking-service.js';
 import {createSwapService} from './services/swap-service.js';
 import { createScenarioService } from './services/scenario-service.js';
+import { createProposalService } from './services/proposal-service.js';
 import { createMutualAvailabilityService } from './services/mutual-availability.js';
 import type { PlanningStore } from './services/planning-store.js';
 import { resolveNavigation } from './services/navigation-targets.js';
@@ -470,6 +471,7 @@ const planningStore: PlanningStore = {
   }), { isolationLevel: 'Serializable', timeout: 15000, maxWait: 5000 }),
 };
 const scenarioService = createScenarioService(planningStore);
+const proposalService = createProposalService(planningStore, scenarioService);
 const mutualAvailabilityService = createMutualAvailabilityService(planningStore);
 
 const app = createApp(
@@ -1339,6 +1341,7 @@ const app = createApp(
     bookingService: createBookingService(planningStore),
     swapService: createSwapService(planningStore),
     scenarioService,
+    proposalService,
     mutualAvailabilityService,
     resolveNavigation: (auth0Id, input) => resolveNavigation(queryClient, auth0Id, input),
     async listOwnTutorTimeSlots(auth0Id) {

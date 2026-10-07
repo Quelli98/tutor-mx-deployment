@@ -13,6 +13,7 @@ const NAV_ITEMS = [
   { to: '/organiser', label: 'Home', icon: 'house' },
   { to: '/organiser/swaps', label: 'Tutor swaps', icon: 'users' },
   { to: '/organiser/scenarios', label: 'Scenario planning', icon: 'clipboard-plus' },
+  { to: '/organiser/proposals', label: 'Proposal lab', icon: 'chart-column' },
   { to: '/organiser/command-centre', label: 'Command centre', icon: 'gauge' },
   { to: '/organiser/courses', label: 'Courses', icon: 'book-open' },
   { to: '/organiser/tutors', label: 'Tutors', icon: 'users' },

@@ -4,6 +4,7 @@ import type {StudentSickNoteService} from './services/student-sick-note-service.
 import type {BookingService} from './services/booking-service.js';
 import type {SwapService} from './services/swap-service.js';
 import type { ScenarioService } from './services/scenario-service.js';
+import type { ProposalService } from './services/proposal-service.js';
 import type { MutualAvailabilityService } from './services/mutual-availability.js';
 import type { NavigationInput, NavigationResult } from './services/navigation-targets.js';
 import { normalizeIdempotencyKey } from "./http/idempotency.js";
@@ -999,6 +1000,7 @@ export interface AppDependencies {
   bookingService?: BookingService;
   swapService?: SwapService;
   scenarioService?: ScenarioService;
+  proposalService?: ProposalService;
   mutualAvailabilityService?: MutualAvailabilityService;
   verifyAccessToken: AccessTokenVerifier;
 }
@@ -4700,6 +4702,15 @@ export function createApp(
     if (!dependencies.mutualAvailabilityService) throw createRouteError(503, 'AVAILABILITY_UNAVAILABLE', 'Availability is temporarily unavailable.');
     return dependencies.mutualAvailabilityService;
   };
+  const proposals = () => {
+    if (!dependencies.proposalService) throw createRouteError(503, 'PROPOSAL_UNAVAILABLE', 'Proposal planning is temporarily unavailable.');
+    return dependencies.proposalService;
+  };
+  app.post('/api/organiser/proposals/preview', authenticate, resolveProfileRole, requireRole('ORGANISER'), async (request,response) => { try { response.json({data:await proposals().preview((request as AuthenticatedRequest).auth!.subject,request.body)}); } catch(value){sendRouteError(response,value);} });
+  app.post('/api/organiser/proposals/compare', authenticate, resolveProfileRole, requireRole('ORGANISER'), async (request,response) => { try { response.json({data:await proposals().compare((request as AuthenticatedRequest).auth!.subject,request.body)}); } catch(value){sendRouteError(response,value);} });
+  app.post('/api/organiser/proposals/generate', authenticate, resolveProfileRole, requireRole('ORGANISER'), async (request,response) => { try { response.status(201).json({data:await proposals().generate((request as AuthenticatedRequest).auth!.subject,request.body)}); } catch(value){sendRouteError(response,value);} });
+  app.get('/api/organiser/proposals/:scenarioId/explanations', authenticate, resolveProfileRole, requireRole('ORGANISER'), async (request,response) => { try { response.json({data:await proposals().explain((request as AuthenticatedRequest).auth!.subject,schedulingId(request.params.scenarioId))}); } catch(value){sendRouteError(response,value);} });
+  app.post('/api/organiser/proposals/:scenarioId/adjust', authenticate, resolveProfileRole, requireRole('ORGANISER'), async (request,response) => { try { response.json({data:await proposals().adjust((request as AuthenticatedRequest).auth!.subject,schedulingId(request.params.scenarioId),request.body)}); } catch(value){sendRouteError(response,value);} });
   app.get('/api/organiser/scenarios', authenticate, resolveProfileRole, requireRole('ORGANISER'), async (request,response) => {
     try { const status=request.query.status; if(status!==undefined && typeof status!=='string') throw createRouteError(400,'VALIDATION_ERROR','Choose one scenario status.'); response.json({data:await planning().list((request as AuthenticatedRequest).auth!.subject,status)}); } catch(value){sendRouteError(response,value);}
   });

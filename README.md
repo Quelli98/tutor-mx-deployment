@@ -195,3 +195,9 @@ The revised archive includes a [follow-up bug audit](docs/sprint3-member5-follow
 ## Sprint 4 Member 1 update - 3 October 2026
 
 Codex assisted with AI code generation, AI in-line editing and AI code review for shared Student/Tutor schedules, session hardening, permission-checked navigation, notifications and recent/favourite destinations. It also generated regression tests and the handoff notes. The final integrator should review the changes and run project CI before merging. See `START-HERE-SPRINT4-MEMBER1.md` and `docs/sprint4-member1-handoff.md`. No live production deployment or stakeholder validation is claimed.
+
+## Sprint 4 final Member 6 completion
+
+The final Sprint 4 Member 6 planning-intelligence layer is included in this archive. Organisers now have an **Allocation proposal lab** at `/organiser/proposals` with deterministic Balanced, Strongest Match, Fair Workload and Budget Aware strategies, explainable Why this Tutor?/Why not? results, impact comparison, reasoned eligible manual adjustment, and normal draft-Scenario handoff to Compare with Live/Publish. The engine reuses existing allocation eligibility, timetable/clash/capacity rules and confirmed Student tutoring bookings; it does not write directly to live allocations.
+
+See `START-HERE-SPRINT4-FINAL.md` for the final Members 1–6 handover and verification steps.
