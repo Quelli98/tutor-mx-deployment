@@ -1,0 +1,19 @@
+npm warn Unknown env config "http-proxy". This will stop working in the next major version of npm.
+
+> tutoring-management-system@1.0.0 test:frontend
+> npm run test --prefix frontend
+
+npm warn Unknown env config "http-proxy". This will stop working in the next major version of npm.
+
+> tutor-mx-system@0.0.0 test
+> vitest --run
+
+
+ RUN  v4.1.10 /workspace/scratch/cf095b00fbe5/work/tutor-mx-system/frontend
+
+
+ Test Files  69 passed (69)
+      Tests  802 passed (802)
+   Start at  05:41:52
+   Duration  45.52s (transform 2.37s, setup 5.79s, import 4.48s, tests 34.93s, environment 35.76s)
+

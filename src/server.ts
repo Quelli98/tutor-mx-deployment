@@ -1,3 +1,6 @@
+import { createScenarioService } from './services/scenario-service.js';
+import { createMutualAvailabilityService } from './services/mutual-availability.js';
+import type { PlanningStore } from './services/planning-store.js';
 import { resolveNavigation } from './services/navigation-targets.js';
 import { saveManualSchedule } from "./services/manual-schedule.js";
 import "dotenv/config";
@@ -449,6 +452,20 @@ startDueReminderScheduler(notificationService, {
     }));
   },
 });
+
+const planningStore: PlanningStore = {
+  // Prisma interprets TIMESTAMP columns as UTC, independent of the host time zone.
+  async query<Row>(sql: string, parameters: unknown[] = []) {
+    return { rows: await prisma.$queryRawUnsafe<Row[]>(sql, ...parameters) };
+  },
+  transaction: work => prisma.$transaction(async tx => work({
+    async query<Row>(sql: string, parameters: unknown[] = []) {
+      return { rows: await tx.$queryRawUnsafe<Row[]>(sql, ...parameters) };
+    },
+  }), { isolationLevel: 'Serializable', timeout: 15000, maxWait: 5000 }),
+};
+const scenarioService = createScenarioService(planningStore);
+const mutualAvailabilityService = createMutualAvailabilityService(planningStore);
 
 const app = createApp(
   async () => {
@@ -1311,6 +1328,8 @@ const app = createApp(
     },
     // The legacy organiser view is for Tutors only, never Student private schedules.
     listTutorTimeSlots: (tutorId) => listTimeSlots(tutorId, true),
+    scenarioService,
+    mutualAvailabilityService,
     resolveNavigation: (auth0Id, input) => resolveNavigation(queryClient, auth0Id, input),
     async listOwnTutorTimeSlots(auth0Id) {
       return listTimeSlots(await findScheduleOwnerId(auth0Id));

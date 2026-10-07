@@ -1,3 +1,5 @@
+> **Sprint 4 update:** Start with [START-HERE-SPRINT4-MEMBERS1-AND2.md](START-HERE-SPRINT4-MEMBERS1-AND2.md) for the combined Member 1 and Member 2 code, migration steps and handoff.
+
 # Tutor Mx System
 
 Tutor Mx is one integrated React + Vite, Auth0, handwritten Express, Prisma and Neon PostgreSQL project. Browser code calls only the Express API; it never connects to Neon, Prisma or an Auth0 Management API.

@@ -13,12 +13,13 @@ describe('shared ownership migration and live destination permission checks', ()
     const path = new URL('../../prisma/migrations/', import.meta.url);
     const dirs = (await readdir(path, { withFileTypes: true })).filter(entry => entry.isDirectory()).map(entry => entry.name).sort();
     const migration = '20261007000000_shared_profile_schedule';
-    expect(dirs.at(-1)).toBe(migration);
-    for (const dir of dirs.filter(dir => dir !== migration)) await db.exec(await readFile(new URL(`${dir}/migration.sql`, path), 'utf8'));
+
+    for (const dir of dirs.filter(dir => dir < migration)) await db.exec(await readFile(new URL(`${dir}/migration.sql`, path), 'utf8'));
     await db.exec(await readFile(new URL('../../prisma/seed.sql', import.meta.url), 'utf8'));
     const before = await db.query('SELECT * FROM "TimeSlot" ORDER BY "id"');
     await db.exec(await readFile(new URL(`${migration}/migration.sql`, path), 'utf8'));
     expect((await db.query('SELECT * FROM "TimeSlot" ORDER BY "id"')).rows).toEqual(before.rows);
+    for (const dir of dirs.filter(dir => dir > migration)) await db.exec(await readFile(new URL(`${dir}/migration.sql`, path), 'utf8'));
     client = { async query<Row>(sql: string, parameters?: unknown[]) { return { rows: (await db.query(sql, parameters)).rows as Row[] }; } };
   });
   afterAll(async () => { await db.close(); });

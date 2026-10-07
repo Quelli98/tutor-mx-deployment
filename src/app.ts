@@ -1,3 +1,5 @@
+import type { ScenarioService } from './services/scenario-service.js';
+import type { MutualAvailabilityService } from './services/mutual-availability.js';
 import type { NavigationInput, NavigationResult } from './services/navigation-targets.js';
 import { normalizeIdempotencyKey } from "./http/idempotency.js";
 import { createRouteError, sanitizeError } from "./http/errors.js";
@@ -986,6 +988,8 @@ export interface AppDependencies {
     request: TimetableImportRequest,
     idempotencyKey?: string,
   ) => Promise<TimetableImportCommitResult>;
+  scenarioService?: ScenarioService;
+  mutualAvailabilityService?: MutualAvailabilityService;
   verifyAccessToken: AccessTokenVerifier;
 }
 
@@ -4650,6 +4654,43 @@ export function createApp(
       }
     },
   );
+
+  // Planning mutations always carry a scenario version; permission comes from the
+  // current profile, never presence or cached browser metadata.
+  const planning = () => {
+    if (!dependencies.scenarioService) throw createRouteError(503, 'PLANNING_UNAVAILABLE', 'Planning is temporarily unavailable.');
+    return dependencies.scenarioService;
+  };
+  const mutual = () => {
+    if (!dependencies.mutualAvailabilityService) throw createRouteError(503, 'AVAILABILITY_UNAVAILABLE', 'Availability is temporarily unavailable.');
+    return dependencies.mutualAvailabilityService;
+  };
+  app.get('/api/organiser/scenarios', authenticate, resolveProfileRole, requireRole('ORGANISER'), async (request,response) => {
+    try { const status=request.query.status; if(status!==undefined && typeof status!=='string') throw createRouteError(400,'VALIDATION_ERROR','Choose one scenario status.'); response.json({data:await planning().list((request as AuthenticatedRequest).auth!.subject,status)}); } catch(value){sendRouteError(response,value);}
+  });
+  app.post('/api/organiser/scenarios', authenticate, resolveProfileRole, requireRole('ORGANISER'), async (request,response) => {
+    try { response.status(201).json({data:await planning().create((request as AuthenticatedRequest).auth!.subject,request.body)}); } catch(value){sendRouteError(response,value);}
+  });
+  for (const operation of ['detail','compare','presence','actions'] as const) {
+    const path='/api/organiser/scenarios/:scenarioId'+(operation==='detail'?'':'/'+operation);
+    const handler: import('express').RequestHandler = async(request,response)=>{
+      try {
+        const parsed=parseNumericId(request.params.scenarioId,'Scenario');
+        if('error' in parsed)throw createRouteError(400,'VALIDATION_ERROR','Choose a valid scenario.');
+        const service=planning(),subject=(request as AuthenticatedRequest).auth!.subject;
+        const data=operation==='detail'?await service.get(subject,parsed.value):operation==='compare'?await service.compare(subject,parsed.value):operation==='presence'?await service.presence(subject,parsed.value):await service.change(subject,parsed.value,request.body);
+        response.json({data});
+      }catch(value){sendRouteError(response,value);}
+    };
+    if(operation==='presence'||operation==='actions')app.post(path,authenticate,resolveProfileRole,requireRole('ORGANISER'),handler);
+    else app.get(path,authenticate,resolveProfileRole,requireRole('ORGANISER'),handler);
+  }
+  app.get('/api/student/tutoring-options',authenticate,resolveProfileRole,requireRole('STUDENT'),async(request,response)=>{
+    try{response.json({data:await mutual().discover((request as AuthenticatedRequest).auth!.subject)});}catch(value){sendRouteError(response,value);}
+  });
+  app.post('/api/student/mutual-availability',authenticate,resolveProfileRole,requireRole('STUDENT'),async(request,response)=>{
+    try{response.json({data:await mutual().search((request as AuthenticatedRequest).auth!.subject,request.body)});}catch(value){sendRouteError(response,value);}
+  });
 
   app.post('/api/navigation/resolve', authenticate, resolveProfileRole, requireTutorMxRole, async (request, response) => {
     const body = request.body;
