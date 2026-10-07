@@ -1,8 +1,9 @@
 import { act,fireEvent,render,screen } from '@testing-library/react'
 import { beforeEach,expect,it,vi } from 'vitest'
 import MutualAvailability from './MutualAvailability'
-const mocks=vi.hoisted(()=>({token:vi.fn(),discover:vi.fn(),search:vi.fn(),terms:vi.fn()}))
+const mocks=vi.hoisted(()=>({token:vi.fn(),discover:vi.fn(),search:vi.fn(),terms:vi.fn(),book:vi.fn()}))
 vi.mock('@auth0/auth0-react',()=>({useAuth0:()=>({getAccessTokenSilently:mocks.token})}))
+vi.mock('../api/scheduling',()=>({createBooking:mocks.book}))
 vi.mock('../api/planning',()=>({discoverTutoring:mocks.discover,findMutualAvailability:mocks.search}))
 vi.mock('../api/timetableImport',()=>({listPublishedAcademicTerms:mocks.terms}))
 beforeEach(()=>{
@@ -36,4 +37,10 @@ it('can retry failed discovery and recover from a search failure',async()=>{
 })
 it('handles empty discovery and terms safely',async()=>{
  mocks.discover.mockResolvedValue({choices:[],truncated:false});mocks.terms.mockResolvedValue([]);render(<MutualAvailability/>);await screen.findByText('No eligible tutors are available yet.');expect(screen.getByRole('button',{name:'Find shared times'})).toBeDisabled()
+})
+
+it('books only after confirmation and clears stale slots when another Student wins',async()=>{
+ mocks.search.mockResolvedValue({slots:[{startsAt:'2030-09-02T06:00:00Z',endsAt:'2030-09-02T07:00:00Z'}],durationMinutes:60,truncated:false,policy:'Not reserved'})
+ mocks.book.mockRejectedValueOnce(Object.assign(new Error('That time is no longer available'),{status:409}));await ready();fill();fireEvent.click(screen.getByRole('button',{name:'Find shared times'}));fireEvent.click(await screen.findByRole('button',{name:'Book this time'}));expect(mocks.book).not.toHaveBeenCalled();fireEvent.click(screen.getByRole('button',{name:'Confirm booking'}));expect(await screen.findByRole('alert')).toHaveTextContent('no longer available');expect(screen.queryByRole('button',{name:'Book this time'})).not.toBeInTheDocument()
+ mocks.book.mockResolvedValue({booking:{id:8,status:'CONFIRMED'}});fireEvent.click(screen.getByRole('button',{name:'Find shared times'}));fireEvent.click(await screen.findByRole('button',{name:'Book this time'}));fireEvent.click(screen.getByRole('button',{name:'Confirm booking'}));expect(await screen.findByRole('link',{name:'View booking and timetable'})).toHaveAttribute('href','/student/timetable?booking=8');expect(mocks.book).toHaveBeenLastCalledWith({courseId:1,tutorId:3,termId:1,startsAt:'2030-09-02T06:00:00Z',endsAt:'2030-09-02T07:00:00Z'},mocks.token)
 })

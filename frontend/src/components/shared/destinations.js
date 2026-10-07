@@ -1,5 +1,7 @@
 // Store only public destination IDs, never record names, IDs, queries or URLs.
 export const destinations = [
+  { id: 'tutor-swaps', label: 'Tutor swaps', role: 'TUTOR', path: '/tutor/swaps' },
+  { id: 'organiser-swaps', label: 'Tutor swap decisions', role: 'ORGANISER', path: '/organiser/swaps' },
   { id: 'student-availability', label: 'Find a tutoring time', role: 'STUDENT', path: '/student/availability' },
   { id: 'organiser-scenarios', label: 'Scenario planning', role: 'ORGANISER', path: '/organiser/scenarios' },
   { id: 'student-home', label: 'Student workspace', role: 'STUDENT', path: '/student' },

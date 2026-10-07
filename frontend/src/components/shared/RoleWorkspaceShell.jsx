@@ -15,6 +15,7 @@ const ROLE_CONFIG = {
     nav: [
       { to: '/tutor', label: 'Tutor workspace', icon: 'house', end: true },
       { to: '/tutor/timetable', label: 'My timetable', icon: 'calendar' },
+      { to: '/tutor/swaps', label: 'Tutor swaps', icon: 'users' },
       { to: '/tutor/forms', label: 'Tutor forms', icon: 'clipboard-plus' },
     ],
     cardTitle: 'Your tutoring workspace',

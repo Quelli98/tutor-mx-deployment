@@ -179,14 +179,14 @@ describe('student availability database privacy and integration',()=>{
   await expect(availability().search('test|student',{...searchInput,...extra})).rejects.toMatchObject({status:400});
  });
  it('reads existing bookings for either party, ignores cancelled bookings, and rechecks them at publish',async()=>{
-  await db.exec(`CREATE TABLE "TutoringBooking" ("studentId" integer,"tutorId" integer,"startsAt" timestamp,"endsAt" timestamp,"status" text,"occurrenceStatus" text);`);
+  await db.exec(`INSERT INTO "Profile" ("id","auth0Id","email","fullName","role") VALUES (99,'test|other-student','other@test.example','Other Student','STUDENT');`);
   try {
-   await db.exec(`INSERT INTO "TutoringBooking" VALUES (6,4,'2030-09-02 07:00','2030-09-02 08:00','CONFIRMED',NULL),(99,3,'2030-09-02 11:00','2030-09-02 12:00','CONFIRMED',NULL),(6,3,'2030-09-02 06:00','2030-09-02 07:00','CANCELLED',NULL),(6,3,'2030-09-02 10:00','2030-09-02 11:00','CONFIRMED','EXCUSED');`);
+   await db.exec(`INSERT INTO "TutoringBooking" ("studentId","tutorId","courseId","termId","startsAt","endsAt","status","occurrenceStatus","requestKey","requestHash") VALUES (6,4,1,1,'2030-09-02 07:00','2030-09-02 08:00','CONFIRMED','SCHEDULED','m2-fixture-1','hash'),(99,3,1,1,'2030-09-02 11:00','2030-09-02 12:00','CONFIRMED','SCHEDULED','m2-fixture-2','hash'),(6,3,1,1,'2030-09-02 06:00','2030-09-02 07:00','CANCELLED','SCHEDULED','m2-fixture-3','hash'),(6,3,1,1,'2030-09-02 10:00','2030-09-02 11:00','CONFIRMED','EXCUSED','m2-fixture-4','hash');`);
    expect((await availability().search('test|student',searchInput)).slots.map(x=>x.startsAt)).toEqual(['2030-09-02T06:00:00.000Z','2030-09-02T10:00:00.000Z']);
    expect(await readBookingBusy(store,[100],{startsAt:new Date(searchInput.startsAt),endsAt:new Date(searchInput.endsAt)})).toEqual([]);
    const draft=await create();await edit(draft.scenario.id,1,{action:'save-item',item:item(3)});const comparison=await service.compare(org,draft.scenario.id);
    await expect(edit(draft.scenario.id,2,{action:'publish',liveRevision:comparison.liveRevision})).rejects.toMatchObject({code:'SCENARIO_RULE_FAILED'});
-  } finally {await db.exec('DROP TABLE "TutoringBooking"');}
+  } finally {await db.exec('TRUNCATE "TutoringBooking" CASCADE');}
  });
  it('removes excused sessions from availability and shortage cover without erasing history',async()=>{
   const draft=await create(),reviewed=await service.compare(org,draft.scenario.id);

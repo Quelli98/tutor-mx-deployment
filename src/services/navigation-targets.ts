@@ -5,6 +5,8 @@ import type { TutorRole } from '../auth/contract.js';
 export interface NavigationInput { destinationId?: string; targetType?: string; targetId?: number; notificationId?: number }
 export interface NavigationResult { linkPath: string; action: 'View' | 'Fix' | 'Review' }
 export const DESTINATIONS: Record<string, { path: string; roles: TutorRole[] }> = {
+  'tutor-swaps': { path: '/tutor/swaps', roles: ['TUTOR'] },
+  'organiser-swaps': { path: '/organiser/swaps', roles: ['ORGANISER'] },
   'student-home': { path: '/student', roles: ['STUDENT'] },
   'student-availability': { path: '/student/availability', roles: ['STUDENT'] },
   'organiser-scenarios': { path: '/organiser/scenarios', roles: ['ORGANISER'] },
@@ -42,6 +44,15 @@ export async function resolveNavigation(client: QueryClient, auth0Id: string, in
   let sql: string; const parameters: unknown[] = [targetId]; let linkPath: string;
   let action: NavigationResult['action'] = 'View';
   switch (targetType) {
+    case 'booking':
+      if (!['STUDENT','TUTOR'].includes(profile.role)) return unavailable();
+      sql='SELECT "id" FROM "TutoringBooking" WHERE "id"=$1 AND ("studentId"=$2 OR "tutorId"=$2)'; parameters.push(profile.id);
+      linkPath=profile.role==='STUDENT'?`/student/timetable?booking=${targetId}`:`/tutor/timetable?booking=${targetId}`; break;
+    case 'swap':
+      if (!organiser && profile.role!=='TUTOR') return unavailable();
+      sql='SELECT "id" FROM "TutorSwap" WHERE "id"=$1';
+      if(!organiser){sql+=' AND ("requesterId"=$2 OR "replacementId"=$2)';parameters.push(profile.id);}
+      linkPath=(organiser?'/organiser/swaps':'/tutor/swaps')+`?swap=${targetId}`;action=organiser?'Review':'View';break;
     case 'course':
       sql = 'SELECT c."id" FROM "Course" c WHERE c."id" = $1';
       if (!organiser) {

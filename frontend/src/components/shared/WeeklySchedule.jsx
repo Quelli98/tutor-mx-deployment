@@ -24,6 +24,7 @@ export default function WeeklySchedule({
   initialDate,
   showLegend = false,
   emptyMessage,
+  onWeekChange,
 }) {
   const headingId = useId()
   const [weekStart, setWeekStart] = useState(() => localMonday(initialDate ?? new Date()))
@@ -35,6 +36,7 @@ export default function WeeklySchedule({
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setWeekStart((current) => current.valueOf() === requestedWeek ? current : new Date(requestedWeek))
   }, [requestedWeek])
+  useEffect(() => { onWeekChange?.(weekStart) }, [weekStart, onWeekChange])
   const days = useMemo(() => scheduleForWeek(slots, weekStart), [slots, weekStart])
   const blocks = days.flatMap((day) => day.blocks)
   const firstHour = Math.floor(Math.min(8 * 60, ...blocks.map((block) => block.startMinute)) / 60)

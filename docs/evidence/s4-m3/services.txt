@@ -1,0 +1,10 @@
+npm warn Unknown env config "http-proxy". This will stop working in the next major version of npm.
+
+ RUN  v4.1.10 /workspace/scratch/cf095b00fbe5/work/tutor-mx-system
+
+
+ Test Files  2 passed (2)
+      Tests  72 passed (72)
+   Start at  06:12:51
+   Duration  8.27s (transform 289ms, setup 0ms, import 476ms, tests 7.51s, environment 0ms)
+

@@ -1,3 +1,5 @@
+import {createBookingService} from './services/booking-service.js';
+import {createSwapService} from './services/swap-service.js';
 import { createScenarioService } from './services/scenario-service.js';
 import { createMutualAvailabilityService } from './services/mutual-availability.js';
 import type { PlanningStore } from './services/planning-store.js';
@@ -1328,6 +1330,8 @@ const app = createApp(
     },
     // The legacy organiser view is for Tutors only, never Student private schedules.
     listTutorTimeSlots: (tutorId) => listTimeSlots(tutorId, true),
+    bookingService: createBookingService(planningStore),
+    swapService: createSwapService(planningStore),
     scenarioService,
     mutualAvailabilityService,
     resolveNavigation: (auth0Id, input) => resolveNavigation(queryClient, auth0Id, input),
