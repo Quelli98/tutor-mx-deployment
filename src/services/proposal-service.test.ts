@@ -169,7 +169,7 @@ function scenarios(initial = detail()) {
   });
   const change = vi.fn(async (_subject: string, _id: number, input: Record<string, unknown>) => {
     if (input.action === 'duplicate') {
-      current = detail(current.items, { id: 20, name: input.name, version: 1 });
+      current = detail(current.items, { id: 20, name: String(input.name), version: 1 });
       return current;
     }
     if (input.action === 'save-item') {
@@ -228,6 +228,60 @@ describe('proposal service generation and explanations', () => {
     expect(budget.assignments[0]!.courseCode).toBe('CHEAP');
     expect(compared.find(x => x.preset === 'STRONGEST_MATCH')!.assignments[0]!.explanation.some(x => x.factors.some(f => f.includes('higher course mark')))).toBe(true);
     expect(compared.find(x => x.preset === 'FAIR_WORKLOAD')!.assignments[0]!.explanation.some(x => x.factors.some(f => f.includes('unused weekly capacity')))).toBe(true);
+  });
+
+  it('breaks equal soft-score ties deterministically and stays stable across runs', async () => {
+    const tied = fakeState({
+      requirements: [requirement({ tutorsNeeded: 1 })],
+      candidates: [
+        candidate({ tutorId: 3, fullName: 'Tutor Three', mark: 80, usedHours: 0, remainingHours: 10 }),
+        candidate({ tutorId: 2, fullName: 'Tutor Two', mark: 80, usedHours: 0, remainingHours: 10 }),
+      ],
+    });
+    const service = createProposalService(makeStore(tied), scenarios().service);
+    const first = await service.preview('auth|org', input());
+    const second = await service.preview('auth|org', input());
+    expect(first.assignments.map(x => x.tutorId)).toEqual([2]);
+    expect(second).toEqual(first);
+  });
+
+  it('never moves locked base-scenario items and counts them as existing coverage', async () => {
+    const locked = item({ id: 50, sourceAllocationId: 90, tutorId: 8, tutorName: 'Locked Tutor', startsAt: new Date('2030-10-08T08:00:00Z'), endsAt: new Date('2030-10-08T09:00:00Z'), allocatedHours: 1, locked: true });
+    const scenario = scenarios(detail([locked], { notes: 'Base', version: 3 }));
+    const state = fakeState({ requirements: [requirement({ tutorsNeeded: 1 })] });
+    const service = createProposalService(makeStore(state), scenario.service);
+    const result = await service.preview('auth|org', input({ baseScenarioId: 10 }));
+    expect(result.assignments).toHaveLength(1);
+    expect(result.assignments[0]!.tutorId).not.toBe(8);
+    expect(result.shortages).toEqual([]);
+    expect(scenario.change).not.toHaveBeenCalled();
+    const generated = scenarios(detail([locked], { notes: 'Base', version: 3 }));
+    const saved = await createProposalService(makeStore(state), generated.service).generate('auth|org', input({ baseScenarioId: 10 }));
+    expect(saved.items).toContainEqual(expect.objectContaining({ tutorId: 8, sourceAllocationId: 90 }));
+    const saveCalls = generated.change.mock.calls.filter(c => (c[2] as Record<string, unknown>).action === 'save-item');
+    expect(saveCalls.every(c => (c[2] as { item: { tutorId: number } }).item.tutorId !== 8)).toBe(true);
+  });
+
+  it('resets proposed weekly capacity at the ISO week boundary', async () => {
+    const sameWeek = [
+      requirement({ id: 1, tutorsNeeded: 1 }),
+      requirement({ id: 2, courseId: 2, courseCode: 'COMS2', startsAt: new Date('2030-10-09T08:00:00Z'), endsAt: new Date('2030-10-09T10:00:00Z'), tutorsNeeded: 1 }),
+    ];
+    const oneCourse = fakeState({ requirements: sameWeek, candidates: [candidate({ tutorId: 2, remainingHours: 2 })] });
+    const blocked = await createProposalService(makeStore(oneCourse), scenarios().service).preview('auth|org', input());
+    expect(blocked.assignments).toHaveLength(1);
+    expect(blocked.shortages).toEqual([{ requirementId: 2, courseCode: 'COMS2', hours: 2 }]);
+
+    const acrossBoundary = fakeState({
+      requirements: [
+        sameWeek[0]!,
+        requirement({ id: 2, courseId: 2, courseCode: 'COMS2', startsAt: new Date('2030-10-15T08:00:00Z'), endsAt: new Date('2030-10-15T10:00:00Z'), tutorsNeeded: 1 }),
+      ],
+      candidates: [candidate({ tutorId: 2, remainingHours: 2 })],
+    });
+    const allowed = await createProposalService(makeStore(acrossBoundary), scenarios().service).preview('auth|org', input());
+    expect(allowed.assignments).toHaveLength(2);
+    expect(allowed.shortages).toEqual([]);
   });
 
   it('reports shortages, ignores invalid-duration requirements and counts live coverage', async () => {
