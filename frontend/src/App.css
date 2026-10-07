@@ -6327,3 +6327,7 @@ textarea:focus {
   .planning-section-heading label { width: 100%; }
   .planning-workspace .button-row { flex-wrap: wrap; }
 }
+
+.booking-detail { margin-top: 1.5rem; padding-top: 1rem; border-top: 1px solid #b5c1d0; }
+.scheduling-note { display: grid; gap: .5rem; margin: 1rem 0; font-weight: 600; }
+.scheduling-note textarea { width: 100%; min-height: 5rem; padding: .75rem; font: inherit; border: 1px solid #b5c1d0; border-radius: .5rem; box-sizing: border-box; }

@@ -95,6 +95,10 @@ enum NotificationType {
   // the order PostgreSQL actually holds after ALTER TYPE ... ADD VALUE.
   TIMESHEET_DISPUTED
   TIMESHEET_DISPUTE_RESOLVED
+  BOOKING_CONFIRMED
+  BOOKING_CANCELLED
+  SWAP_REQUESTED
+  SWAP_UPDATED
 }
 
 enum StaffingRequirementStatus {
@@ -104,6 +108,13 @@ enum StaffingRequirementStatus {
 }
 
 model Profile {
+  scheduleRevision Int @default(0)
+  studentBookings TutoringBooking[] @relation("StudentBookings")
+  tutorBookings TutoringBooking[] @relation("TutorBookings")
+  requestedSwaps TutorSwap[] @relation("SwapRequester")
+  replacementSwaps TutorSwap[] @relation("SwapReplacement")
+  bookingEvents BookingEvent[]
+  swapEvents SwapEvent[]
   createdScenarios Scenario[] @relation("ScenarioCreator")
   editedScenarios Scenario[] @relation("ScenarioEditor")
   scenarioItems ScenarioItem[]
@@ -174,6 +185,7 @@ model Notification {
 }
 
 model Course {
+  tutoringBookings TutoringBooking[]
   scenarioItems ScenarioItem[]
   id           Int            @id @default(autoincrement())
   code         String         @unique
@@ -208,6 +220,7 @@ model TutorMark {
 /// a term boundary is a calendar day, not an instant, and must not shift with
 /// the reader's timezone.
 model AcademicTerm {
+  tutoringBookings TutoringBooking[]
   id             Int      @id @default(autoincrement())
   name           String   @unique @db.VarChar(120)
   startsOn       DateTime @db.Date
@@ -269,6 +282,8 @@ model TutorHourLimit {
 }
 
 model Allocation {
+  swapRequests TutorSwap[] @relation("SwapSource")
+  completedSwaps TutorSwap[] @relation("SwapResult")
   id             Int              @id @default(autoincrement())
   tutorId        Int
   courseId       Int
@@ -548,4 +563,73 @@ model ScenarioPresence {
   profile Profile @relation(fields: [profileId], references: [id], onDelete: Cascade)
   @@id([scenarioId, profileId])
   @@index([lastSeenAt])
+}
+
+model TutoringBooking {
+ id Int @id @default(autoincrement())
+ studentId Int
+ tutorId Int
+ courseId Int
+ termId Int
+ startsAt DateTime
+ endsAt DateTime
+ status String @default("CONFIRMED") @db.VarChar(16)
+ occurrenceStatus String @default("SCHEDULED") @db.VarChar(16)
+ version Int @default(1)
+ requestKey String @db.VarChar(128)
+ requestHash String @db.VarChar(64)
+ createdAt DateTime @default(now())
+ updatedAt DateTime @default(now())
+ student Profile @relation("StudentBookings",fields:[studentId],references:[id],onDelete:Restrict)
+ tutor Profile @relation("TutorBookings",fields:[tutorId],references:[id],onDelete:Restrict)
+ course Course @relation(fields:[courseId],references:[id],onDelete:Restrict)
+ term AcademicTerm @relation(fields:[termId],references:[id],onDelete:Restrict)
+ events BookingEvent[]
+ @@unique([studentId,requestKey])
+ @@index([tutorId,status,startsAt])
+ @@index([studentId,status,startsAt])
+}
+model TutorSwap {
+ id Int @id @default(autoincrement())
+ allocationId Int
+ requesterId Int
+ replacementId Int
+ replacementAllocationId Int?
+ allocationRevision String @db.VarChar(64)
+ snapshot Json
+ reason String @db.VarChar(1000)
+ status String @default("REQUESTED") @db.VarChar(16)
+ version Int @default(1)
+ createdAt DateTime @default(now())
+ updatedAt DateTime @default(now())
+ allocation Allocation @relation("SwapSource",fields:[allocationId],references:[id],onDelete:Restrict)
+ replacementAllocation Allocation? @relation("SwapResult",fields:[replacementAllocationId],references:[id],onDelete:Restrict)
+ requester Profile @relation("SwapRequester",fields:[requesterId],references:[id],onDelete:Restrict)
+ replacement Profile @relation("SwapReplacement",fields:[replacementId],references:[id],onDelete:Restrict)
+ events SwapEvent[]
+ @@index([status,createdAt])
+}
+model BookingEvent {
+ id Int @id @default(autoincrement())
+ bookingId Int
+ actorId Int
+ action String @db.VarChar(24)
+ version Int
+ note String @default("") @db.VarChar(1000)
+ createdAt DateTime @default(now())
+ booking TutoringBooking @relation(fields:[bookingId],references:[id],onDelete:Restrict)
+ actor Profile @relation(fields:[actorId],references:[id],onDelete:Restrict)
+ @@unique([bookingId,version])
+}
+model SwapEvent {
+ id Int @id @default(autoincrement())
+ swapId Int
+ actorId Int
+ action String @db.VarChar(24)
+ version Int
+ note String @default("") @db.VarChar(1000)
+ createdAt DateTime @default(now())
+ swap TutorSwap @relation(fields:[swapId],references:[id],onDelete:Restrict)
+ actor Profile @relation(fields:[actorId],references:[id],onDelete:Restrict)
+ @@unique([swapId,version])
 }

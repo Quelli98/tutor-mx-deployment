@@ -1,3 +1,4 @@
+vi.mock('../api/scheduling', () => ({ listBookings: vi.fn(async () => ({ items: [], page: 1, hasMore: false })), getBooking: vi.fn(), cancelBooking: vi.fn() }))
 import { render, screen, within } from '@testing-library/react'
 import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest'
 import MyTimetable from './MyTimetable'

@@ -1,4 +1,4 @@
-> **Sprint 4 update:** Start with [START-HERE-SPRINT4-MEMBERS1-AND2.md](START-HERE-SPRINT4-MEMBERS1-AND2.md) for the combined Member 1 and Member 2 code, migration steps and handoff.
+> **Sprint 4 update:** Start with [START-HERE-SPRINT4-MEMBERS1-TO3.md](START-HERE-SPRINT4-MEMBERS1-TO3.md) for the combined Members 1–3 code, migration steps and handoff.
 
 # Tutor Mx System
 

@@ -273,6 +273,11 @@ WITH tutor_hours AS (${tutorHoursSql("$2", "$6")}), candidate_data AS (
         AND NOT EXISTS (SELECT 1 FROM "Excuse" sick WHERE sick."allocationId" = clash."id" AND sick."status" = 'APPROVED')
         AND ($6::integer IS NULL OR clash."id" <> $6)
         AND clash."startsAt" < $3::timestamp AND clash."endsAt" > $2::timestamp
+      UNION ALL
+      SELECT 'busy', 'Tutoring booking', b."startsAt", b."endsAt", NULL
+      FROM "TutoringBooking" b
+      WHERE b."tutorId"=p."id" AND b."status"='CONFIRMED' AND b."occurrenceStatus"<>'EXCUSED'
+        AND b."startsAt"<$3::timestamp AND b."endsAt">$2::timestamp
     ) c
   ) conflicts ON true
   WHERE p."role" = 'TUTOR'

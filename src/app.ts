@@ -1,3 +1,5 @@
+import type {BookingService} from './services/booking-service.js';
+import type {SwapService} from './services/swap-service.js';
 import type { ScenarioService } from './services/scenario-service.js';
 import type { MutualAvailabilityService } from './services/mutual-availability.js';
 import type { NavigationInput, NavigationResult } from './services/navigation-targets.js';
@@ -988,6 +990,8 @@ export interface AppDependencies {
     request: TimetableImportRequest,
     idempotencyKey?: string,
   ) => Promise<TimetableImportCommitResult>;
+  bookingService?: BookingService;
+  swapService?: SwapService;
   scenarioService?: ScenarioService;
   mutualAvailabilityService?: MutualAvailabilityService;
   verifyAccessToken: AccessTokenVerifier;
@@ -4655,6 +4659,19 @@ export function createApp(
     },
   );
 
+  const bookingService=()=>{if(!dependencies.bookingService)throw createRouteError(503,'BOOKING_UNAVAILABLE','Bookings are temporarily unavailable.');return dependencies.bookingService;};
+  const swapService=()=>{if(!dependencies.swapService)throw createRouteError(503,'SWAP_UNAVAILABLE','Swaps are temporarily unavailable.');return dependencies.swapService;};
+  const schedulingId=(raw:unknown)=>{const parsed=parseNumericId(raw as string,'Session');if('error' in parsed)throw createRouteError(400,'VALIDATION_ERROR','Choose a valid session.');return parsed.value;};
+  app.get('/api/me/bookings',authenticate,resolveProfileRole,requireRole('STUDENT','TUTOR'),async(req,res)=>{try{res.json({data:await bookingService().list((req as AuthenticatedRequest).auth!.subject,req.query)});}catch(e){sendRouteError(res,e);}});
+  app.post('/api/student/bookings',authenticate,resolveProfileRole,requireRole('STUDENT'),async(req,res)=>{try{res.status(201).json({data:await bookingService().create((req as AuthenticatedRequest).auth!.subject,req.body)});}catch(e){sendRouteError(res,e);}});
+  app.get('/api/me/bookings/:id',authenticate,resolveProfileRole,requireRole('STUDENT','TUTOR'),async(req,res)=>{try{res.json({data:await bookingService().get((req as AuthenticatedRequest).auth!.subject,schedulingId(req.params.id))});}catch(e){sendRouteError(res,e);}});
+  app.post('/api/me/bookings/:id/cancel',authenticate,resolveProfileRole,requireRole('STUDENT','TUTOR'),async(req,res)=>{try{res.json({data:await bookingService().cancel((req as AuthenticatedRequest).auth!.subject,schedulingId(req.params.id),req.body)});}catch(e){sendRouteError(res,e);}});
+  app.get('/api/swaps',authenticate,resolveProfileRole,requireRole('TUTOR','ORGANISER'),async(req,res)=>{try{res.json({data:await swapService().list((req as AuthenticatedRequest).auth!.subject,req.query.page===undefined?1:schedulingId(req.query.page))});}catch(e){sendRouteError(res,e);}});
+  app.get('/api/swaps/:id',authenticate,resolveProfileRole,requireRole('TUTOR','ORGANISER'),async(req,res)=>{try{res.json({data:await swapService().get((req as AuthenticatedRequest).auth!.subject,schedulingId(req.params.id))});}catch(e){sendRouteError(res,e);}});
+  app.get('/api/tutor/allocations/:id/replacements',authenticate,resolveProfileRole,requireRole('TUTOR'),async(req,res)=>{try{res.json({data:await swapService().options((req as AuthenticatedRequest).auth!.subject,schedulingId(req.params.id))});}catch(e){sendRouteError(res,e);}});
+  app.post('/api/tutor/swaps',authenticate,resolveProfileRole,requireRole('TUTOR'),async(req,res)=>{try{res.status(201).json({data:await swapService().create((req as AuthenticatedRequest).auth!.subject,req.body)});}catch(e){sendRouteError(res,e);}});
+  app.post('/api/swaps/:id/actions',authenticate,resolveProfileRole,requireRole('TUTOR','ORGANISER'),async(req,res)=>{try{res.json({data:await swapService().change((req as AuthenticatedRequest).auth!.subject,schedulingId(req.params.id),req.body)});}catch(e){sendRouteError(res,e);}});
+
   // Planning mutations always carry a scenario version; permission comes from the
   // current profile, never presence or cached browser metadata.
   const planning = () => {
@@ -4698,7 +4715,7 @@ export function createApp(
     const valid = body && (
       (hasOnlyFields(body, ['destinationId']) && typeof body.destinationId === 'string' && body.destinationId.length <= 80) ||
       (hasOnlyFields(body, ['notificationId']) && validId(body.notificationId)) ||
-      (hasOnlyFields(body, ['targetType', 'targetId']) && typeof body.targetType === 'string' && ['course', 'person', 'timesheet', 'excuse', 'allocation', 'volunteer'].includes(body.targetType) && validId(body.targetId))
+      (hasOnlyFields(body, ['targetType', 'targetId']) && typeof body.targetType === 'string' && ['course', 'person', 'timesheet', 'excuse', 'allocation', 'volunteer', 'booking', 'swap'].includes(body.targetType) && validId(body.targetId))
     );
     if (!valid) { response.status(400).json({ error: { code: 'VALIDATION_ERROR', message: 'Choose one valid destination or target.' } }); return; }
     try {

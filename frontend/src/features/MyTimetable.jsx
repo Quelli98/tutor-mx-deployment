@@ -1,3 +1,6 @@
+import BookingPanel from './BookingPanel'
+import { listBookings } from '../api/scheduling'
+import { localMonday } from '../components/shared/scheduleWeek'
 import ScheduleEntryPanel from './ScheduleEntryPanel'
 import { attendanceLabel, sickStyle } from '../components/shared/attendance'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
@@ -37,38 +40,45 @@ function toAllocationEntries(allocations) {
     }))
 }
 
-export default function MyTimetable({ role = 'TUTOR' }) {
+export default function MyTimetable({ role = 'TUTOR', bookingId }) {
   const { getAccessTokenSilently, user } = useAuth0()
   const [status, setStatus] = useState('loading')
   const [slots, setSlots] = useState([])
   const [allocations, setAllocations] = useState([])
+  const [bookings, setBookings] = useState([])
+  const [bookingWeek, setBookingWeek] = useState(() => localMonday(new Date()).valueOf())
+  const onWeekChange = useCallback(date => setBookingWeek(date.valueOf()), [])
   const [refreshFailed, setRefreshFailed] = useState(false)
   const [jumpDate, setJumpDate] = useState('')
+  const loadSequence = useRef(0)
   const hasLoadedRef = useRef(false)
   const isMountedRef = useRef(true)
 
   const load = useCallback(async () => {
+    const sequence = ++loadSequence.current
     const isRefresh = hasLoadedRef.current
     try {
-      const [slotResult, dashboard] = await Promise.all([
+      const [slotResult, dashboard, bookingResult] = await Promise.all([
         listOwnTimeSlots(getAccessTokenSilently),
         role === 'TUTOR' ? fetchTutorDashboard(getAccessTokenSilently) : Promise.resolve({ allocations: [] }),
+        listBookings({ startsAt: new Date(bookingWeek).toISOString(), endsAt: new Date(bookingWeek + 7 * 86400000).toISOString() }, getAccessTokenSilently),
       ])
-      if (!isMountedRef.current) return
+      if (!isMountedRef.current || sequence !== loadSequence.current) return
       setSlots(slotResult)
       setAllocations(dashboard.allocations)
+      setBookings(bookingResult.items)
       hasLoadedRef.current = true
       setStatus('success')
       setRefreshFailed(false)
     } catch {
-      if (!isMountedRef.current) return
+      if (!isMountedRef.current || sequence !== loadSequence.current) return
       if (isRefresh) {
         setRefreshFailed(true)
       } else {
         setStatus('error')
       }
     }
-  }, [getAccessTokenSilently, role])
+  }, [getAccessTokenSilently, role, bookingWeek])
 
   useEffect(() => {
     isMountedRef.current = true
@@ -85,7 +95,8 @@ export default function MyTimetable({ role = 'TUTOR' }) {
   const combined = useMemo(() => [
     ...toSlotEntries(slots),
     ...toAllocationEntries(allocations),
-  ], [slots, allocations])
+    ...bookings.filter(b => b.status === 'CONFIRMED' && b.occurrenceStatus !== 'EXCUSED').map(b => ({ id: `booking-${b.id}`, kind: 'allocation', category: 'TUTORING', startsAt: b.startsAt, endsAt: b.endsAt, label: `${b.courseCode} booking · ${role === 'STUDENT' ? b.tutorName : b.studentName}`, occurrenceStatus: b.occurrenceStatus, recurrence: null })),
+  ], [slots, allocations, bookings, role])
 
   const confirmedCount = allocations.filter((a) => a.status === 'CONFIRMED' && a.occurrenceStatus !== 'EXCUSED').length
   const totalSlots = slots.filter((s) => s.type === 'BUSY').length
@@ -118,7 +129,7 @@ export default function MyTimetable({ role = 'TUTOR' }) {
           <p className="eyebrow">{role === 'STUDENT' ? 'Student' : 'Tutor'} workspace</p>
           <h1>My timetable</h1>
           <p className="helper-text">
-            {role === 'STUDENT' ? 'Your classes and unavailable times in one view.' : 'Your classes, tutoring sessions and unavailable times in one view.'}
+            {role === 'STUDENT' ? 'Your classes, booked tutoring sessions and unavailable times in one view.' : 'Your classes, tutoring sessions and unavailable times in one view.'}
           </p>
         </div>
         <div className="button-row">
@@ -155,11 +166,14 @@ export default function MyTimetable({ role = 'TUTOR' }) {
 
       <WeeklySchedule
         slots={combined}
+        onWeekChange={onWeekChange}
         label="My timetable"
         showLegend
         emptyMessage="Nothing on your timetable yet. Import your classes or add unavailable times to get started."
         initialDate={jumpDate ? new Date(jumpDate + 'T00:00:00') : new Date()}
       />
+
+      <BookingPanel onChanged={load} bookingId={bookingId} />
 
       {allocations.filter((a) => a.status === 'CONFIRMED' && a.occurrenceStatus !== 'EXCUSED').length > 0 && (
         <section className="role-card" aria-labelledby="tutoring-sessions-heading">

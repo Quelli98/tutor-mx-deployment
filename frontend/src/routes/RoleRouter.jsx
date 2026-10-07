@@ -1,7 +1,8 @@
+import SwapWorkspace from '../features/SwapWorkspace'
 import ScenarioPlanning from '../features/ScenarioPlanning'
 import MutualAvailability from '../features/MutualAvailability'
 import TargetGate from '../features/TargetGate'
-import { NavLink, Navigate, Route, Routes } from 'react-router-dom'
+import { NavLink, Navigate, Route, Routes, useLocation } from 'react-router-dom'
 import { ProtectedRoute } from '../auth/ProtectedRoute'
 import { AccountSettings } from '../features/AccountSettings'
 import TutorDashboard from '../features/TutorDashboard'
@@ -107,6 +108,9 @@ function protect(currentRole, allowedRoles, children) {
 }
 
 export function RoleRouter({ currentRole, onSignOut, user = null }) {
+  const location = useLocation()
+  const bookingId = Number(new URLSearchParams(location.search).get('booking'))
+  const swapId = Number(new URLSearchParams(location.search).get('swap'))
   const entryPath = ROLE_ROUTE_MAP[currentRole]?.path
   const isMasterOrganiser = Boolean(user?.data?.capabilities?.masterOrganiser)
 
@@ -182,11 +186,13 @@ export function RoleRouter({ currentRole, onSignOut, user = null }) {
       />
       <Route
         path="/tutor/timetable"
-        element={protect(currentRole, ['TUTOR'], <MyTimetable />)}
+        element={protect(currentRole, ['TUTOR'], <MyTimetable bookingId={bookingId} />)}
       />
+      <Route path="/tutor/swaps" element={protect(currentRole, ['TUTOR'], <SwapWorkspace swapId={swapId} />)} />
+      <Route path="/organiser/swaps" element={protect(currentRole, ['ORGANISER'], <SwapWorkspace role="ORGANISER" swapId={swapId} />)} />
       <Route path="/organiser/scenarios" element={protect(currentRole, ['ORGANISER'], <ScenarioPlanning />)} />
       <Route path="/student/availability" element={protect(currentRole, ['STUDENT'], <MutualAvailability />)} />
-      <Route path="/student/timetable" element={protect(currentRole, ['STUDENT'], <MyTimetable role="STUDENT" />)} />
+      <Route path="/student/timetable" element={protect(currentRole, ['STUDENT'], <MyTimetable role="STUDENT" bookingId={bookingId} />)} />
       <Route
         path="/student"
         element={protect(currentRole, ['STUDENT'], <StudentOverflow />)}

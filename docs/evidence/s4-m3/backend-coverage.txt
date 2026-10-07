@@ -1,0 +1,72 @@
+npm warn Unknown env config "http-proxy". This will stop working in the next major version of npm.
+
+> tutoring-management-system@1.0.0 coverage:backend
+> vitest run --coverage
+
+
+ RUN  v4.1.10 /workspace/scratch/cf095b00fbe5/work/tutor-mx-system
+      Coverage enabled with v8
+
+
+ Test Files  49 passed (49)
+      Tests  1343 passed (1343)
+   Start at  16:10:38
+   Duration  50.30s (transform 1.11s, setup 0ms, import 4.08s, tests 38.17s, environment 4ms)
+
+ % Coverage report from v8
+-------------------|---------|----------|---------|---------|-------------------
+File               | % Stmts | % Branch | % Funcs | % Lines | Uncovered Line #s 
+-------------------|---------|----------|---------|---------|-------------------
+All files          |   91.04 |    86.04 |   95.44 |   92.02 |                   
+ src               |   84.91 |    78.73 |   91.62 |   84.77 |                   
+  app.ts           |   84.95 |    78.68 |   92.13 |   84.82 | ...4896,4937-4942 
+  database.ts      |   77.77 |      100 |       0 |   77.77 | 20-21             
+ src/auth          |   85.71 |    77.27 |   90.47 |   95.45 |                   
+  ...0-verifier.ts |   96.22 |    92.68 |     100 |   96.22 | 51,109            
+  contract.ts      |   94.11 |       90 |     100 |     100 | 37-39             
+  ...gement-api.ts |   77.27 |       60 |   76.47 |   95.52 | 94,128-131        
+  middleware.ts    |   86.66 |       85 |     100 |   93.93 | 61-62             
+  ...word-reset.ts |   85.71 |     87.5 |     100 |   85.71 | 18                
+ src/http          |   94.54 |    94.73 |     100 |     100 |                   
+  idempotency.ts   |   90.32 |       88 |     100 |     100 | 15-16,32          
+ src/integrations  |    97.8 |    94.66 |   96.15 |   97.72 |                   
+  external-api.ts  |   97.14 |       85 |   88.88 |   97.14 | 107               
+  ...c-holidays.ts |    97.5 |    97.77 |     100 |   97.36 | 76                
+ src/services      |   94.45 |    89.13 |   96.86 |   95.75 |                   
+  ...on-queries.ts |   94.25 |    92.92 |   91.66 |   95.12 | 309-325           
+  ...ng-service.ts |   94.36 |    88.88 |    92.3 |   96.96 | 12                
+  ...on-service.ts |   97.36 |     92.5 |     100 |   97.29 | 141,333           
+  ...-workflows.ts |   81.92 |    80.48 |   93.75 |      84 | ...13,131,168,260 
+  ...l-schedule.ts |   89.28 |    93.18 |     100 |   95.83 | 46                
+  ...ailability.ts |   95.49 |    93.54 |   95.23 |   98.61 | 94                
+  ...on-targets.ts |   76.31 |    69.62 |     100 |   81.25 | 57-66,82          
+  ...on-service.ts |   87.23 |    67.85 |   89.47 |   88.63 | 247,257-264       
+  notifications.ts |   91.37 |       80 |      75 |   91.37 | 171,248,311-329   
+  ...ow-service.ts |   96.46 |    88.37 |     100 |   97.22 | 373,449,517       
+  ...er-service.ts |     100 |    97.47 |     100 |     100 | 341-399,699       
+  ...ning-store.ts |   96.15 |       96 |     100 |     100 | 35                
+  ...io-service.ts |   93.91 |    88.53 |   98.41 |   99.21 | 105               
+  ...ing-common.ts |   94.11 |    93.75 |     100 |     100 | 6                 
+  ...ch-service.ts |   95.74 |      100 |   85.71 |     100 |                   
+  search.ts        |     100 |    91.93 |     100 |     100 | 63,70-75,144-145  
+  ...attendance.ts |     100 |    94.11 |     100 |     100 | 23                
+  ...nt-service.ts |     100 |    94.44 |     100 |     100 | 191,240           
+  ...-workflows.ts |   98.66 |    96.36 |     100 |   98.66 | 120               
+  swap-service.ts  |   95.14 |    87.83 |   95.65 |    97.5 | 15                
+  ...orrections.ts |   92.43 |    84.49 |   97.67 |   92.34 | ...1215,1237,1262 
+  ...-workflows.ts |   96.87 |     95.6 |     100 |   96.87 | 242,262,282       
+  ...rt-service.ts |   94.21 |    89.91 |     100 |   95.41 | ...82,405,465,470 
+  ...ble-import.ts |   93.36 |     83.2 |   97.61 |   94.04 | ...1243,1256,1260 
+-------------------|---------|----------|---------|---------|-------------------
+
+=============================== Coverage summary ===============================
+Statements   : 91.04% ( 4034/4431 )
+Branches     : 86.04% ( 2904/3375 )
+Functions    : 95.44% ( 797/835 )
+Lines        : 92.02% ( 3614/3927 )
+================================================================================
+npm notice
+npm notice New major version of npm available! 11.9.0 -> 12.2.0
+npm notice Changelog: https://github.com/npm/cli/releases/tag/v12.2.0
+npm notice To update run: npm install -g npm@12.2.0
+npm notice

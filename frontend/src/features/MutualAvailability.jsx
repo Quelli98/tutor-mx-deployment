@@ -1,3 +1,5 @@
+import { createBooking } from '../api/scheduling'
+import { ConfirmationDialog } from '../components/shared/ConfirmationDialog'
 import { useEffect, useRef, useState } from 'react'
 import { useAuth0 } from '@auth0/auth0-react'
 import { discoverTutoring, findMutualAvailability } from '../api/planning'
@@ -9,6 +11,8 @@ export default function MutualAvailability() {
   const [state, setState] = useState('loading'), [error, setError] = useState(''), [result, setResult] = useState(null)
   const [form, setForm] = useState({ choice: '', termId: '', startsAt: '', endsAt: '', durationMinutes: '60', dailyStartHour: '8', dailyEndHour: '18' })
   const [retry, setRetry] = useState(0), [limited, setLimited] = useState(false)
+  const [selectedSlot, setSelectedSlot] = useState(null), [booking, setBooking] = useState(null), [bookingPending, setBookingPending] = useState(false)
+  const bookingBusy = useRef(false)
   const request = useRef(0)
   useEffect(() => {
     let active = true
@@ -18,7 +22,7 @@ export default function MutualAvailability() {
     return () => { active = false }
   }, [getAccessTokenSilently, retry])
   useEffect(() => () => { request.current++ }, [])
-  function edit(key, value) { request.current++; setForm(current => ({ ...current, [key]: value })); setResult(null); if (state === 'searching') setState('ready') }
+  function edit(key, value) { setSelectedSlot(null); request.current++; setForm(current => ({ ...current, [key]: value })); setResult(null); if (state === 'searching') setState('ready') }
   async function submit(event) {
     event.preventDefault()
     const choice = choices.find(x => `${x.courseId}:${x.tutorId}` === form.choice)
@@ -30,9 +34,20 @@ export default function MutualAvailability() {
       if (sequence === request.current) { setResult(response); setState('ready') }
     } catch (err) { if (sequence === request.current) { setError(err.message); setState('ready') } }
   }
+  async function book() {
+    if (bookingBusy.current || !selectedSlot) return
+    const choice = choices.find(x => `${x.courseId}:${x.tutorId}` === form.choice)
+    bookingBusy.current = true; setBookingPending(true); setError('')
+    try {
+      const response = await createBooking({ courseId: choice.courseId, tutorId: choice.tutorId, termId: Number(form.termId), ...selectedSlot }, getAccessTokenSilently)
+      setBooking(response.booking); setResult(null); setSelectedSlot(null)
+    } catch (err) { setError(err.message); if (err.status === 409) { setResult(null); setSelectedSlot(null) } }
+    finally { bookingBusy.current = false; setBookingPending(false) }
+  }
   const when = value => new Date(value).toLocaleString('en-ZA', { timeZone: 'Africa/Johannesburg', dateStyle: 'medium', timeStyle: 'short' })
   return <main id="main-content" className="dashboard-shell tutor-workspace">
     <header className="dashboard-header"><div><p className="eyebrow">Student workspace</p><h1>Find a tutoring time</h1><p className="helper-text">Choose a course and tutor to see when you are both free. Your private timetable descriptions stay private.</p></div></header>
+    {booking && <p role="status" className="status-message">{booking.status === 'CONFIRMED' ? 'Booking confirmed.' : `Booking status: ${booking.status}.`} <a href={`/student/timetable?booking=${booking.id}`}>View booking and timetable</a></p>}
     {error && <div className="status-message error" role="alert">{error} {state === 'error' && <button className="secondary-button" onClick={() => setRetry(x => x + 1)}>Retry</button>}</div>}
     {state === 'loading' ? <p role="status">Loading tutors and academic terms...</p> : <section className="role-card">
       <h2>Search availability</h2>
@@ -53,7 +68,10 @@ export default function MutualAvailability() {
     </section>}
     {result && <section className="role-card" aria-label="Shared available times"><h2>Shared available times</h2><p role="status">{result.slots.length ? `${result.slots.length} possible times found.` : 'No common time found. Try another day, tutor or shorter session.'}</p><p className="helper-text">{result.policy}</p>
       {result.truncated && <p>Showing the first 80 times. Narrow the search or move the start date to see later options.</p>}
-      {result.slots.length > 0 && <div className="planning-table-scroll" tabIndex="0" role="region" aria-label="Available session times"><table className="planning-table"><thead><tr><th>Starts</th><th>Ends</th><th>Duration</th></tr></thead><tbody>{result.slots.map(slot => <tr key={slot.startsAt}><td>{when(slot.startsAt)}</td><td>{when(slot.endsAt)}</td><td>{result.durationMinutes} minutes</td></tr>)}</tbody></table></div>}
+      {result.slots.length > 0 && <div className="planning-table-scroll" tabIndex="0" role="region" aria-label="Available session times"><table className="planning-table"><thead><tr><th>Starts</th><th>Ends</th><th>Duration</th><th>Book</th></tr></thead><tbody>{result.slots.map(slot => <tr key={slot.startsAt}><td>{when(slot.startsAt)}</td><td>{when(slot.endsAt)}</td><td>{result.durationMinutes} minutes</td><td><button className="primary-button" disabled={bookingPending} onClick={() => setSelectedSlot(slot)}>Book this time</button></td></tr>)}</tbody></table></div>}
     </section>}
+    <ConfirmationDialog open={Boolean(selectedSlot)} title="Confirm this tutoring booking?" confirmLabel="Confirm booking" isPending={bookingPending} onCancel={() => setSelectedSlot(null)} onConfirm={book}>
+      {selectedSlot && <p>{choices.find(x => `${x.courseId}:${x.tutorId}` === form.choice)?.courseCode} with {choices.find(x => `${x.courseId}:${x.tutorId}` === form.choice)?.tutorName}: {when(selectedSlot.startsAt)} to {when(selectedSlot.endsAt)}. Availability is checked again when you confirm.</p>}
+    </ConfirmationDialog>
   </main>
 }
