@@ -99,6 +99,9 @@ enum NotificationType {
   BOOKING_CANCELLED
   SWAP_REQUESTED
   SWAP_UPDATED
+  STUDENT_SICK_SUBMITTED
+  STUDENT_SICK_DECIDED
+  BOOKING_ATTENDANCE_CHANGED
 }
 
 enum StaffingRequirementStatus {
@@ -108,6 +111,7 @@ enum StaffingRequirementStatus {
 }
 
 model Profile {
+  reviewedStudentSickNotes StudentSickNote[]
   scheduleRevision Int @default(0)
   studentBookings TutoringBooking[] @relation("StudentBookings")
   tutorBookings TutoringBooking[] @relation("TutorBookings")
@@ -566,6 +570,7 @@ model ScenarioPresence {
 }
 
 model TutoringBooking {
+ sickNotes StudentSickNote[]
  id Int @id @default(autoincrement())
  studentId Int
  tutorId Int
@@ -632,4 +637,19 @@ model SwapEvent {
  swap TutorSwap @relation(fields:[swapId],references:[id],onDelete:Restrict)
  actor Profile @relation(fields:[actorId],references:[id],onDelete:Restrict)
  @@unique([swapId,version])
+}
+
+model StudentSickNote {
+ id Int @id @default(autoincrement())
+ bookingId Int
+ reason String @db.VarChar(1000)
+ status String @default("PENDING") @db.VarChar(16)
+ version Int @default(1)
+ reviewNote String @default("") @db.VarChar(1000)
+ reviewedById Int?
+ reviewedAt DateTime?
+ createdAt DateTime @default(now())
+ booking TutoringBooking @relation(fields:[bookingId],references:[id],onDelete:Restrict)
+ reviewedBy Profile? @relation(fields:[reviewedById],references:[id],onDelete:Restrict)
+ @@index([status,id])
 }

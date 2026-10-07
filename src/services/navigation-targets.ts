@@ -44,6 +44,10 @@ export async function resolveNavigation(client: QueryClient, auth0Id: string, in
   let sql: string; const parameters: unknown[] = [targetId]; let linkPath: string;
   let action: NavigationResult['action'] = 'View';
   switch (targetType) {
+    case 'sick-note':
+      if(!organiser)return unavailable();
+      sql='SELECT "id" FROM "StudentSickNote" WHERE "bookingId"=$1';
+      linkPath='/organiser/approvals';action='Review';break;
     case 'booking':
       if (!['STUDENT','TUTOR'].includes(profile.role)) return unavailable();
       sql='SELECT "id" FROM "TutoringBooking" WHERE "id"=$1 AND ("studentId"=$2 OR "tutorId"=$2)'; parameters.push(profile.id);

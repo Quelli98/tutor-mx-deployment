@@ -1,3 +1,4 @@
+vi.mock('../api/studentSickNotes', () => ({ listStudentSickNotes: vi.fn(async () => ({ items: [], pendingCount: 0, page: 1, hasMore: false })), decideStudentSickNote: vi.fn() }))
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import OrganiserApprovals from './OrganiserApprovals'

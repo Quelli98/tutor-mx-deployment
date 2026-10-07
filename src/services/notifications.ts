@@ -9,6 +9,7 @@ import type { TutorRole } from "../auth/contract.js";
  */
 
 export const NOTIFICATION_TYPES = [
+  "STUDENT_SICK_SUBMITTED", "STUDENT_SICK_DECIDED", "BOOKING_ATTENDANCE_CHANGED",
   "BOOKING_CONFIRMED", "BOOKING_CANCELLED", "SWAP_REQUESTED", "SWAP_UPDATED",
   "ALLOCATION_CREATED",
   "ALLOCATION_CHANGED",
@@ -30,6 +31,7 @@ export const NOTIFICATION_TYPES = [
 export type NotificationType = (typeof NOTIFICATION_TYPES)[number];
 
 export type NotificationTargetType =
+  | "sick-note"
   | "booking"
   | "swap"
   | "allocation"
@@ -54,6 +56,9 @@ export interface NotificationEvent extends NotificationDraft {
 
 /** Only the recipient role that a given notification type is ever meant for. */
 export const NOTIFICATION_TYPE_ROLES: Record<NotificationType, TutorRole[]> = {
+  STUDENT_SICK_SUBMITTED: ["ORGANISER"],
+  STUDENT_SICK_DECIDED: ["STUDENT"],
+  BOOKING_ATTENDANCE_CHANGED: ["TUTOR"],
   BOOKING_CONFIRMED: ["STUDENT", "TUTOR"],
   BOOKING_CANCELLED: ["STUDENT", "TUTOR"],
   SWAP_REQUESTED: ["TUTOR"],

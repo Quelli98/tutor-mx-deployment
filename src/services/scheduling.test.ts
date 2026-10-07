@@ -1,3 +1,4 @@
+import {createStudentSickNoteService,bookingAbsenceStatus} from './student-sick-note-service.js';
 import {PGlite} from '@electric-sql/pglite';
 import {readFile,readdir} from 'node:fs/promises';
 import {afterAll,beforeAll,beforeEach,describe,expect,it} from 'vitest';
@@ -111,4 +112,52 @@ describe('Tutor replacement and organiser approval workflow',()=>{
  it('converges competing approve and cancel to a single terminal state',async()=>{
   const d=await accept();const results=await Promise.allSettled([swaps.change('org',d.swap.id,{action:'approve',version:2}),swaps.change('tutor',d.swap.id,{action:'cancel',version:2})]);expect(results.filter(x=>x.status==='fulfilled')).toHaveLength(1);expect((await swaps.get('org',d.swap.id)).history).toHaveLength(3);
  });
+});
+
+describe('Student sick notes: ownership, privacy, attendance and competing actions',()=>{
+ const sick=()=>createStudentSickNoteService(store,()=>now);
+ const report=async()=>{const b=await bookings.create('student',book());return sick().submit('student',b.booking.id,{bookingVersion:1,reason:'Private illness reason'});};
+ const decision=(extra:Record<string,unknown>={})=>({version:1,bookingVersion:2,decision:'APPROVED',reviewNote:'Reviewed privately',...extra});
+ it('submits only an owned eligible booking, pauses cancellation and limits private details',async()=>{
+  const b=await bookings.create('student',book());
+  await expect(sick().submit('student2',b.booking.id,{bookingVersion:1,reason:'Ill'})).rejects.toMatchObject({status:404});
+  await expect(sick().submit('tutor',b.booking.id,{bookingVersion:1,reason:'Ill'})).rejects.toMatchObject({status:403});
+  const n=await sick().submit('student',b.booking.id,{bookingVersion:1,reason:'Private illness reason'});expect(n.status).toBe('PENDING');
+  const student=await bookings.get('student',b.booking.id),tutor=await bookings.get('tutor',b.booking.id);expect(student).toMatchObject({canCancel:false,canSubmitSickNote:false,sickNotePending:true});expect(student.sickNotes).toHaveLength(1);expect(tutor.sickNotes).toBeUndefined();expect(JSON.stringify(tutor)).not.toContain('Private illness');
+  await expect(bookings.cancel('tutor',b.booking.id,{version:2})).rejects.toMatchObject({status:409});
+  await expect(sick().submit('student',b.booking.id,{bookingVersion:2,reason:'Again'})).rejects.toMatchObject({status:409});
+  expect((await sick().list('org')).pendingCount).toBe(1);await expect(sick().list('student')).rejects.toMatchObject({status:403});
+  const notifications=(await db.query('SELECT * FROM "Notification"')).rows;expect(notifications).toHaveLength(4);expect(JSON.stringify(notifications)).not.toContain('Private illness');
+  expect(await resolveNavigation(store,'org',{targetType:'sick-note',targetId:b.booking.id})).toMatchObject({linkPath:'/organiser/approvals'});await expect(resolveNavigation(store,'tutor',{targetType:'sick-note',targetId:b.booking.id})).rejects.toMatchObject({status:404});
+ });
+ it.each(['2030-09-02T10:59:59Z','2030-09-02T11:00:00Z','2030-09-03T12:00:00Z'])('uses approval instant %s and retains history',async at=>{
+  const n=await report();now=new Date(at);await sick().decide('org',n.id,decision());const d=await bookings.get('student',n.bookingId),expected=at<'2030-09-02T11:00:00Z'?'EXCUSED':'SKIPPED';expect(d.booking.occurrenceStatus).toBe(expected);expect(d.canSubmitSickNote).toBe(false);expect(d.history).toHaveLength(3);expect(d.sickNotes?.[0]).toMatchObject({status:'APPROVED',reviewNote:'Reviewed privately'});
+  const calendar=await bookings.list('student',{startsAt:'2030-09-02T00:00:00Z',endsAt:'2030-09-03T00:00:00Z'});expect(calendar.items).toHaveLength(expected==='EXCUSED'?0:1);
+  expect(JSON.stringify(await bookings.get('tutor',n.bookingId))).not.toMatch(/Private illness|Reviewed privately/);
+  if(expected==='EXCUSED')await expect(bookings.create('student2',book({requestKey:'released-time'}))).resolves.toBeDefined();
+  await expect(sick().decide('org2',n.id,decision())).rejects.toMatchObject({status:409});expect((await db.query(`SELECT * FROM "Notification" WHERE "type"='STUDENT_SICK_DECIDED'`)).rows).toHaveLength(1);
+ });
+ it('requires a rejection note, keeps the booking busy and permits a new request',async()=>{
+  const n=await report();await expect(sick().decide('org',n.id,decision({decision:'REJECTED',reviewNote:'  '}))).rejects.toMatchObject({status:400});
+  await sick().decide('org',n.id,decision({decision:'REJECTED',reviewNote:'Please clarify date'}));const d=await bookings.get('student',n.bookingId);expect(d).toMatchObject({booking:{occurrenceStatus:'SCHEDULED',version:3},canCancel:true,canSubmitSickNote:true});expect(d.sickNotes?.[0]).toMatchObject({status:'REJECTED',reviewNote:'Please clarify date'});
+  await expect(bookings.create('student2',book({requestKey:'still-busy'}))).rejects.toMatchObject({status:409});await sick().submit('student',n.bookingId,{bookingVersion:3,reason:'Clarified'});expect((await bookings.get('student',n.bookingId)).sickNotes).toHaveLength(2);
+  expect((await db.query('SELECT * FROM "Notification" WHERE "recipientProfileId"=3')).rows).toHaveLength(1);
+ });
+ it.each(['report-first','cancel-first'])('converges report versus cancellation: %s',async order=>{
+  const b=await bookings.create('student',book());const reportAction=()=>sick().submit('student',b.booking.id,{bookingVersion:1,reason:'Ill'}),cancelAction=()=>bookings.cancel('tutor',b.booking.id,{version:1});const actions=order==='report-first'?[reportAction,cancelAction]:[cancelAction,reportAction];const result=await Promise.allSettled(actions.map(action=>action()));expect(result.filter(x=>x.status==='fulfilled')).toHaveLength(1);const state=await bookings.get('student',b.booking.id);expect(state.booking.version).toBe(2);expect(state.history).toHaveLength(2);expect(state.booking.status==='CANCELLED'?state.sickNotes?.length===0:state.sickNotePending).toBe(true);
+ });
+ it('two Organiser decisions produce one outcome and one Student notification',async()=>{
+  const n=await report();const results=await Promise.allSettled([sick().decide('org',n.id,decision()),sick().decide('org2',n.id,decision({decision:'REJECTED'}))]);expect(results.filter(x=>x.status==='fulfilled')).toHaveLength(1);expect((await bookings.get('student',n.bookingId)).history).toHaveLength(3);expect((await db.query(`SELECT * FROM "Notification" WHERE "type"='STUDENT_SICK_DECIDED'`)).rows).toHaveLength(1);
+ });
+ it('rejects malformed, forged, missing and stale mutations without side effects',async()=>{
+  const b=await bookings.create('student',book());for(const payload of [{bookingVersion:1,reason:''},{bookingVersion:1,reason:'x'.repeat(1001)},{bookingVersion:1,reason:'Ill',studentId:7},{bookingVersion:0,reason:'Ill'}])await expect(sick().submit('student',b.booking.id,payload)).rejects.toMatchObject({status:400});
+  await expect(sick().submit('student',999,{bookingVersion:1,reason:'Ill'})).rejects.toMatchObject({status:404});const n=await sick().submit('student',b.booking.id,{bookingVersion:1,reason:'Ill'});
+  await expect(sick().decide('student',n.id,decision())).rejects.toMatchObject({status:403});await expect(sick().decide('org',999,decision())).rejects.toMatchObject({status:404});await expect(sick().decide('org',n.id,decision({decision:'BAD'}))).rejects.toMatchObject({status:400});await expect(sick().decide('org',n.id,decision({bookingVersion:1}))).rejects.toMatchObject({status:409});await expect(sick().list('org',{page:10001})).rejects.toMatchObject({status:400});
+  expect((await sick().list('org',{page:2})).items).toEqual([]);
+ });
+ it('database guards prevent deleting history, duplicate active notes and bypassing pending cancellation',async()=>{
+  const n=await report();await expect(db.query('DELETE FROM "StudentSickNote" WHERE "id"=$1',[n.id])).rejects.toThrow(/immutable/);await expect(db.query(`INSERT INTO "StudentSickNote" ("bookingId","reason") VALUES ($1,'Again')`,[n.bookingId])).rejects.toThrow();await expect(db.query(`UPDATE "TutoringBooking" SET "status"='CANCELLED' WHERE "id"=$1`,[n.bookingId])).rejects.toThrow(/pending/);
+  await sick().decide('org',n.id,decision());await expect(db.query(`UPDATE "StudentSickNote" SET "reason"='changed' WHERE "id"=$1`,[n.id])).rejects.toThrow(/immutable/);await expect(db.query(`UPDATE "TutoringBooking" SET "occurrenceStatus"='SCHEDULED' WHERE "id"=$1`,[n.bookingId])).rejects.toThrow(/immutable/);
+ });
+ it('classifies the exact approval boundary independently of submission date',()=>{expect(bookingAbsenceStatus(new Date(1000),new Date(999))).toBe('EXCUSED');expect(bookingAbsenceStatus(new Date(1000),new Date(1000))).toBe('SKIPPED');});
 });

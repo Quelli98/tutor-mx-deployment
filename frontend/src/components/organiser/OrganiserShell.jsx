@@ -1,3 +1,4 @@
+import { DensityToggle } from '../shared/DensityToggle'
 import { useEffect, useState } from 'react'
 import { Link, NavLink, useLocation } from 'react-router-dom'
 import { useAuth0 } from '@auth0/auth0-react'
@@ -74,6 +75,7 @@ function useHashTarget(location) {
 export function OrganiserShell({ user, onSignOut, children, isMasterOrganiser = false }) {
   const location = useLocation()
   const { user: auth0User } = useAuth0()
+  const [compact, setCompact] = useState(false)
   const [menuOpen, setMenuOpen] = useState(false)
   const name = profileName(user) || (typeof auth0User?.name === 'string' && !auth0User.name.includes('@') ? auth0User.name : null) || 'Organiser'
   const onHomePage = location.pathname === '/organiser' || HOME_PAGES.some((path) => location.pathname.startsWith(path))
@@ -96,7 +98,7 @@ export function OrganiserShell({ user, onSignOut, children, isMasterOrganiser = 
   const closeMenu = () => setMenuOpen(false)
 
   return (
-    <div className={`organiser-shell${menuOpen ? ' menu-open' : ''}`}>
+    <div className={`organiser-shell${menuOpen ? ' menu-open' : ''}${compact ? ' compact-mode' : ''}`}>
       <div className="organiser-backdrop" aria-hidden="true">
         <span className="organiser-backdrop-ring ring-one" />
         <span className="organiser-backdrop-ring ring-two" />
@@ -192,7 +194,7 @@ export function OrganiserShell({ user, onSignOut, children, isMasterOrganiser = 
           )}
           <div className="organiser-tools">
             <CommandPalette variant="field" role={'ORGANISER'} />
-            <NotificationBell icon={<OrganiserIcon name="bell" size={22} />} />
+            <DensityToggle compact={compact} onChange={setCompact}/><NotificationBell icon={<OrganiserIcon name="bell" size={22} />} />
           </div>
         </header>
         <OrganiserNameContext.Provider value={name === 'Organiser' ? null : name}>

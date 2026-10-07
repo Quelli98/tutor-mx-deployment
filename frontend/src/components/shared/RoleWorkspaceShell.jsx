@@ -1,3 +1,4 @@
+import { DensityToggle } from './DensityToggle'
 import { useEffect, useState } from 'react'
 import { NavLink, useLocation } from 'react-router-dom'
 import { useAuth0 } from '@auth0/auth0-react'
@@ -58,6 +59,7 @@ export function RoleWorkspaceShell({ role, user, onSignOut, children }) {
   const config = ROLE_CONFIG[role]
   const location = useLocation()
   const { user: auth0User } = useAuth0()
+  const [compact, setCompact] = useState(false)
   const [menuOpen, setMenuOpen] = useState(false)
   const name = profileName(user, auth0User, config.label)
   const page = pageKey(location.pathname, role)
@@ -77,7 +79,7 @@ export function RoleWorkspaceShell({ role, user, onSignOut, children }) {
   }, [menuOpen])
 
   return (
-    <div className={`member-shell member-shell-${role.toLowerCase()}${menuOpen ? ' menu-open' : ''}`}>
+    <div className={`member-shell member-shell-${role.toLowerCase()}${menuOpen ? ' menu-open' : ''}${compact ? ' compact-mode' : ''}`}>
       <aside id="member-sidebar" className="member-sidebar">
         <div className="organiser-brand">
           <span className="organiser-brand-tile"><CsamMark className="brand-mark" /></span>
@@ -141,7 +143,7 @@ export function RoleWorkspaceShell({ role, user, onSignOut, children }) {
           </div>
           <div className="organiser-tools">
             <CommandPalette variant="field" role={role} />
-            <NotificationBell icon={<OrganiserIcon name="bell" size={22} />} />
+            <DensityToggle compact={compact} onChange={setCompact}/><NotificationBell icon={<OrganiserIcon name="bell" size={22} />} />
           </div>
         </header>
         <div className="member-content" data-role={role.toLowerCase()} data-page={page}>{children}</div>

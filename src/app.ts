@@ -1,3 +1,4 @@
+import type {StudentSickNoteService} from './services/student-sick-note-service.js';
 import type {BookingService} from './services/booking-service.js';
 import type {SwapService} from './services/swap-service.js';
 import type { ScenarioService } from './services/scenario-service.js';
@@ -990,6 +991,7 @@ export interface AppDependencies {
     request: TimetableImportRequest,
     idempotencyKey?: string,
   ) => Promise<TimetableImportCommitResult>;
+  studentSickNoteService?: StudentSickNoteService;
   bookingService?: BookingService;
   swapService?: SwapService;
   scenarioService?: ScenarioService;
@@ -4659,6 +4661,10 @@ export function createApp(
     },
   );
 
+  const sickNotes=()=>{if(!dependencies.studentSickNoteService)throw createRouteError(503,'SICK_NOTES_UNAVAILABLE','Sick notes are temporarily unavailable.');return dependencies.studentSickNoteService;};
+  app.post('/api/student/bookings/:id/sick-notes',authenticate,resolveProfileRole,requireRole('STUDENT'),async(req,res)=>{try{res.status(201).json({data:await sickNotes().submit((req as AuthenticatedRequest).auth!.subject,schedulingId(req.params.id),req.body)});}catch(e){sendRouteError(res,e);}});
+  app.get('/api/organiser/student-sick-notes',authenticate,resolveProfileRole,requireRole('ORGANISER'),async(req,res)=>{try{res.json({data:await sickNotes().list((req as AuthenticatedRequest).auth!.subject,req.query)});}catch(e){sendRouteError(res,e);}});
+  app.post('/api/organiser/student-sick-notes/:id/decision',authenticate,resolveProfileRole,requireRole('ORGANISER'),async(req,res)=>{try{res.json({data:await sickNotes().decide((req as AuthenticatedRequest).auth!.subject,schedulingId(req.params.id),req.body)});}catch(e){sendRouteError(res,e);}});
   const bookingService=()=>{if(!dependencies.bookingService)throw createRouteError(503,'BOOKING_UNAVAILABLE','Bookings are temporarily unavailable.');return dependencies.bookingService;};
   const swapService=()=>{if(!dependencies.swapService)throw createRouteError(503,'SWAP_UNAVAILABLE','Swaps are temporarily unavailable.');return dependencies.swapService;};
   const schedulingId=(raw:unknown)=>{const parsed=parseNumericId(raw as string,'Session');if('error' in parsed)throw createRouteError(400,'VALIDATION_ERROR','Choose a valid session.');return parsed.value;};
@@ -4715,7 +4721,7 @@ export function createApp(
     const valid = body && (
       (hasOnlyFields(body, ['destinationId']) && typeof body.destinationId === 'string' && body.destinationId.length <= 80) ||
       (hasOnlyFields(body, ['notificationId']) && validId(body.notificationId)) ||
-      (hasOnlyFields(body, ['targetType', 'targetId']) && typeof body.targetType === 'string' && ['course', 'person', 'timesheet', 'excuse', 'allocation', 'volunteer', 'booking', 'swap'].includes(body.targetType) && validId(body.targetId))
+      (hasOnlyFields(body, ['targetType', 'targetId']) && typeof body.targetType === 'string' && ['course', 'person', 'timesheet', 'excuse', 'allocation', 'volunteer', 'booking', 'swap', 'sick-note'].includes(body.targetType) && validId(body.targetId))
     );
     if (!valid) { response.status(400).json({ error: { code: 'VALIDATION_ERROR', message: 'Choose one valid destination or target.' } }); return; }
     try {

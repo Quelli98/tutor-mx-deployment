@@ -1,3 +1,5 @@
+import { useState } from 'react'
+import StudentSickNoteQueue from './StudentSickNoteQueue'
 import { EmptyState, ErrorState, LoadingState } from '../components/shared/StatusMessage'
 import { useOrganiserApprovals } from './useOrganiserApprovals'
 
@@ -13,6 +15,7 @@ function formatDateTime(value) {
 }
 
 export default function OrganiserApprovals() {
+  const [studentPending, setStudentPending] = useState(0)
   const {
     status,
     queues,
@@ -40,12 +43,13 @@ export default function OrganiserApprovals() {
           </p>
         </div>
         {status === 'success' && (
-          <span className="summary-pill" aria-label={`${totalPending} pending approvals`}>
-            {totalPending} pending
+          <span className="summary-pill" aria-label={`${totalPending + studentPending} pending approvals`}>
+            {totalPending + studentPending} pending
           </span>
         )}
       </header>
 
+      <StudentSickNoteQueue onCountChange={setStudentPending}/>
       {message && <p className="status-note" role="status">{message}</p>}
       {error && status !== 'error' && <div className="approval-notice" role="alert"><p>{error}</p><button type="button" className="secondary-button" disabled={Boolean(pendingKey)} onClick={() => loadApprovals({ silent: true, clearError: true })}>Refresh queue</button></div>}
 

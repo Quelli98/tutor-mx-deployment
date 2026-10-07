@@ -1,3 +1,4 @@
+import {createStudentSickNoteService} from './services/student-sick-note-service.js';
 import {createBookingService} from './services/booking-service.js';
 import {createSwapService} from './services/swap-service.js';
 import { createScenarioService } from './services/scenario-service.js';
@@ -1330,6 +1331,7 @@ const app = createApp(
     },
     // The legacy organiser view is for Tutors only, never Student private schedules.
     listTutorTimeSlots: (tutorId) => listTimeSlots(tutorId, true),
+    studentSickNoteService: createStudentSickNoteService(planningStore),
     bookingService: createBookingService(planningStore),
     swapService: createSwapService(planningStore),
     scenarioService,

@@ -1,0 +1,14 @@
+npm warn Unknown env config "http-proxy". This will stop working in the next major version of npm.
+
+> tutor-mx-system@0.0.0 test
+> vitest --run src/features/StudentSickNotes.test.jsx src/components/shared/ConfirmationDialog.test.jsx src/components/shared/Sprint4Accessibility.test.jsx
+
+
+ RUN  v4.1.10 /workspace/scratch/cf095b00fbe5/work/tutor-mx-system/frontend
+
+
+ Test Files  3 passed (3)
+      Tests  20 passed (20)
+   Start at  01:25:12
+   Duration  2.86s (transform 148ms, setup 351ms, import 291ms, tests 1.07s, environment 2.33s)
+

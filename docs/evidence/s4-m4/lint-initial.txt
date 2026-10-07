@@ -1,0 +1,29 @@
+npm warn Unknown env config "http-proxy". This will stop working in the next major version of npm.
+
+> tutoring-management-system@1.0.0 lint
+> npm run lint:backend && npm run lint:frontend
+
+npm warn Unknown env config "http-proxy". This will stop working in the next major version of npm.
+
+> tutoring-management-system@1.0.0 lint:backend
+> eslint "src/**/*.ts"
+
+npm warn Unknown env config "http-proxy". This will stop working in the next major version of npm.
+
+> tutoring-management-system@1.0.0 lint:frontend
+> npm run lint --prefix frontend
+
+npm warn Unknown env config "http-proxy". This will stop working in the next major version of npm.
+
+> tutor-mx-system@0.0.0 lint
+> eslint .
+
+
+/workspace/scratch/cf095b00fbe5/work/tutor-mx-system/frontend/src/components/shared/ConfirmationDialog.jsx
+  34:24  warning  The ref value 'returnFocusRef.current' will likely have changed by the time this effect cleanup function runs. If this ref points to a node rendered by React, copy 'returnFocusRef.current' to a variable inside the effect, and use that variable in the cleanup function  react-hooks/exhaustive-deps
+
+/workspace/scratch/cf095b00fbe5/work/tutor-mx-system/frontend/src/features/StudentSickNoteQueue.jsx
+  16:159  warning  The ref value 'sequence.current' will likely have changed by the time this effect cleanup function runs. If this ref points to a node rendered by React, copy 'sequence.current' to a variable inside the effect, and use that variable in the cleanup function  react-hooks/exhaustive-deps
+
+✖ 2 problems (0 errors, 2 warnings)
+

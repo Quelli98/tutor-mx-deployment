@@ -1,3 +1,4 @@
+import {bookingSickNotes} from './student-sick-note-service.js';
 import {toNaiveUtcText} from './allocation-queries.js';
 import {createMutualAvailabilityService} from './mutual-availability.js';
 import {exactFields,inPlanningTransaction,instant,invalid,positiveId,type PlanningStore} from './planning-store.js';
@@ -10,7 +11,7 @@ async function own(client:QueryClient,id:number,actorId:number,lock=false){
  const {rows}=await client.query<Booking>(select+` WHERE b."id"=$1 AND (b."studentId"=$2 OR b."tutorId"=$2)${lock?' FOR UPDATE OF b':''}`,[id,actorId]);if(!rows[0])throw missing();return rows[0];
 }
 export function createBookingService(store:PlanningStore,clock=()=>new Date()){
- const detail=async(client:QueryClient,id:number,actorId:number)=>{const booking=await own(client,id,actorId);return {booking,history:await history(client,'Booking',id),canCancel:booking.status==='CONFIRMED'&&booking.occurrenceStatus==='SCHEDULED'&&new Date(booking.startsAt)>clock()};};
+ const detail=async(client:QueryClient,id:number,actorId:number)=>{const booking=await own(client,id,actorId);const notes=await bookingSickNotes(client,id),pending=notes.some(n=>n.status==='PENDING'),eligible=booking.status==='CONFIRMED'&&booking.occurrenceStatus==='SCHEDULED'&&!pending;return {booking,sickNotes:actorId===booking.studentId?notes:undefined,sickNotePending:pending,canSubmitSickNote:actorId===booking.studentId&&eligible,history:await history(client,'Booking',id),canCancel:eligible&&new Date(booking.startsAt)>clock()};};
  return {
   async list(subject:string,raw:unknown={}){return inPlanningTransaction(store,async client=>{
    const actor=await schedulingActor(client,subject,['STUDENT','TUTOR']);const input=exactFields(raw,['page','startsAt','endsAt']);
@@ -43,6 +44,7 @@ export function createBookingService(store:PlanningStore,clock=()=>new Date()){
   },
   async cancel(subject:string,id:number,raw:unknown){const input=exactFields(raw,['version','note']),version=positiveId(input.version),text=note(input.note??'');return inPlanningTransaction(store,async client=>{
    const actor=await schedulingActor(client,subject,['STUDENT','TUTOR']),booking=await own(client,positiveId(id),actor.id,true);
+   if((await bookingSickNotes(client,id)).some(n=>n.status==='PENDING'))throw stale();
    if(booking.version!==version||booking.status!=='CONFIRMED'||booking.occurrenceStatus!=='SCHEDULED')throw stale();
    if(new Date(booking.startsAt)<=clock())throw createRouteError(409,'BOOKING_STARTED','Only a future booking can be cancelled.');
    await client.query(`UPDATE "TutoringBooking" SET "status"='CANCELLED',"version"="version"+1,"updatedAt"=CURRENT_TIMESTAMP WHERE "id"=$1`,[id]);

@@ -25,3 +25,7 @@ it('refreshes after a concurrent decision and removes obsolete actions',async()=
 it('opens an addressed notification request and permits the requester to cancel',async()=>{
  window.history.replaceState({},'','/?swap=1');mocks.list.mockResolvedValue({items:[swap],actorId:3,page:1,hasMore:false});render(<SwapWorkspace/>);await screen.findByRole('button',{name:'Cancel swap'});expect(screen.queryByRole('button',{name:'Accept swap'})).not.toBeInTheDocument()
 })
+
+it('fails closed when the detail refresh after a competing decision fails',async()=>{
+ await open();mocks.change.mockRejectedValueOnce(Object.assign(new Error('Request changed'),{status:409}));mocks.get.mockRejectedValueOnce(new Error('Offline'));fireEvent.click(screen.getByRole('button',{name:'Accept swap'}));fireEvent.click(screen.getByRole('button',{name:'Confirm decision'}));await waitFor(()=>expect(screen.getByRole('alert')).toHaveTextContent('Refresh failed: Offline'));expect(screen.queryByRole('button',{name:'Accept swap'})).not.toBeInTheDocument()
+})
