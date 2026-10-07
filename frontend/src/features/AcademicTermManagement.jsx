@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useAuth0 } from '@auth0/auth0-react'
 import {
   createAcademicTerm,
@@ -9,16 +9,15 @@ import {
 import { ConfirmationDialog } from '../components/shared/ConfirmationDialog'
 import { ErrorState, LoadingState } from '../components/shared/StatusMessage'
 
-const EMPTY_FORM = { name: '', startsOn: '', endsOn: '', year: '', termNumber: '1', published: false, teachingBreaks: '' }
+const EMPTY_FORM = { name: '', startsOn: '', endsOn: '', year: String(new Date().getFullYear()), termNumber: '1', published: false, teachingBreaks: '' }
 
 function validate(form) {
   const errors = {}
-  if (!form.name.trim()) errors.name = 'A name is required.'
   if (!form.startsOn) errors.startsOn = 'A start date is required.'
   if (!form.endsOn) errors.endsOn = 'An end date is required.'
   else if (form.startsOn && form.endsOn < form.startsOn) errors.endsOn = 'End date must be on or after the start date.'
   if (!form.year.trim() || !Number.isInteger(Number(form.year)) || Number(form.year) < 2000) errors.year = 'Enter a valid year (e.g. 2026).'
-  if (!['1', '2', '3'].includes(form.termNumber)) errors.termNumber = 'Choose term 1, 2 or 3.'
+  if (!['1', '2', '3', '4'].includes(form.termNumber)) errors.termNumber = 'Choose term 1, 2, 3 or 4.'
   if (form.teachingBreaks.trim()) {
     const parts = form.teachingBreaks.split(',').map((part) => part.trim()).filter(Boolean)
     for (const part of parts) {
@@ -43,6 +42,7 @@ export default function AcademicTermManagement() {
   const [error, setError] = useState('')
   const [pending, setPending] = useState(false)
   const [termToDelete, setTermToDelete] = useState(null)
+  const formSectionRef = useRef(null)
 
   const load = useCallback(async () => {
     setStatus('loading')
@@ -66,6 +66,11 @@ export default function AcademicTermManagement() {
     setErrors({})
   }
 
+  function scrollToForm() {
+    formSectionRef.current?.scrollIntoView?.({ behavior: 'smooth', block: 'start' })
+    formSectionRef.current?.querySelector('input, select, button')?.focus({ preventScroll: true })
+  }
+
   function edit(term) {
     setForm({
       name: term.name,
@@ -82,6 +87,16 @@ export default function AcademicTermManagement() {
     setErrors({})
     setError('')
     setMessage('')
+    scrollToForm()
+  }
+
+  function configure(number) {
+    setEditingId(null)
+    setForm({ ...EMPTY_FORM, year: form.year, termNumber: String(number) })
+    setErrors({})
+    setError('')
+    setMessage('')
+    scrollToForm()
   }
 
   async function handleSubmit(event) {
@@ -101,7 +116,7 @@ export default function AcademicTermManagement() {
       : []
 
     const payload = {
-      name: form.name.trim(),
+      name: form.name.trim() || `Term ${form.termNumber}, ${form.year}`,
       startsOn: form.startsOn,
       endsOn: form.endsOn,
       year: Number(form.year),
@@ -162,14 +177,14 @@ export default function AcademicTermManagement() {
         </div>
       </header>
 
-      <section className="role-card tutor-form-card" aria-labelledby="term-form-heading">
+      <section ref={formSectionRef} className="role-card tutor-form-card" aria-labelledby="term-form-heading">
         <h2 id="term-form-heading">{editingId ? 'Edit term' : 'Add term'}</h2>
         <form className="tutor-form schedule-editor" onSubmit={handleSubmit} noValidate>
           <div className="field-group">
-            <label htmlFor="term-name">Name</label>
+            <label htmlFor="term-name">Display name (optional)</label>
             <input id="term-name" value={form.name} maxLength={120} disabled={pending}
               onChange={(event) => field('name', event.target.value)}
-              aria-invalid={Boolean(errors.name)} placeholder="e.g. Semester 1, 2026" />
+              aria-invalid={Boolean(errors.name)} placeholder="e.g. Term 4, 2026" />
             {errors.name && <p className="error-text">{errors.name}</p>}
           </div>
           <div className="field-group">
@@ -186,6 +201,7 @@ export default function AcademicTermManagement() {
               <option value="1">Term 1</option>
               <option value="2">Term 2</option>
               <option value="3">Term 3</option>
+              <option value="4">Term 4</option>
             </select>
             {errors.termNumber && <p className="error-text">{errors.termNumber}</p>}
           </div>
@@ -230,7 +246,21 @@ export default function AcademicTermManagement() {
       </section>
 
       <section className="role-card" aria-labelledby="term-list-heading">
-        <h2 id="term-list-heading">Existing terms</h2>
+        <h2 id="term-list-heading">Terms for {form.year || new Date().getFullYear()}</h2>
+        <ul className="detail-record-list" aria-label="Four academic terms">
+          {[1, 2, 3, 4].map((number) => {
+            const term = terms.find((item) => item.year === Number(form.year) && item.termNumber === number)
+            return <li key={number}>
+              <strong>Term {number}</strong>
+              <span>Semester {number <= 2 ? 1 : 2} · {term ? (term.published ? 'Published' : 'Draft') : 'Not configured'}</span>
+              <button type="button" className="secondary-button" disabled={pending} onClick={() => {
+                if (term) edit(term)
+                else configure(number)
+              }}>{term ? `Edit Term ${number}` : `Configure Term ${number}`}</button>
+            </li>
+          })}
+        </ul>
+        <h3>Existing terms</h3>
         {status === 'loading' && <LoadingState title="Loading terms" message="Checking saved academic terms." />}
         {status === 'error' && <ErrorState title="Terms unavailable" message="Academic terms could not be loaded." onRetry={load} />}
         {status === 'success' && (terms.length === 0

@@ -1,3 +1,4 @@
+import { resolveDestination } from '../../api/navigation'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth0 } from '@auth0/auth0-react'
@@ -22,6 +23,9 @@ export function NotificationBell({ icon } = {}) {
   const { getAccessTokenSilently } = useAuth0()
   const navigate = useNavigate()
   const bellRef = useRef(null)
+  const actionRef = useRef(0)
+  const pageRequestRef = useRef(0)
+  useEffect(() => () => { actionRef.current += 1; pageRequestRef.current += 1 }, [])
   const panelRef = useRef(null)
   const closeButtonRef = useRef(null)
 
@@ -51,6 +55,7 @@ export function NotificationBell({ icon } = {}) {
 
   const loadPage = useCallback(
     async (nextPage, nextFilter, append) => {
+      const requestId = ++pageRequestRef.current
       setStatus('loading')
       setError('')
       try {
@@ -58,12 +63,14 @@ export function NotificationBell({ icon } = {}) {
           { status: nextFilter, page: nextPage, pageSize: PAGE_SIZE },
           getAccessTokenSilently,
         )
+        if (requestId !== pageRequestRef.current) return
         setItems((current) => (append ? [...current, ...result.items] : result.items))
         setPage(result.page)
         setTotal(result.total)
         setUnreadCount(result.unreadCount)
         setStatus('success')
       } catch (loadError) {
+        if (requestId !== pageRequestRef.current) return
         if (!append) setItems([])
         setError(loadError?.message || 'Notifications could not be loaded.')
         setStatus('error')
@@ -79,6 +86,8 @@ export function NotificationBell({ icon } = {}) {
   }
 
   const closePanel = useCallback(() => {
+    actionRef.current += 1
+    pageRequestRef.current += 1
     setOpen(false)
     // Focus returns to the triggering bell so keyboard users are not stranded.
     bellRef.current?.focus()
@@ -113,17 +122,22 @@ export function NotificationBell({ icon } = {}) {
   }
 
   async function handleOpenNotification(notification) {
+    const action = ++actionRef.current
     try {
+      const destination = await resolveDestination({ notificationId: notification.id }, getAccessTokenSilently)
       if (!notification.readAt) {
-        await markNotificationRead(notification.id, getAccessTokenSilently)
+        try { await markNotificationRead(notification.id, getAccessTokenSilently) } catch (error) {
+          if (error?.status === 401 || error?.status === 403) throw error
+        }
       }
-    } catch {
-      // Navigation is more important than the read flag; the destination
-      // route re-checks permission and shows a safe state if needed.
-    } finally {
-      await loadUnreadCount()
+      if (action !== actionRef.current) return
       closePanel()
-      navigate(notification.linkPath)
+      navigate(destination.linkPath)
+      loadUnreadCount()
+    } catch {
+      if (action !== actionRef.current) return
+      setError('This item is no longer available or you no longer have access.')
+      setStatus('error')
     }
   }
 
@@ -253,6 +267,7 @@ export function NotificationBell({ icon } = {}) {
                   >
                     <span className="notification-item-title">{notification.title}</span>
                     <span className="notification-item-body">{notification.body}</span>
+                    <span className="notification-action">{notification.linkPath.startsWith('/organiser') ? 'Review' : notification.type.includes('RETURN') ? 'Fix' : 'View'}</span>
                     <span className="notification-time">
                       {formatWhen(notification.createdAt)}
                     </span>

@@ -27,7 +27,7 @@ function row(overrides: Record<string, unknown> = {}) {
 interface HarnessOptions {
   organiser?: { id: number; role: string } | null;
   course?: { id: number } | null;
-  requirement?: { id: number; status?: string } | null;
+  requirement?: { id: number; status?: string; endsAt?: Date } | null;
   /** Confirmed hours the shortage query reports for requirement 12. */
   assignedHours?: number;
 }
@@ -36,7 +36,7 @@ function createHarness(options: HarnessOptions = {}) {
   const {
     organiser = { id: 8, role: "ORGANISER" },
     course = { id: 3 },
-    requirement = { id: 12, status: "OPEN" },
+    requirement = { id: 12, status: "OPEN", endsAt: END },
     assignedHours = 0,
   } = options;
 
@@ -48,6 +48,7 @@ function createHarness(options: HarnessOptions = {}) {
       findMany: vi.fn().mockResolvedValue([row()]),
       create: vi.fn().mockResolvedValue(row()),
       update: vi.fn().mockResolvedValue(row()),
+      updateMany: vi.fn().mockResolvedValue({ count: 0 }),
     },
   };
 
@@ -116,6 +117,28 @@ describe("staffing requirement service", () => {
         ).resolves.toMatchObject([{ tutorsNeeded, windowHours, requiredHours }]);
       },
     );
+
+
+    it("automatically closes open sessions whose end time has passed before listing", async () => {
+      harness.transaction.staffingRequirement.findMany.mockResolvedValue([
+        row({
+          endsAt: new Date("2020-09-04T18:00:00.000Z"),
+          status: "CLOSED",
+        }),
+      ]);
+
+      await expect(harness.service.listStaffingRequirements({})).resolves.toMatchObject([
+        { status: "CLOSED", shortageHours: 0, fillState: "not-being-filled" },
+      ]);
+
+      expect(harness.transaction.staffingRequirement.updateMany).toHaveBeenCalledWith({
+        where: {
+          status: "OPEN",
+          endsAt: { lte: expect.any(Date) },
+        },
+        data: { status: "CLOSED" },
+      });
+    });
 
     it("returns summaries with ISO times, numeric hours and course details", async () => {
       await expect(harness.service.listStaffingRequirements({})).resolves.toEqual([
@@ -343,7 +366,7 @@ describe("staffing requirement service", () => {
     it.each(["CLOSED", "CANCELLED"])(
       "still edits a %s requirement",
       async (status) => {
-        harness = createHarness({ requirement: { id: 12, status } });
+        harness = createHarness({ requirement: { id: 12, status, endsAt: END } });
         await expect(
           harness.service.updateStaffingRequirement(12, validInput),
         ).resolves.toBeDefined();
@@ -375,7 +398,7 @@ describe("staffing requirement service", () => {
     it.each(["CLOSED", "CANCELLED"] as const)(
       "moves an open requirement to %s",
       async (status) => {
-        harness = createHarness({ requirement: { id: 12, status: "OPEN" } });
+        harness = createHarness({ requirement: { id: 12, status: "OPEN", endsAt: END } });
         harness.transaction.staffingRequirement.update.mockResolvedValue(
           row({ status }),
         );
@@ -391,7 +414,7 @@ describe("staffing requirement service", () => {
     it.each(["CLOSED", "CANCELLED"])(
       "reopens a %s requirement",
       async (status) => {
-        harness = createHarness({ requirement: { id: 12, status } });
+        harness = createHarness({ requirement: { id: 12, status, endsAt: END } });
         harness.transaction.staffingRequirement.update.mockResolvedValue(
           row({ status: "OPEN" }),
         );
@@ -404,7 +427,7 @@ describe("staffing requirement service", () => {
     it.each(["OPEN", "CLOSED", "CANCELLED"] as const)(
       "refuses to set %s twice",
       async (status) => {
-        harness = createHarness({ requirement: { id: 12, status } });
+        harness = createHarness({ requirement: { id: 12, status, endsAt: END } });
         await expect(
           harness.service.setStaffingRequirementStatus(12, status),
         ).rejects.toMatchObject({
@@ -415,6 +438,21 @@ describe("staffing requirement service", () => {
         expect(harness.transaction.staffingRequirement.update).not.toHaveBeenCalled();
       },
     );
+
+    it("does not reopen a session whose end time has already passed", async () => {
+      harness = createHarness({
+        requirement: { id: 12, status: "CLOSED", endsAt: new Date("2020-09-04T18:00:00.000Z") },
+      });
+
+      await expect(
+        harness.service.setStaffingRequirementStatus(12, "OPEN"),
+      ).rejects.toMatchObject({
+        status: 409,
+        code: "STAFFING_REQUIREMENT_CONFLICT",
+        message: expect.stringContaining("already ended"),
+      });
+      expect(harness.transaction.staffingRequirement.update).not.toHaveBeenCalled();
+    });
 
     it("reports an unknown requirement", async () => {
       harness = createHarness({ requirement: null });
@@ -434,6 +472,7 @@ describe("staffing requirement service", () => {
     harness.transaction.staffingRequirement.findUnique.mockResolvedValue({
       id: 12,
       status: "OPEN",
+      endsAt: END,
     });
     await harness.service.setStaffingRequirementStatus(12, "CLOSED");
     expect(harness.client.$transaction).toHaveBeenCalledTimes(3);

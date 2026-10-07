@@ -4,6 +4,7 @@ import {
   type JsonWebKeyInput,
 } from "node:crypto";
 import {
+  normalizeAuth0Role,
   normalizeTutorRole,
   type AccessTokenVerifier,
   type TutorRole,
@@ -58,8 +59,14 @@ function audienceMatches(actual: unknown, expected: string): boolean {
   return Array.isArray(actual) && actual.includes(expected);
 }
 
-function extractRole(value: unknown): TutorRole | null {
+function extractRoles(value: unknown): string[] {
   const candidates = Array.isArray(value) ? value : [value];
+  return candidates
+    .map(normalizeAuth0Role)
+    .filter((role): role is string => Boolean(role));
+}
+
+function extractRole(candidates: string[]): TutorRole | null {
   for (const candidate of candidates) {
     const role = normalizeTutorRole(candidate);
     if (role) {
@@ -144,9 +151,12 @@ export function createAuth0AccessTokenVerifier(
       throw new Error("Invalid or expired access-token claims");
     }
 
+    const auth0Roles = extractRoles(claims[config.rolesClaim]);
+
     return {
       subject: claims.sub,
-      role: extractRole(claims[config.rolesClaim]),
+      role: extractRole(auth0Roles),
+      auth0Roles,
       ...(typeof claims.email === "string" ? { email: claims.email } : {}),
       claims,
     };

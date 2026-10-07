@@ -1,3 +1,5 @@
+import ScheduleEntryPanel from './ScheduleEntryPanel'
+import { attendanceLabel, sickStyle } from '../components/shared/attendance'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useAuth0 } from '@auth0/auth0-react'
 import { listOwnTimeSlots } from '../api/availability'
@@ -18,9 +20,11 @@ function toSlotEntries(slots) {
 
 function toAllocationEntries(allocations) {
   return allocations
-    .filter((allocation) => allocation.status === 'CONFIRMED')
+    .filter((allocation) => allocation.status === 'CONFIRMED' && allocation.occurrenceStatus !== 'EXCUSED')
     .map((allocation) => ({
       id: `alloc-${allocation.id}`,
+      occurrenceStatus: allocation.occurrenceStatus,
+      excusePending: allocation.excusePending,
       startsAt: allocation.startsAt,
       endsAt: allocation.endsAt,
       label: `${allocation.courseCode} – ${allocation.courseName}`,
@@ -33,8 +37,8 @@ function toAllocationEntries(allocations) {
     }))
 }
 
-export default function MyTimetable() {
-  const { getAccessTokenSilently } = useAuth0()
+export default function MyTimetable({ role = 'TUTOR' }) {
+  const { getAccessTokenSilently, user } = useAuth0()
   const [status, setStatus] = useState('loading')
   const [slots, setSlots] = useState([])
   const [allocations, setAllocations] = useState([])
@@ -48,7 +52,7 @@ export default function MyTimetable() {
     try {
       const [slotResult, dashboard] = await Promise.all([
         listOwnTimeSlots(getAccessTokenSilently),
-        fetchTutorDashboard(getAccessTokenSilently),
+        role === 'TUTOR' ? fetchTutorDashboard(getAccessTokenSilently) : Promise.resolve({ allocations: [] }),
       ])
       if (!isMountedRef.current) return
       setSlots(slotResult)
@@ -64,7 +68,7 @@ export default function MyTimetable() {
         setStatus('error')
       }
     }
-  }, [getAccessTokenSilently])
+  }, [getAccessTokenSilently, role])
 
   useEffect(() => {
     isMountedRef.current = true
@@ -74,6 +78,8 @@ export default function MyTimetable() {
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     load()
+    window.addEventListener('focus', load)
+    return () => window.removeEventListener('focus', load)
   }, [load])
 
   const combined = useMemo(() => [
@@ -81,7 +87,7 @@ export default function MyTimetable() {
     ...toAllocationEntries(allocations),
   ], [slots, allocations])
 
-  const confirmedCount = allocations.filter((a) => a.status === 'CONFIRMED').length
+  const confirmedCount = allocations.filter((a) => a.status === 'CONFIRMED' && a.occurrenceStatus !== 'EXCUSED').length
   const totalSlots = slots.filter((s) => s.type === 'BUSY').length
 
   function handleRetry() {
@@ -109,10 +115,10 @@ export default function MyTimetable() {
     <main id="main-content" className="dashboard-shell tutor-workspace">
       <header className="dashboard-header">
         <div>
-          <p className="eyebrow">Tutor workspace</p>
+          <p className="eyebrow">{role === 'STUDENT' ? 'Student' : 'Tutor'} workspace</p>
           <h1>My timetable</h1>
           <p className="helper-text">
-            Your classes, tutoring sessions and unavailable times in one view.
+            {role === 'STUDENT' ? 'Your classes and unavailable times in one view.' : 'Your classes, tutoring sessions and unavailable times in one view.'}
           </p>
         </div>
         <div className="button-row">
@@ -132,18 +138,20 @@ export default function MyTimetable() {
         />
       )}
 
-      <section className="role-card" aria-labelledby="timetable-summary-heading">
+      <section className="role-card" aria-label="Timetable summary">
         <div className="timetable-summary">
           <div>
             <strong>{totalSlots}</strong>
             <span>{totalSlots === 1 ? 'schedule entry' : 'schedule entries'}</span>
           </div>
-          <div>
+          {role === 'TUTOR' && <div>
             <strong>{confirmedCount}</strong>
             <span>{confirmedCount === 1 ? 'tutoring session' : 'tutoring sessions'}</span>
-          </div>
+          </div>}
         </div>
       </section>
+
+      {role === 'STUDENT' && <ScheduleEntryPanel role={role} tokenOrGetter={getAccessTokenSilently} storageScope={user?.sub ?? null} onChanged={load} />}
 
       <WeeklySchedule
         slots={combined}
@@ -153,22 +161,23 @@ export default function MyTimetable() {
         initialDate={jumpDate ? new Date(jumpDate + 'T00:00:00') : new Date()}
       />
 
-      {allocations.filter((a) => a.status === 'CONFIRMED').length > 0 && (
+      {allocations.filter((a) => a.status === 'CONFIRMED' && a.occurrenceStatus !== 'EXCUSED').length > 0 && (
         <section className="role-card" aria-labelledby="tutoring-sessions-heading">
           <h2 id="tutoring-sessions-heading">Tutoring sessions</h2>
           <p className="helper-text">Confirmed allocations from organisers.</p>
-          {allocations.filter((a) => a.status === 'CONFIRMED').length === 0
+          {allocations.filter((a) => a.status === 'CONFIRMED' && a.occurrenceStatus !== 'EXCUSED').length === 0
             ? <p>No confirmed tutoring sessions.</p>
             : <ul className="detail-record-list" aria-label="Confirmed tutoring sessions">
               {allocations
-                .filter((a) => a.status === 'CONFIRMED')
+                .filter((a) => a.status === 'CONFIRMED' && a.occurrenceStatus !== 'EXCUSED')
                 .sort((a, b) => new Date(a.startsAt) - new Date(b.startsAt))
                 .map((allocation) => {
                   const start = new Date(allocation.startsAt)
                   const end = new Date(allocation.endsAt)
                   return (
-                    <li key={allocation.id}>
+                    <li key={allocation.id} style={allocation.occurrenceStatus === 'SKIPPED' ? sickStyle : undefined}>
                       <strong>{allocation.courseCode} – {allocation.courseName}</strong>
+                      {attendanceLabel(allocation) && <span>{attendanceLabel(allocation)}</span>}
                       <span>{start.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' })}</span>
                       <span>{start.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}–{end.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}</span>
                       <span>{sessionLengthText(start, end)}</span>

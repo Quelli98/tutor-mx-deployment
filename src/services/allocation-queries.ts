@@ -200,6 +200,7 @@ function tutorHoursSql(weekParameter: string, excludeParameter = "NULL") {
     LEFT JOIN "TutorHourLimit" thl ON thl."tutorId" = p."id"
     LEFT JOIN "Allocation" a ON a."tutorId" = p."id"
       AND a."status" = 'CONFIRMED'
+      AND NOT EXISTS (SELECT 1 FROM "Excuse" sick WHERE sick."allocationId" = a."id" AND sick."status" = 'APPROVED')
       AND a."startsAt" >= date_trunc('week', ${weekParameter}::timestamp)
       AND a."startsAt" < date_trunc('week', ${weekParameter}::timestamp) + interval '7 days'
       AND (${excludeParameter}::integer IS NULL OR a."id" <> ${excludeParameter})
@@ -251,10 +252,25 @@ WITH tutor_hours AS (${tutorHoursSql("$2", "$6")}), candidate_data AS (
       ) occurrence
       WHERE ts."tutorId" = p."id" AND ts."type" = 'BUSY'
         AND occurrence.starts_at < $3::timestamp AND occurrence.ends_at > $2::timestamp
+        AND NOT EXISTS (SELECT 1 FROM "OccurrenceException" ex
+          WHERE ex."timeSlotId" = ts."id"
+            AND ex."occurrenceDate" = (occurrence.starts_at AT TIME ZONE 'UTC' AT TIME ZONE 'Africa/Johannesburg')::date
+            AND (ex."exceptionType" = 'CANCELLED' OR ex."newStartsAt" IS NOT NULL))
+        AND NOT EXISTS (SELECT 1 FROM "AcademicTerm" term,
+          LATERAL jsonb_array_elements(term."teachingBreaks") pause
+          WHERE term."id" = ts."termId" AND ts."recurrence" IN ('WEEKLY', 'FORTNIGHTLY')
+            AND (occurrence.starts_at AT TIME ZONE 'UTC' AT TIME ZONE 'Africa/Johannesburg')::date
+              BETWEEN (pause->>'startsOn')::date AND (pause->>'endsOn')::date)
+      UNION ALL
+      SELECT 'busy', ts."label", ex."newStartsAt", ex."newEndsAt", ts."recurrence"
+      FROM "TimeSlot" ts JOIN "OccurrenceException" ex ON ex."timeSlotId" = ts."id"
+      WHERE ts."tutorId" = p."id" AND ts."type" = 'BUSY' AND ex."exceptionType" <> 'CANCELLED'
+        AND ex."newStartsAt" < $3::timestamp AND ex."newEndsAt" > $2::timestamp
       UNION ALL
       SELECT 'allocation', course."code", clash."startsAt", clash."endsAt", NULL
       FROM "Allocation" clash JOIN "Course" course ON course."id" = clash."courseId"
       WHERE clash."tutorId" = p."id" AND clash."status" = 'CONFIRMED'
+        AND NOT EXISTS (SELECT 1 FROM "Excuse" sick WHERE sick."allocationId" = clash."id" AND sick."status" = 'APPROVED')
         AND ($6::integer IS NULL OR clash."id" <> $6)
         AND clash."startsAt" < $3::timestamp AND clash."endsAt" > $2::timestamp
     ) c
@@ -533,6 +549,7 @@ FROM "StaffingRequirement" sr
 LEFT JOIN "Allocation" a
   ON a."courseId" = sr."courseId"
  AND a."status" = 'CONFIRMED'
+      AND NOT EXISTS (SELECT 1 FROM "Excuse" sick WHERE sick."allocationId" = a."id" AND sick."status" = 'APPROVED')
  AND a."startsAt" < sr."endsAt"
  AND a."endsAt" > sr."startsAt"
 WHERE sr."id" = ANY($1::integer[])

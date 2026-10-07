@@ -1,3 +1,4 @@
+import { attendanceLabel } from '../components/shared/attendance'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { fetchExcuseStatus } from '../api/excuse'
 
@@ -34,7 +35,7 @@ function persistExcuses(statuses, storageKey) {
 
 function statusLine(summary) {
   if (summary?.status === 'APPROVED') {
-    return 'Approved by the organiser.'
+    return `Approved by the organiser. ${attendanceLabel(summary) || ''}${summary.occurrenceStatus === 'EXCUSED' ? ' — removed from your active timetable; kept here in history.' : ''}`
   }
   if (summary?.status === 'REJECTED') {
     return 'Rejected by the organiser.'
@@ -59,7 +60,7 @@ export default function ExcuseStatusSection({
   storageScope = null,
 }) {
   const storageKey = storageKeyFor(storageScope)
-  const [statuses, setStatuses] = useState(() => loadStoredExcuses(storageKey))
+  const [statuses, setStatuses] = useState(() => ({ ...loadStoredExcuses(storageKey), ...Object.fromEntries(allocations.filter((item) => item.excuse).map((item) => [item.excuse.id, { ...item.excuse, allocationId: item.id, occurrenceStatus: item.occurrenceStatus }])) }))
   const [busy, setBusy] = useState({})
   const [messages, setMessages] = useState({})
   const knownIdsRef = useRef([])
@@ -170,7 +171,7 @@ export default function ExcuseStatusSection({
     <section className="draft-list" aria-labelledby="excuse-status-heading">
       <h3 id="excuse-status-heading">Submitted excuses</h3>
       {cards.length === 0 ? (
-        <p>No excuses submitted yet. Excuses for future sessions are reviewed by the organiser.</p>
+        <p>No excuses submitted yet. Excuses are reviewed by the organiser.</p>
       ) : (
         <ul>
           {cards.map((card) => {

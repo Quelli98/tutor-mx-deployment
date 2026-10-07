@@ -1,3 +1,4 @@
+import TargetGate from '../features/TargetGate'
 import { NavLink, Navigate, Route, Routes } from 'react-router-dom'
 import { ProtectedRoute } from '../auth/ProtectedRoute'
 import { AccountSettings } from '../features/AccountSettings'
@@ -16,6 +17,7 @@ import BulkAllocation from '../features/BulkAllocation'
 import OrganiserReports from '../features/OrganiserReports'
 import OrganiserOverflow from '../features/OrganiserOverflow'
 import CommandCentre from '../features/CommandCentre'
+import MasterOrganiserApplications from '../features/MasterOrganiserApplications'
 import { SkipToContent } from '../components/shared/SkipToContent'
 import { NotificationBell } from '../components/shared/NotificationBell'
 import { CommandPalette } from '../components/shared/CommandPalette'
@@ -104,6 +106,7 @@ function protect(currentRole, allowedRoles, children) {
 
 export function RoleRouter({ currentRole, onSignOut, user = null }) {
   const entryPath = ROLE_ROUTE_MAP[currentRole]?.path
+  const isMasterOrganiser = Boolean(user?.data?.capabilities?.masterOrganiser)
 
   const routes = (
     <Routes>
@@ -162,6 +165,12 @@ export function RoleRouter({ currentRole, onSignOut, user = null }) {
         element={protect(currentRole, ['ORGANISER'], <OrganiserOverflow />)}
       />
       <Route
+        path="/organiser/organiser-applications"
+        element={isMasterOrganiser
+          ? protect(currentRole, ['ORGANISER'], <MasterOrganiserApplications />)
+          : <Navigate to="/access-denied" replace />}
+      />
+      <Route
         path="/tutor"
         element={protect(currentRole, ['TUTOR'], <TutorDashboard />)}
       />
@@ -173,6 +182,7 @@ export function RoleRouter({ currentRole, onSignOut, user = null }) {
         path="/tutor/timetable"
         element={protect(currentRole, ['TUTOR'], <MyTimetable />)}
       />
+      <Route path="/student/timetable" element={protect(currentRole, ['STUDENT'], <MyTimetable role="STUDENT" />)} />
       <Route
         path="/student"
         element={protect(currentRole, ['STUDENT'], <StudentOverflow />)}
@@ -182,6 +192,11 @@ export function RoleRouter({ currentRole, onSignOut, user = null }) {
         element={protect(currentRole, ['ORGANISER', 'TUTOR', 'STUDENT'], <AccountSettings />)}
       />
 
+      <Route path="/tutor/courses/:targetId" element={protect(currentRole, ['TUTOR'], <TargetGate targetType="course" />)} />
+      <Route path="/student/courses/:targetId" element={protect(currentRole, ['STUDENT'], <TargetGate targetType="course" />)} />
+      <Route path="/organiser/timesheets/:targetId" element={protect(currentRole, ['ORGANISER'], <TargetGate targetType="timesheet" />)} />
+      <Route path="/tutor/forms/timesheets/:targetId" element={protect(currentRole, ['TUTOR'], <TargetGate targetType="timesheet" />)} />
+      <Route path="/student/volunteer/:targetId" element={protect(currentRole, ['STUDENT'], <TargetGate targetType="volunteer" />)} />
       <Route path="/access-denied" element={<AccessDeniedPage />} />
       <Route path="*" element={<Navigate to={entryPath || '/access-denied'} replace />} />
     </Routes>
@@ -192,7 +207,7 @@ export function RoleRouter({ currentRole, onSignOut, user = null }) {
     return (
       <>
         <SkipToContent />
-        <OrganiserShell user={user} onSignOut={onSignOut}>
+        <OrganiserShell user={user} onSignOut={onSignOut} isMasterOrganiser={isMasterOrganiser}>
           {routes}
         </OrganiserShell>
       </>

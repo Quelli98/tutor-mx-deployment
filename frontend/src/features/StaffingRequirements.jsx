@@ -116,6 +116,11 @@ function formatDateTime(isoValue) {
   }).format(new Date(isoValue))
 }
 
+function sessionHasEnded(requirement) {
+  const endsAt = new Date(requirement.endsAt)
+  return !Number.isNaN(endsAt.valueOf()) && endsAt.valueOf() <= Date.now()
+}
+
 /**
  * Shape checks, plus the one value rule worth catching before a round trip.
  * Every other rule about the values - end after start, the tutor range, whether
@@ -590,8 +595,11 @@ export default function StaffingRequirements() {
               <tbody>
                 {requirements.map((requirement) => {
                   const name = `${requirement.courseCode} on ${formatDateTime(requirement.startsAt)}`
-                  const nextStatuses =
-                    requirement.status === 'OPEN' ? ['CLOSED', 'CANCELLED'] : ['OPEN']
+                  const nextStatuses = requirement.status === 'OPEN'
+                    ? ['CLOSED', 'CANCELLED']
+                    : sessionHasEnded(requirement)
+                      ? []
+                      : ['OPEN']
 
                   return (
                     <tr key={requirement.id}>

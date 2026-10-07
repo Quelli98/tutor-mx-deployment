@@ -13,6 +13,12 @@ enum UserRole {
   STUDENT
 }
 
+enum OrganiserApplicationStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
 enum TimeSlotType {
   AVAILABLE
   BUSY
@@ -41,6 +47,15 @@ enum TimesheetRevisionKind {
 enum TimesheetDisputeStatus {
   OPEN
   RESOLVED
+}
+
+enum SickOccurrenceStatus {
+  EXCUSED
+  SKIPPED
+}
+
+enum AbsenceReason {
+  SICK
 }
 
 enum ExcuseStatus {
@@ -104,14 +119,37 @@ model Profile {
   timesheets          Timesheet[]      @relation("TutorTimesheets")
   reviewedTimesheets  Timesheet[]      @relation("TimesheetReviewer")
   excuses             Excuse[]
+  reviewedExcuses     Excuse[] @relation("ExcuseReviewer")
   volunteerClaims     VolunteerClaim[]
   notifications       Notification[]
   staffingRequirements StaffingRequirement[]
   timesheetRevisions  TimesheetRevision[] @relation("TimesheetRevisionAuthor")
   raisedDisputes      TimesheetDispute[]  @relation("TimesheetDisputeRaisedBy")
   resolvedDisputes    TimesheetDispute[]  @relation("TimesheetDisputeResolvedBy")
+  reviewedOrganiserApplications OrganiserApplication[] @relation("OrganiserApplicationReviewer")
   createdAt           DateTime         @default(now())
   updatedAt           DateTime         @updatedAt
+}
+
+/// A lecturer registration request for organiser access. Pending applicants do
+/// not receive a Tutor MX Profile or Auth0 ORGANISER role until a Master
+/// Organiser approves the request.
+model OrganiserApplication {
+  id                 Int                        @id @default(autoincrement())
+  auth0Id            String                     @unique
+  email              String                     @unique
+  fullName           String
+  motivation         String?                    @db.VarChar(1000)
+  status             OrganiserApplicationStatus @default(PENDING)
+  reviewReason       String?                    @db.VarChar(500)
+  reviewedAt         DateTime?
+  reviewerProfileId  Int?
+  reviewer           Profile?                   @relation("OrganiserApplicationReviewer", fields: [reviewerProfileId], references: [id], onDelete: SetNull)
+  createdAt          DateTime                   @default(now())
+  updatedAt          DateTime                   @updatedAt
+
+  @@index([status, createdAt])
+  @@index([reviewerProfileId])
 }
 
 model Notification {
@@ -182,7 +220,7 @@ model AcademicTerm {
 
 model TimeSlot {
   id               Int          @id @default(autoincrement())
-  tutorId          Int
+  ownerId          Int          @map("tutorId")
   type             TimeSlotType
   startsAt         DateTime
   endsAt           DateTime
@@ -192,12 +230,13 @@ model TimeSlot {
   category         String       @default("UNAVAILABLE") @db.VarChar(32)
   seriesId         String?      @db.VarChar(36)
   termId           Int?
-  tutor            Profile      @relation(fields: [tutorId], references: [id], onDelete: Cascade)
+  dedupeKey        String? @unique @db.VarChar(64)
+  owner            Profile      @relation(fields: [ownerId], references: [id], onDelete: Cascade)
   term             AcademicTerm? @relation(fields: [termId], references: [id], onDelete: SetNull)
   exceptions       OccurrenceException[]
 
-  @@index([tutorId, type, startsAt, endsAt])
-  @@index([tutorId, category, startsAt])
+  @@index([ownerId, type, startsAt, endsAt], map: "TimeSlot_tutorId_type_startsAt_endsAt_idx")
+  @@index([ownerId, category, startsAt], map: "TimeSlot_category_idx")
   @@index([seriesId])
 }
 
@@ -368,6 +407,13 @@ model Excuse {
   reason       String
   status       ExcuseStatus  @default(PENDING)
   reviewReason String?
+  // Allocation is already one concrete occurrence. This request also stores its
+  // attendance exception, without removing or cancelling the allocation.
+  occurrenceStatus SickOccurrenceStatus?
+  absenceReason AbsenceReason @default(SICK)
+  reviewedAt DateTime?
+  reviewedById Int?
+  reviewedBy Profile? @relation("ExcuseReviewer", fields: [reviewedById], references: [id], onDelete: SetNull)
   tutor        Profile       @relation(fields: [tutorId], references: [id], onDelete: Restrict)
   allocation   Allocation    @relation(fields: [allocationId, tutorId], references: [id, tutorId], onDelete: Restrict)
   createdAt    DateTime      @default(now())

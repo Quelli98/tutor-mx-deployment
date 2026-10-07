@@ -172,7 +172,6 @@ function smokeApp(overrides: SmokeOverrides = {}): Express {
     verifyAccessToken: overrides.verifyAccessToken ?? verifySmokeToken,
 
     onboardUser: async (_id, role) => ({ ...PERSONA_PROFILES.TUTOR, role }),
-    allowSelfServiceOrganiser: true,
     getPublicHolidays: async () => ({
       source: "fallback",
       data: [],

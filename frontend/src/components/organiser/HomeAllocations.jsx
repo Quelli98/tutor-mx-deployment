@@ -1,3 +1,4 @@
+import { attendanceLabel, sickStyle } from '../shared/attendance'
 import { EmptyState, ErrorState, LoadingState } from '../shared/StatusMessage'
 import { addDays, weekRangeLabel } from '../shared/scheduleWeek'
 import {
@@ -33,12 +34,13 @@ function weekLinkLabel(target, weekStart, step) {
 }
 
 function TutorChip({ allocation, session, day, disabled, onEdit }) {
-  const label = statusLabel(allocation.status)
+  const label = attendanceLabel(allocation) || statusLabel(allocation.status)
   const accent = TUTOR_ACCENTS[Math.abs(Number(allocation.tutorId) || 0) % TUTOR_ACCENTS.length]
   return (
     <button
       type="button"
       className={`tutor-chip accent-${accent}`}
+      style={allocation.occurrenceStatus === 'SKIPPED' ? sickStyle : undefined}
       onClick={(event) => onEdit(allocation, event.currentTarget)}
       disabled={disabled}
       aria-label={`${allocation.tutorName}${label ? ` (${label.toLowerCase()})` : ''}, ${session.courseCode}, ${longDay(day)}, ${timeRange(session.startsAt, session.endsAt)}: edit or remove`}

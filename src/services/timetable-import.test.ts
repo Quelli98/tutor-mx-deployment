@@ -260,10 +260,10 @@ describe("timetable import parser: mapping onto the existing TimeSlot payload", 
 
     expect(result.validCount).toBe(0);
     expect(rowAt(result, 2).errors).toEqual([
-      "This falls before Demo 2030 Semester 2 starts on 2030-08-26.",
+      "This class starts outside the selected academic term. Class date: 2030-08-20; Demo 2030 Semester 2: 2030-08-26 to 2030-11-29.",
     ]);
     expect(rowAt(result, 3).errors).toEqual([
-      "This falls after Demo 2030 Semester 2 ends on 2030-11-29.",
+      "This class starts outside the selected academic term. Class date: 2030-12-10; Demo 2030 Semester 2: 2030-08-26 to 2030-11-29.",
     ]);
   });
 
@@ -706,14 +706,14 @@ describe("timetable import request shape", () => {
     });
   });
 
-  it("rejects an unknown source, a missing term and extra fields", () => {
+  it("rejects invalid fields and allows automatic term detection", () => {
     expect(
       parseTimetableImportRequest({ source: "XLSX", text: "a", timeZone: "UTC", termId: 1 }),
     ).toEqual({ error: "Choose either a CSV/pasted timetable or a calendar (.ics) file." });
 
     expect(
       parseTimetableImportRequest({ source: "CSV", text: "a", timeZone: "UTC" }),
-    ).toEqual({ error: "Choose the academic term this timetable belongs to." });
+    ).toEqual({ value: { source: "CSV", text: "a", timeZone: "UTC" } });
 
     expect(
       parseTimetableImportRequest({

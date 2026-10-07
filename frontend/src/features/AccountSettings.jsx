@@ -1,3 +1,4 @@
+import { invalidateSession } from '../auth/sessionState'
 import { useState } from 'react'
 import { useAuth0 } from '@auth0/auth0-react'
 import { requestPasswordReset, useApiClient } from '../api/client'
@@ -52,10 +53,11 @@ export function AccountSettings() {
     setDeleteState((previous) => ({ ...previous, submitting: true, error: '' }))
     try {
       await request(DELETE_ACCOUNT_PATH, { method: 'DELETE' })
+      invalidateSession('Your account has been deleted.')
       setDeleteState({ step: 2, confirm: '', error: '', submitting: false })
       // The account no longer exists, so the in-memory session must not linger.
       try {
-        logout({ logoutParams: { returnTo: window.location.origin } })
+        await logout({ logoutParams: { returnTo: window.location.origin } })
       } catch {
         setDeleteState((previous) => ({
           ...previous,

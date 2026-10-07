@@ -1,3 +1,4 @@
+import { attendanceLabel, sessionDay } from './attendance'
 export function addDays(date, days) {
   const result = new Date(date)
   result.setDate(result.getDate() + days)
@@ -26,8 +27,13 @@ export function localTime(date) {
 export function scheduleForWeek(slots, weekStart) {
   const weekEnd = addDays(weekStart, 7)
   const days = Array.from({ length: 7 }, (_, index) => ({ date: addDays(weekStart, index), blocks: [] }))
-  for (const slot of slots) {
+  const entries = slots.flatMap((slot) => [slot, ...(slot.exceptions ?? [])
+    .filter((item) => item.exceptionType !== 'CANCELLED' && item.newStartsAt && item.newEndsAt)
+    .map((item) => ({ ...slot, id: `${slot.id}-moved-${item.occurrenceDate}`, startsAt: item.newStartsAt,
+      endsAt: item.newEndsAt, recurrence: null, recurrenceUntil: null, exceptions: [], teachingBreaks: [] }))])
+  for (const slot of entries) {
     const isAllocation = slot.kind === 'allocation'
+    if (isAllocation && slot.occurrenceStatus === 'EXCUSED') continue
     if (!isAllocation && slot.type !== 'BUSY') continue
     const start = new Date(slot.startsAt)
     const end = new Date(slot.endsAt)
@@ -46,11 +52,17 @@ export function scheduleForWeek(slots, weekStart) {
     }
     while (occurrenceStart < weekEnd) {
       if (period > 0 && slot.recurrenceUntil && occurrenceStart > new Date(slot.recurrenceUntil)) break
+      const occurrenceDay = sessionDay(occurrenceStart)
+      const exception = slot.exceptions?.find((item) => item.occurrenceDate === occurrenceDay)
+      const paused = period > 0 && slot.teachingBreaks?.some((item) => occurrenceDay >= item.startsOn && occurrenceDay <= item.endsOn)
+      const hidden = exception?.exceptionType === 'CANCELLED' || exception?.newStartsAt || paused
+      const shownStart = exception?.newStartsAt ? new Date(exception.newStartsAt) : occurrenceStart
+      const shownEnd = exception?.newEndsAt ? new Date(exception.newEndsAt) : occurrenceEnd
       for (const day of days) {
         const dayEnd = addDays(day.date, 1)
-        if (occurrenceStart < dayEnd && day.date < occurrenceEnd) {
-          const clippedStart = new Date(Math.max(day.date, occurrenceStart))
-          const clippedEnd = new Date(Math.min(dayEnd, occurrenceEnd))
+        if (!hidden && shownStart < dayEnd && day.date < shownEnd) {
+          const clippedStart = new Date(Math.max(day.date, shownStart))
+          const clippedEnd = new Date(Math.min(dayEnd, shownEnd))
           day.blocks.push({
             id: `${slot.id ?? 'alloc'}-${occurrenceStart.valueOf()}-${day.date.valueOf()}`,
             label: slot.label?.trim() || (isAllocation ? 'Tutoring' : 'Unavailable'),
@@ -60,6 +72,8 @@ export function scheduleForWeek(slots, weekStart) {
             endMinute: clippedEnd.valueOf() === dayEnd.valueOf() ? 1440 : clippedEnd.getHours() * 60 + clippedEnd.getMinutes(),
             category: slot.category ?? (isAllocation ? 'TUTORING' : 'UNAVAILABLE'),
             kind: isAllocation ? 'allocation' : 'slot',
+            occurrenceStatus: slot.occurrenceStatus,
+            attendanceLabel: attendanceLabel(slot),
           })
         }
       }

@@ -101,11 +101,11 @@ vi.mock('../api/notifications', () => ({
     .mockResolvedValue({ items: [], page: 1, pageSize: 25, total: 0, unreadCount: 0 }),
 }))
 
-function renderRole(currentRole, path = '/', onSignOut = vi.fn()) {
+function renderRole(currentRole, path = '/', onSignOut = vi.fn(), user = null) {
   render(
     <MemoryRouter initialEntries={[path]}>
       <Routes>
-        <Route path="/*" element={<RoleRouter currentRole={currentRole} onSignOut={onSignOut} />} />
+        <Route path="/*" element={<RoleRouter currentRole={currentRole} onSignOut={onSignOut} user={user} />} />
       </Routes>
     </MemoryRouter>,
   )
@@ -381,6 +381,21 @@ describe('RoleRouter', () => {
     expect(within(navigation).getByRole('link', { name: 'Reports' })).toHaveAttribute(
       'href',
       '/organiser/reports',
+    )
+  })
+
+  it('shows organiser applications in the sidebar only for a Master Organiser', () => {
+    renderRole(
+      'ORGANISER',
+      '/organiser',
+      vi.fn(),
+      { data: { profile: { fullName: 'Master Organiser', role: 'ORGANISER' }, capabilities: { masterOrganiser: true } } },
+    )
+
+    const navigation = screen.getByRole('navigation', { name: /primary navigation/i })
+    expect(within(navigation).getByRole('link', { name: 'Organiser applications' })).toHaveAttribute(
+      'href',
+      '/organiser/organiser-applications',
     )
   })
 

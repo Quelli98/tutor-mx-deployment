@@ -1,3 +1,5 @@
+import { saveManualSchedule } from "./manual-schedule.js";
+import type { PrismaClient } from "../generated/prisma/client.js";
 import { requestFingerprint } from "../http/idempotency.js";
 import { readFile, readdir } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
@@ -63,39 +65,44 @@ function createImportClient(database: PGlite, failAfter = Number.POSITIVE_INFINI
 
   const timeSlot = (executor: PGlite | Transaction) => ({
     async findMany(args: {
-      where: { tutorId: number; type: "BUSY"; startsAt: { gte: Date; lte: Date } };
+      where: { ownerId: number; type: "BUSY"; startsAt: { gte: Date; lte: Date } | Date };
     }) {
       const result = await executor.query<{
+        id: number;
         startsAt: string;
         endsAt: string;
         recurrence: string | null;
         label: string | null;
         category: string;
+        termId: number | null;
+        recurrenceUntil: string | null;
       }>(
-        `SELECT ${utcText('"startsAt"')} AS "startsAt",
+        `SELECT "id", ${utcText('"startsAt"')} AS "startsAt",
                 ${utcText('"endsAt"')} AS "endsAt",
-                "recurrence","label",COALESCE("category",'UNAVAILABLE') AS "category"
+                "recurrence","label",COALESCE("category",'UNAVAILABLE') AS "category", "termId", ${utcText('"recurrenceUntil"')} AS "recurrenceUntil"
          FROM "TimeSlot"
          WHERE "tutorId" = $1 AND "type" = 'BUSY'
            AND "startsAt" >= $2 AND "startsAt" <= $3`,
         [
-          args.where.tutorId,
-          toNaiveUtcText(args.where.startsAt.gte),
-          toNaiveUtcText(args.where.startsAt.lte),
+          args.where.ownerId,
+          toNaiveUtcText(args.where.startsAt instanceof Date ? args.where.startsAt : args.where.startsAt.gte),
+          toNaiveUtcText(args.where.startsAt instanceof Date ? args.where.startsAt : args.where.startsAt.lte),
         ],
       );
       return result.rows.map((row) => ({
+        id: row.id,
         startsAt: new Date(row.startsAt),
         endsAt: new Date(row.endsAt),
         recurrence: row.recurrence,
         label: row.label,
         category: row.category,
+        termId: row.termId, recurrenceUntil: row.recurrenceUntil ? new Date(row.recurrenceUntil) : null,
       }));
     },
 
     async create(args: {
       data: {
-        tutorId: number;
+        ownerId: number;
         type: "BUSY";
         startsAt: Date;
         endsAt: Date;
@@ -105,6 +112,7 @@ function createImportClient(database: PGlite, failAfter = Number.POSITIVE_INFINI
         category: string;
         seriesId: string | null;
         termId: number | null;
+        dedupeKey: string;
       };
     }) {
       inserts += 1;
@@ -114,10 +122,10 @@ function createImportClient(database: PGlite, failAfter = Number.POSITIVE_INFINI
       const { data } = args;
       const result = await executor.query<{ id: number }>(
         `INSERT INTO "TimeSlot"
-           ("tutorId","type","startsAt","endsAt","recurrence","label","recurrenceUntil","category","seriesId","termId")
-         VALUES ($1,'BUSY',$2,$3,$4,$5,$6,$7,$8,$9) RETURNING "id"`,
+           ("tutorId","type","startsAt","endsAt","recurrence","label","recurrenceUntil","category","seriesId","termId","dedupeKey")
+         VALUES ($1,'BUSY',$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING "id"`,
         [
-          data.tutorId,
+          data.ownerId,
           toNaiveUtcText(data.startsAt),
           toNaiveUtcText(data.endsAt),
           data.recurrence,
@@ -126,6 +134,7 @@ function createImportClient(database: PGlite, failAfter = Number.POSITIVE_INFINI
           data.category,
           data.seriesId,
           data.termId,
+          data.dedupeKey,
         ],
       );
       return { id: result.rows[0]!.id };
@@ -144,14 +153,20 @@ function createImportClient(database: PGlite, failAfter = Number.POSITIVE_INFINI
     },
 
     academicTerm: {
+      async findMany() {
+        return (await database.query<{ id: number; name: string; startsOn: Date; endsOn: Date; published: boolean }>(
+          `SELECT * FROM "AcademicTerm" WHERE "published" = true ORDER BY "startsOn"`
+        )).rows;
+      },
       async findUnique(args: { where: { id: number } }) {
         const result = await database.query<{
           id: number;
           name: string;
           startsOn: Date;
           endsOn: Date;
+          published: boolean;
         }>(
-          `SELECT "id","name","startsOn","endsOn" FROM "AcademicTerm" WHERE "id" = $1`,
+          `SELECT "id","name","startsOn","endsOn","published","year","termNumber","teachingBreaks" FROM "AcademicTerm" WHERE "id" = $1`,
           [args.where.id],
         );
         return result.rows[0] ?? null;
@@ -169,7 +184,13 @@ function createImportClient(database: PGlite, failAfter = Number.POSITIVE_INFINI
       // PGlite's transaction() rolls back when the callback throws, which is the
       // behaviour the service relies on for its all-or-nothing commit.
       return database.transaction(async (transaction) =>
-        operation({ timeSlot: timeSlot(transaction), async $queryRawUnsafe<T>(sql: string, ...values: unknown[]): Promise<T> {
+        operation({ academicTerm: {
+          async findUnique({ where }) { return (await transaction.query<{ id: number; name: string; startsOn: Date; endsOn: Date; published: boolean }>(`SELECT * FROM "AcademicTerm" WHERE "id" = $1`, [where.id])).rows[0] ?? null; },
+          async findMany(args: { where: { published: true; startsOn?: { lte: Date }; endsOn?: { gte: Date } } }) {
+            const all = (await transaction.query<{ id: number; name: string; startsOn: Date; endsOn: Date; published: boolean }>(`SELECT * FROM "AcademicTerm" WHERE "published" = true ORDER BY "startsOn"`)).rows;
+            return all.filter((term) => (!args.where.startsOn || term.startsOn <= args.where.startsOn.lte) && (!args.where.endsOn || term.endsOn >= args.where.endsOn.gte));
+          },
+        }, timeSlot: timeSlot(transaction), async $queryRawUnsafe<T>(sql: string, ...values: unknown[]): Promise<T> {
           return (await transaction.query(sql, values)).rows as T;
         } }),
       );
@@ -217,6 +238,7 @@ describe("timetable import service", () => {
       `SELECT "id" FROM "AcademicTerm" WHERE "name" = 'Demo 2030 Semester 2'`,
     );
     termId = term.rows[0]!.id;
+    await database.query(`UPDATE "AcademicTerm" SET "published" = true`);
   });
 
   afterAll(async () => {
@@ -225,6 +247,20 @@ describe("timetable import service", () => {
 
   beforeEach(async () => {
     await database.query(`DELETE FROM "TimeSlot" WHERE "tutorId" = $1`, [tutorId]);
+  });
+
+  it.each(['CSV', 'ICS'] as const)('imports Student %s with shared recurrence and duplicate rules', async source => {
+    await database.query(`DELETE FROM "TimeSlot" WHERE "tutorId" = (SELECT "id" FROM "Profile" WHERE "auth0Id" = 'demo|student')`);
+    const text = source === 'CSV' ? 'date,start,end,label,repeat\n2030-09-02,09:00,10:00,Student class,fortnightly'
+      : 'BEGIN:VCALENDAR\nVERSION:2.0\nBEGIN:VEVENT\nUID:s4-student\nDTSTART:20300902T090000Z\nDTEND:20300902T100000Z\nRRULE:FREQ=WEEKLY;INTERVAL=2;UNTIL=20301129T235959Z\nSUMMARY:Student class\nEND:VEVENT\nEND:VCALENDAR';
+    const input = request(text, { source });
+    expect((await service().preview('demo|student', input)).validCount).toBe(1);
+    expect((await service().commit('demo|student', input)).created).toBe(1);
+    expect((await service().commit('demo|student', input)).duplicateCount).toBe(1);
+    expect((await database.query<{ recurrence: string }>(`SELECT "recurrence" FROM "TimeSlot" WHERE "tutorId" = (SELECT "id" FROM "Profile" WHERE "auth0Id" = 'demo|student')`)).rows[0]!.recurrence).toBe('FORTNIGHTLY');
+    // An identical entry for another owner is not a duplicate.
+    expect((await service().preview(TUTOR, input)).duplicateCount).toBe(0);
+    await database.query(`DELETE FROM "TimeSlot" WHERE "tutorId" = (SELECT "id" FROM "Profile" WHERE "auth0Id" = 'demo|student')`);
   });
 
   function service(failAfter = Number.POSITIVE_INFINITY) {
@@ -346,7 +382,7 @@ describe("timetable import service", () => {
       expect(preview.duplicateCount).toBe(1);
       expect(preview.validCount).toBe(0);
       expect(preview.rows[0]!.duplicate).toBe(true);
-      expect(preview.rows[0]!.errors).toContain("This entry is already in your schedule.");
+      expect(preview.rows[0]!.errors).toEqual([]);
     });
 
     it("marks a row repeated inside the same file as a duplicate", async () => {
@@ -366,9 +402,9 @@ describe("timetable import service", () => {
       expect(preview.rows[1]!.duplicate).toBe(true);
     });
 
-    it("refuses an account with no tutor profile", async () => {
+    it("refuses an organiser account without a personal schedule", async () => {
       await expect(
-        service().preview("demo|student", request("date,start,end\n2030-09-02,09:00,10:00")),
+        service().preview("demo|organiser", request("date,start,end\n2030-09-02,09:00,10:00")),
       ).rejects.toMatchObject({ status: 404, code: "TUTOR_PROFILE_NOT_FOUND" });
     });
 
@@ -585,7 +621,7 @@ describe("timetable import service", () => {
       );
 
       // The term echoed back is the stored one, with the stored dates.
-      expect(preview.term).toEqual({
+      expect(preview.term).toMatchObject({
         id: secondTermId,
         name: "Demo 2031 Semester 1",
         startsOn: "2031-02-17",
@@ -609,22 +645,12 @@ describe("timetable import service", () => {
       expect(preview.validCount).toBe(0);
       expect(preview.invalidCount).toBe(1);
       expect(preview.rows[0]!.errors).toEqual([
-        "This falls before Demo 2031 Semester 1 starts on 2031-02-17.",
+        "This class starts outside the selected academic term. Class date: 2030-09-02; Demo 2031 Semester 1: 2031-02-17 to 2031-06-06.",
       ]);
     });
   });
 
   describe("clash parity with manually created entries", () => {
-    async function clashFor(startsAt: string, endsAt: string) {
-      const candidates = await findAllocationCandidates(asQueryClient(database), {
-        courseId,
-        startsAt: new Date(startsAt),
-        endsAt: new Date(endsAt),
-        minimumMark: 50,
-        requestedHours: 2,
-      });
-      return candidates.find((candidate) => candidate.tutorId === tutorId);
-    }
 
     it("makes an imported weekly entry clash exactly where a hand-written one does", async () => {
       // The same block written both ways. If importing invented its own storage
@@ -703,4 +729,91 @@ describe("timetable import service", () => {
       ).toBe(false);
     });
   });
+    async function clashFor(startsAt: string, endsAt: string) {
+      const candidates = await findAllocationCandidates(asQueryClient(database), {
+        courseId,
+        startsAt: new Date(startsAt),
+        endsAt: new Date(endsAt),
+        minimumMark: 50,
+        requestedHours: 2,
+      });
+      return candidates.find((candidate) => candidate.tutorId === tutorId);
+    }
+
+  describe("term detection and cross-source identity", () => {
+    const csv = "date,start,end,label,repeat,until,category\n2030-09-02,09:00,10:00,COMS3005A Lecture - C9,weekly,,class";
+    it("automatically selects the matching published term, without defaulting to Term 1", async () => {
+      const preview = await service().preview(TUTOR, request(csv, { termId: undefined }));
+      expect(preview.term.id).toBe(termId);
+      expect(preview.detectedTerm).toBe(true);
+      expect(preview.dateRange).toEqual({ startsOn: "2030-09-02", endsOn: "2030-09-02" });
+    });
+    it("provides one useful global message when no published term covers the file", async () => {
+      await expect(service().preview(TUTOR, request(csv.replaceAll("2030-09-02", "2026-09-30"), { termId: undefined })))
+        .rejects.toMatchObject({ status: 400, message: expect.stringContaining("No published academic term covers these timetable dates") });
+    });
+    it("refuses a draft term even if its id is sent directly", async () => {
+      await database.query(`UPDATE "AcademicTerm" SET "published" = false WHERE "id" = $1`, [termId]);
+      try {
+        await expect(service().commit(TUTOR, request(csv))).rejects.toMatchObject({ status: 404 });
+        expect(await storedSlots()).toHaveLength(0);
+      } finally { await database.query(`UPDATE "AcademicTerm" SET "published" = true WHERE "id" = $1`, [termId]); }
+    });
+    it("rejects multi-term files with a single instruction", async () => {
+      const multi = csv + "\n2031-03-03,09:00,10:00,Next term,weekly,,class";
+      await expect(service().preview(TUTOR, request(multi, { termId: undefined }))).rejects.toThrow("Please import one academic term at a time.");
+    });
+    it("manual service then CSV saves only one, including normalized case and spacing", async () => {
+      await saveManualSchedule(createImportClient(database) as unknown as PrismaClient, tutorId, {
+        type: "BUSY", startsAt: new Date("2030-09-02T09:00Z"), endsAt: new Date("2030-09-02T10:00Z"),
+        recurrence: "WEEKLY", category: "CLASS", label: " coms3005a   lecture – c9 ",
+      });
+      const preview = await service().preview(TUTOR, request(csv));
+      expect(preview).toMatchObject({ validCount: 0, duplicateCount: 1, invalidCount: 0 });
+      expect(await service().commit(TUTOR, request(csv))).toMatchObject({ created: 0, duplicateCount: 1 });
+      expect(await storedSlots()).toHaveLength(1);
+    });
+    it("CSV then manual service rejects the equivalent entry", async () => {
+      await service().commit(TUTOR, request(csv));
+      await expect(saveManualSchedule(createImportClient(database) as unknown as PrismaClient, tutorId, {
+        type: "BUSY", startsAt: new Date("2030-09-02T09:00Z"), endsAt: new Date("2030-09-02T10:00Z"),
+        recurrence: "WEEKLY", category: "CLASS", label: "COMS3005A Lecture - C9",
+      })).rejects.toMatchObject({ code: "TIME_SLOT_DUPLICATE" });
+      expect(await storedSlots()).toHaveLength(1);
+    });
+    it("ICS and CSV recognise an equivalent activity despite different category defaults", async () => {
+      const ics = "BEGIN:VCALENDAR\nBEGIN:VEVENT\nDTSTART:20300902T090000Z\nDTEND:20300902T100000Z\nSUMMARY:COMS3005A Lecture - C9\nRRULE:FREQ=WEEKLY\nEND:VEVENT\nEND:VCALENDAR";
+      expect(await service().commit(TUTOR, request(ics, { source: "ICS" }))).toMatchObject({ created: 1 });
+      expect(await service().commit(TUTOR, request(csv))).toMatchObject({ created: 0, duplicateCount: 1 });
+      expect(await storedSlots()).toHaveLength(1);
+    });
+    it("skips duplicates while retaining different activities, times, days and recurrence", async () => {
+      await service().commit(TUTOR, request(csv));
+      const text = csv + "\n2030-09-02,09:00,10:00,COMS3005A Tutorial - C9,weekly,,class" +
+        "\n2030-09-02,11:00,12:00,COMS3005A Lecture - C9,weekly,,class" +
+        "\n2030-09-03,09:00,10:00,COMS3005A Lecture - C9,weekly,,class" +
+        "\n2030-09-02,09:00,10:00,COMS3005A Lecture - C9,fortnightly,,class";
+      expect(await service().commit(TUTOR, request(text))).toMatchObject({ created: 4, duplicateCount: 1 });
+      expect(await storedSlots()).toHaveLength(5);
+    });
+    it("database uniqueness rejects a second canonical entry", async () => {
+      await service().commit(TUTOR, request(csv));
+      await expect(database.query(`INSERT INTO "TimeSlot" ("tutorId","type","startsAt","endsAt","dedupeKey")
+        SELECT "tutorId","type","startsAt","endsAt","dedupeKey" FROM "TimeSlot" WHERE "tutorId" = $1`, [tutorId])).rejects.toBeDefined();
+    });
+    it("simultaneous double imports create one entry", async () => {
+      const results = await Promise.all([service().commit(TUTOR, request(csv)), service().commit(TUTOR, request(csv))]);
+      expect(results.reduce((sum, result) => sum + result.created, 0)).toBe(1);
+      expect(await storedSlots()).toHaveLength(1);
+    });
+    it("teaching breaks pause clashes without changing later recurrences", async () => {
+      await database.query(`UPDATE "AcademicTerm" SET "teachingBreaks" = '[{"startsOn":"2030-09-09","endsOn":"2030-09-15"}]' WHERE "id" = $1`, [termId]);
+      try {
+        await service().commit(TUTOR, request(csv));
+        expect((await clashFor("2030-09-09T09:10Z", "2030-09-09T09:30Z"))?.hasClash).toBe(false);
+        expect((await clashFor("2030-09-16T09:10Z", "2030-09-16T09:30Z"))?.hasClash).toBe(true);
+      } finally { await database.query(`UPDATE "AcademicTerm" SET "teachingBreaks" = '[]' WHERE "id" = $1`, [termId]); }
+    });
+  });
+
 });

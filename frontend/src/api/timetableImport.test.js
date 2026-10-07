@@ -27,14 +27,19 @@ function respond(body) {
 }
 
 describe('buildImportRequest', () => {
-  it('sends the browser time zone so wall clocks are read where the tutor is', () => {
+  it('uses the configured timetable time zone independently of the browser zone', () => {
     const request = buildImportRequest({ source: 'CSV', text: 'a', termId: 3 })
 
-    expect(request.timeZone).toBe(currentTimeZone())
+    expect(currentTimeZone()).toBe('Africa/Johannesburg')
     expect(request).toEqual({ source: 'CSV', text: 'a', timeZone: currentTimeZone(), termId: 3 })
   })
 
-  it('rejects a missing format, empty text, oversized text and a missing term', () => {
+  it('omits the term for automatic detection and preserves an explicit source time zone', () => {
+    expect(buildImportRequest({ source: 'CSV', text: 'a', timeZone: 'UTC' }))
+      .toEqual({ source: 'CSV', text: 'a', timeZone: 'UTC' })
+  })
+
+  it('rejects a missing format, empty text, oversized text and an invalid term', () => {
     expect(() => buildImportRequest({ source: 'XLSX', text: 'a', termId: 1 })).toThrow(/csv|calendar/i)
     expect(() => buildImportRequest({ source: 'CSV', text: '  ', termId: 1 })).toThrow(/paste or choose/i)
     expect(() => buildImportRequest({ source: 'CSV', text: 'x'.repeat(30_001), termId: 1 })).toThrow(/too large/i)
@@ -84,7 +89,7 @@ describe('previewTimetableImport', () => {
 
     expect(preview).toEqual(previewPayload)
     const [url, options] = globalThis.fetch.mock.calls[0]
-    expect(url).toContain('/api/tutor/time-slots/import/preview')
+    expect(url).toContain('/api/me/time-slots/import/preview')
     expect(options.method).toBe('POST')
     expect(JSON.parse(options.body)).toEqual({ source: 'CSV', text: 'date,start,end', timeZone: 'UTC', termId: 1 })
   })
@@ -107,7 +112,7 @@ describe('commitTimetableImport', () => {
     await expect(
       commitTimetableImport({ source: 'ICS', text: 'BEGIN:VEVENT', termId: 2, timeZone: 'UTC' }, token),
     ).resolves.toEqual(commitPayload)
-    expect(globalThis.fetch.mock.calls[0][0]).toContain('/api/tutor/time-slots/import/commit')
+    expect(globalThis.fetch.mock.calls[0][0]).toContain('/api/me/time-slots/import/commit')
   })
 
   it('rejects a result that breaks the contract', async () => {

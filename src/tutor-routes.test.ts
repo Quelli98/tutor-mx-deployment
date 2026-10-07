@@ -408,11 +408,11 @@ describe("tutor timetable import routes", () => {
       .send({ ...previewBody, tutorId: 999 });
     expect(extraField.status).toBe(400);
 
-    const missingTerm = await request(app)
+    const invalidTerm = await request(app)
       .post("/api/tutor/time-slots/import/preview")
       .set("Authorization", "Bearer valid-token")
-      .send({ source: "CSV", text: previewBody.text, timeZone: "UTC" });
-    expect(missingTerm.status).toBe(400);
+      .send({ source: "CSV", text: previewBody.text, timeZone: "UTC", termId: 0 });
+    expect(invalidTerm.status).toBe(400);
 
     expect(previewTutorTimetableImport).not.toHaveBeenCalled();
   });
@@ -517,15 +517,15 @@ describe("academic term routes", () => {
     verifyAccessToken: async () => auth("ORGANISER"),
   };
 
-  it("lists terms for any signed-in role", async () => {
-    const listAcademicTerms = vi.fn().mockResolvedValue([term]);
+  it("lists only published terms for tutors", async () => {
+    const listAcademicTerms = vi.fn().mockResolvedValue([{ ...term, published: true }, { ...term, id: 99, published: false }]);
 
     const response = await request(makeApp({ listAcademicTerms }))
       .get("/api/academic-terms")
       .set("Authorization", "Bearer valid-token");
 
     expect(response.status).toBe(200);
-    expect(response.body).toEqual({ data: { academicTerms: [term] } });
+    expect(response.body).toEqual({ data: { academicTerms: [{ ...term, published: true }] } });
   });
 
   it("requires an Organiser to create a term", async () => {
@@ -1077,5 +1077,59 @@ describe('manual timetable metadata contract', () => {
     expect(response.status).toBe(200);
     expect(updateTutorTimeSlot).toHaveBeenCalledWith('auth0|current-tutor', 1,
       expect.objectContaining({ category: 'CLASS', seriesId: 'class-series' }));
+  });
+});
+
+describe('Sprint 4 shared own-schedule HTTP contract', () => {
+  function shared(role: TutorRole, overrides: Partial<AppDependencies> = {}) {
+    return makeApp({
+      findProfileByAuth0Id: async () => ({ id: 7, email: 'owner@example.test', fullName: 'Owner', role }),
+      verifyAccessToken: async () => auth(role), ...overrides,
+    });
+  }
+  it.each(['STUDENT', 'TUTOR'] as const)('%s uses the shared recurrence and authenticated owner', async role => {
+    const create = vi.fn(async (_subject, input) => ({ id: 1, ...input }));
+    for (const recurrence of [undefined, 'WEEKLY', 'FORTNIGHTLY']) {
+      const result = await request(shared(role, { createTutorTimeSlot: create })).post('/api/me/time-slots')
+        .set('Authorization', 'Bearer valid').send({ type: 'BUSY', startsAt: '2030-09-02T08:00:00Z', endsAt: '2030-09-02T09:00:00Z', category: 'CLASS', recurrence });
+      expect(result.status).toBe(201);
+      expect(create.mock.calls.at(-1)?.[0]).toBe('auth0|current-tutor');
+    }
+  });
+  it('keeps legacy tutor aliases tutor-only and organisers out of own schedules', async () => {
+    expect((await request(shared('STUDENT')).get('/api/tutor/time-slots').set('Authorization', 'Bearer valid')).status).toBe(403);
+    expect((await request(shared('ORGANISER')).get('/api/me/time-slots').set('Authorization', 'Bearer valid')).status).toBe(403);
+    expect((await request(shared('STUDENT')).get('/api/me/time-slots')).status).toBe(401);
+  });
+  it.each(['ownerId', 'tutorId'])('refuses injected %s in a Student write', async field => {
+    const create = vi.fn();
+    const result = await request(shared('STUDENT', { createTutorTimeSlot: create })).post('/api/me/time-slots').set('Authorization', 'Bearer valid')
+      .send({ type: 'BUSY', startsAt: '2030-09-02T08:00:00Z', endsAt: '2030-09-02T09:00:00Z', [field]: 99 });
+    expect(result.status).toBe(400); expect(create).not.toHaveBeenCalled();
+  });
+  it('passes Student identity to list, update, delete and import handlers', async () => {
+    const list = vi.fn(async () => []), remove = vi.fn(async () => undefined);
+    const update = vi.fn(async () => { throw createRouteError(404, 'TIME_SLOT_NOT_FOUND', 'Unavailable'); });
+    const preview = vi.fn(async () => { throw createRouteError(404, 'ACADEMIC_TERM_NOT_FOUND', 'Unavailable'); });
+    const commit = vi.fn(async () => { throw createRouteError(404, 'ACADEMIC_TERM_NOT_FOUND', 'Unavailable'); });
+    const app = shared('STUDENT', { listOwnTutorTimeSlots: list, deleteTutorTimeSlot: remove, updateTutorTimeSlot: update, previewTutorTimetableImport: preview, commitTutorTimetableImport: commit });
+    expect((await request(app).get('/api/me/time-slots').set('Authorization', 'Bearer valid')).status).toBe(200);
+    expect((await request(app).delete('/api/me/time-slots/8').set('Authorization', 'Bearer valid')).status).toBe(204);
+    expect((await request(app).patch('/api/me/time-slots/8').set('Authorization', 'Bearer valid').send({ type: 'BUSY', startsAt: '2030-09-02T08:00:00Z', endsAt: '2030-09-02T09:00:00Z' })).status).toBe(404);
+    for (const action of ['preview', 'commit']) {
+      expect((await request(app).post(`/api/me/time-slots/import/${action}`).set('Authorization', 'Bearer valid').send({ source: 'CSV', text: 'date,start,end\n2030-09-02,08:00,09:00', timeZone: 'UTC', termId: 1 })).status).toBe(404);
+    }
+    expect(list).toHaveBeenCalledWith('auth0|current-tutor');
+    expect(remove).toHaveBeenCalledWith('auth0|current-tutor', 8);
+    expect(update).toHaveBeenCalledWith('auth0|current-tutor', 8, expect.any(Object));
+    expect(preview).toHaveBeenCalledWith('auth0|current-tutor', expect.any(Object));
+    expect(commit).toHaveBeenCalledWith('auth0|current-tutor', expect.any(Object));
+  });
+  it('validates navigation payloads and uses only the authenticated subject', async () => {
+    const resolve = vi.fn(async () => ({ linkPath: '/student/timetable', action: 'View' as const }));
+    const app = shared('STUDENT', { resolveNavigation: resolve });
+    expect((await request(app).post('/api/navigation/resolve').set('Authorization', 'Bearer valid').send({ destinationId: 'student-timetable' })).status).toBe(200);
+    expect(resolve).toHaveBeenCalledWith('auth0|current-tutor', { destinationId: 'student-timetable' });
+    expect((await request(app).post('/api/navigation/resolve').set('Authorization', 'Bearer valid').send({ destinationId: 'settings', notificationId: 1 })).status).toBe(400);
   });
 });

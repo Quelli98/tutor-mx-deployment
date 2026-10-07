@@ -20,7 +20,11 @@ const mocks = vi.hoisted(() => ({
   profileCreate: vi.fn(),
   profileFindMany: vi.fn(),
   profileFindUnique: vi.fn(),
+  organiserApplicationFindUnique: vi.fn(),
   queryRaw: vi.fn(),
+  academicTermFindMany: vi.fn(),
+  timeSlotFindFirst: vi.fn(),
+  timeSlotDeleteMany: vi.fn(),
   timeSlotCreate: vi.fn(),
   timeSlotUpdate: vi.fn(),
   timeSlotFindMany: vi.fn(),
@@ -62,11 +66,15 @@ vi.mock("./database.js", () => ({
       findMany: mocks.profileFindMany,
       findUnique: mocks.profileFindUnique,
     },
+    organiserApplication: {
+      findUnique: mocks.organiserApplicationFindUnique,
+    },
     excuse: {
       create: mocks.excuseCreate,
     },
     timeSlot: {
       create: mocks.timeSlotCreate,
+      deleteMany: mocks.timeSlotDeleteMany,
       update: mocks.timeSlotUpdate,
       findMany: mocks.timeSlotFindMany,
     },
@@ -106,7 +114,6 @@ const originalEnvironment = {
   AUTH0_MANAGEMENT_CLIENT_ID: process.env.AUTH0_MANAGEMENT_CLIENT_ID,
   AUTH0_MANAGEMENT_CLIENT_SECRET: process.env.AUTH0_MANAGEMENT_CLIENT_SECRET,
   AUTH0_ROLES_CLAIM: process.env.AUTH0_ROLES_CLAIM,
-  ALLOW_SELF_SERVICE_ORGANISER: process.env.ALLOW_SELF_SERVICE_ORGANISER,
   FRONTEND_ORIGIN: process.env.FRONTEND_ORIGIN,
   PORT: process.env.PORT,
 };
@@ -138,9 +145,15 @@ beforeEach(() => {
   mocks.createApp.mockReturnValue({
     listen: mocks.listen,
   });
+  mocks.organiserApplicationFindUnique.mockResolvedValue(null);
+  mocks.academicTermFindMany.mockResolvedValue([]);
+  mocks.timeSlotFindMany.mockResolvedValue([]);
+  mocks.timeSlotFindFirst.mockResolvedValue({ id: 8 });
   mocks.transaction.mockImplementation(
     async (callback: (transaction: unknown) => unknown) =>
       callback({
+        academicTerm: { findMany: mocks.academicTermFindMany },
+        timeSlot: { findMany: mocks.timeSlotFindMany, findFirst: mocks.timeSlotFindFirst, create: mocks.timeSlotCreate, update: mocks.timeSlotUpdate },
         timesheet: { upsert: mocks.timesheetUpsert },
         workLog: { create: mocks.workLogCreate },
       }),
@@ -479,6 +492,7 @@ describe("server-side API persistence", () => {
           endsAt: "2030-09-04T16:00:00.000Z",
           allocatedHours: 2,
           status: "CONFIRMED",
+          occurrenceStatus: "SCHEDULED", absenceReason: null, excusePending: false, workLogEligible: true, excuse: null,
         },
       ],
       weeklyLimit: 10,
@@ -530,7 +544,7 @@ describe("server-side API persistence", () => {
         recurrence: "WEEKLY",
       }),
     ).resolves.toMatchObject({ id: 8, recurrence: "WEEKLY" });
-    expect(mocks.timeSlotCreate.mock.calls[0]![0].data.tutorId).toBe(7);
+    expect(mocks.timeSlotCreate.mock.calls[0]![0].data.ownerId).toBe(7);
 
     mocks.profileFindUnique.mockResolvedValueOnce({ id: 7, role: "TUTOR" });
     mocks.allocationFindFirst.mockResolvedValueOnce({
@@ -623,7 +637,7 @@ describe("server-side API persistence", () => {
       }),
     ).rejects.toMatchObject({
       status: 404,
-      code: "TUTOR_PROFILE_NOT_FOUND",
+      code: "SCHEDULE_OWNER_NOT_FOUND",
     });
 
     mocks.profileFindUnique.mockResolvedValueOnce({ id: 7, role: "TUTOR" });
@@ -779,7 +793,6 @@ describe("server-side API persistence", () => {
           id: 4,
           tutorId: 7,
           status: "CONFIRMED",
-          startsAt: { gt: expect.any(Date) },
         }),
       }),
     );
@@ -935,16 +948,17 @@ describe("server-side API persistence", () => {
   it.each(["WEEKLY", "FORTNIGHTLY", "ONCE", null])("serializes selected tutor schedules with %s and nullable optional fields", async (recurrence) => {
     await import("./server.js");
     const dependencies = capturedDependencies();
-    mocks.timeSlotFindMany.mockImplementation(async ({ where }) => where.tutorId === 7 ? [{
+    mocks.timeSlotFindMany.mockImplementation(async ({ where }) => where.ownerId === 7 ? [{
       id: 15, type: "BUSY", startsAt: new Date("2026-09-17T06:00:00Z"), endsAt: new Date("2026-09-17T07:45:00Z"),
       recurrence, label: null, recurrenceUntil: null, category: "CLASS", seriesId: "class-series",
     }] : []);
     await expect(dependencies.listTutorTimeSlots(7)).resolves.toEqual([{
       id: 15, type: "BUSY", startsAt: "2026-09-17T06:00:00.000Z", endsAt: "2026-09-17T07:45:00.000Z",
       recurrence, label: null, recurrenceUntil: null, category: "CLASS", seriesId: "class-series",
+      termId: null, teachingBreaks: [], exceptions: [],
     }]);
     await expect(dependencies.listTutorTimeSlots(8)).resolves.toEqual([]);
-    expect(mocks.timeSlotFindMany).toHaveBeenCalledWith(expect.objectContaining({ where: { tutorId: 7 }, select: expect.objectContaining({ label: true, recurrenceUntil: true }) }));
+    expect(mocks.timeSlotFindMany).toHaveBeenCalledWith(expect.objectContaining({ where: { ownerId: 7, owner: { role: "TUTOR" } }, select: expect.objectContaining({ label: true, recurrenceUntil: true }) }));
     expect(mocks.profileFindUnique).not.toHaveBeenCalled();
   });
 
@@ -1046,5 +1060,37 @@ it.each(['create', 'update'] as const)('persists class metadata and fortnightly 
     : await dependencies.updateTutorTimeSlot('auth0|current-tutor', 8, input);
   expect(result).toMatchObject({ recurrence: 'FORTNIGHTLY', category: 'CLASS', seriesId: 'class-series' });
   expect(write.mock.calls[0]![0].data).toMatchObject(input);
-  if (operation === 'update') expect(write.mock.calls[0]![0].where).toEqual({ id: 8, tutorId: 7 });
+  if (operation === 'update') expect(write.mock.calls[0]![0].where).toEqual({ id: 8, ownerId: 7 });
+});
+
+
+describe('Student schedule service isolation', () => {
+  it('lists only the authenticated Student profile and preserves Tutor-only organiser filtering', async () => {
+    await import('./server.js');
+    const dependencies = capturedDependencies();
+    mocks.profileFindUnique.mockResolvedValueOnce({ id: 42, role: 'STUDENT' });
+    await dependencies.listOwnTutorTimeSlots('auth0|student');
+    expect(mocks.timeSlotFindMany).toHaveBeenLastCalledWith(expect.objectContaining({ where: { ownerId: 42 } }));
+    await dependencies.listTutorTimeSlots(42);
+    expect(mocks.timeSlotFindMany).toHaveBeenLastCalledWith(expect.objectContaining({ where: { ownerId: 42, owner: { role: 'TUTOR' } } }));
+  });
+  it('refuses editing another owner’s schedule before writing any changes', async () => {
+    await import('./server.js');
+    const dependencies = capturedDependencies();
+    mocks.profileFindUnique.mockResolvedValueOnce({ id: 42, role: 'STUDENT' });
+    mocks.timeSlotFindFirst.mockResolvedValueOnce(null);
+    await expect(dependencies.updateTutorTimeSlot('auth0|student', 8, {
+      type: 'BUSY', startsAt: new Date('2030-09-02T08:00:00Z'), endsAt: new Date('2030-09-02T09:00:00Z'),
+    })).rejects.toMatchObject({ status: 404, code: 'TIME_SLOT_NOT_FOUND' });
+    expect(mocks.timeSlotFindFirst).toHaveBeenCalledWith({ where: { id: 8, ownerId: 42 }, select: { id: true } });
+    expect(mocks.timeSlotUpdate).not.toHaveBeenCalled();
+  });
+  it('scopes deletion to the Student owner and rejects a non-owned entry', async () => {
+    await import('./server.js');
+    const dependencies = capturedDependencies();
+    mocks.profileFindUnique.mockResolvedValueOnce({ id: 42, role: 'STUDENT' });
+    mocks.timeSlotDeleteMany.mockResolvedValueOnce({ count: 0 });
+    await expect(dependencies.deleteTutorTimeSlot('auth0|student', 8)).rejects.toMatchObject({ status: 404 });
+    expect(mocks.timeSlotDeleteMany).toHaveBeenCalledWith({ where: { id: 8, ownerId: 42 } });
+  });
 });

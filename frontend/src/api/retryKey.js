@@ -14,3 +14,5 @@ export async function withRetryKey(scope, payload, operation) {
   if (attempts.get(signature) === key) attempts.delete(signature)
   return result
 }
+
+export function clearRetryKeys() { attempts.clear() }

@@ -1,8 +1,10 @@
+import { invalidateSession } from './auth/sessionState'
 import { useCallback, useEffect, useState } from 'react'
 import { Route, Routes } from 'react-router-dom'
 import { useAuth0 } from '@auth0/auth0-react'
 import { useCurrentUser } from './auth/useCurrentUser'
 import { completeOnboarding, resendVerificationEmail, TUTOR_MX_ROLES } from './api/onboarding'
+import { getOwnOrganiserApplication } from './api/organiserApplications'
 import { CsamMark } from './components/shared/CsamMark'
 import { Landing } from './features/Landing'
 import { PasswordResetPage, NewPasswordPage } from './features/PasswordReset'
@@ -41,8 +43,6 @@ function LoadingCard({ message }) {
 
 const ONBOARDING_ERROR_MESSAGES = Object.freeze({
   EMAIL_NOT_VERIFIED: 'Verify your email using the Auth0 verification email, then click Sign in.',
-  ORGANISER_SELF_SIGNUP_DISABLED:
-    'Organiser accounts are set up by the School, so one cannot be created here. Contact the School to be given Organiser access.',
 })
 
 function Brand() {
@@ -114,13 +114,36 @@ function OnboardingCard({ role, onComplete, onSignOut, onSignInAgain }) {
     let ignore = false
 
     async function provision() {
-      setState({ status: 'loading', message: `Setting up your ${ROLE_DETAILS[role].title} account...`, code: '' })
+      setState({
+        status: 'loading',
+        message: role === 'ORGANISER'
+          ? 'Registering your organiser account for Master Organiser approval...'
+          : `Setting up your ${ROLE_DETAILS[role].title} account...`,
+        code: '',
+      })
       try {
-        await completeOnboarding(role, getAccessTokenSilently)
+        const result = await completeOnboarding(role, getAccessTokenSilently)
         if (ignore) return
-        window.sessionStorage.removeItem(PENDING_ROLE_KEY)
-        setState({ status: 'success', message: 'Your CSAM Tutor Hub account is ready.', code: '' })
-        onComplete()
+        if (role !== 'ORGANISER') window.sessionStorage.removeItem(PENDING_ROLE_KEY)
+        const organiserStatus = result?.data?.application?.status
+        if (role === 'ORGANISER' && organiserStatus === 'REJECTED') {
+          setState({
+            status: 'error',
+            message: 'This organiser registration was not approved. Contact a Master Organiser if it needs to be reviewed.',
+            code: 'ORGANISER_REJECTED',
+          })
+          return
+        }
+        setState({
+          status: 'success',
+          message: role === 'ORGANISER'
+            ? organiserStatus === 'APPROVED'
+              ? 'Your organiser registration is approved. Return to sign in and choose Organiser.'
+              : 'Your organiser registration has been submitted. A Master Organiser must approve it before you can sign in to the organiser workspace.'
+            : 'Your CSAM Tutor Hub account is ready.',
+          code: '',
+        })
+        if (role !== 'ORGANISER') onComplete()
       } catch (error) {
         if (ignore) return
         if (error?.code === 'ROLE_ALREADY_SET') {
@@ -160,6 +183,7 @@ function OnboardingCard({ role, onComplete, onSignOut, onSignInAgain }) {
 
   const isEmailNotVerified = state.code === 'EMAIL_NOT_VERIFIED'
   const isRoleMismatch = state.code === 'ROLE_MISMATCH'
+  const isOrganiserRejected = state.code === 'ORGANISER_REJECTED'
 
   return (
     <main className="auth-shell">
@@ -175,7 +199,7 @@ function OnboardingCard({ role, onComplete, onSignOut, onSignInAgain }) {
             {isRoleMismatch && (
               <button type="button" className="primary-button" onClick={onSignOut}>Return to role selection</button>
             )}
-            {!isEmailNotVerified && !isRoleMismatch && state.code !== 'ORGANISER_SELF_SIGNUP_DISABLED' && (
+            {!isEmailNotVerified && !isRoleMismatch && !isOrganiserRejected && (
               <button type="button" className="primary-button" onClick={() => setAttempt((v) => v + 1)}>Try again</button>
             )}
             <button type="button" className="secondary-button" onClick={onSignOut}>Sign out</button>
@@ -193,12 +217,76 @@ function OnboardingCard({ role, onComplete, onSignOut, onSignInAgain }) {
             </button>
           </div>
         )}
+        {state.status === 'success' && role === 'ORGANISER' && (
+          <div className="auth-actions">
+            <button type="button" className="primary-button" onClick={onSignOut}>Return to sign in</button>
+          </div>
+        )}
         {resendState.message && (
           <p className={`status-message ${resendState.status}`} aria-live="polite">{resendState.message}</p>
         )}
       </section>
     </main>
   )
+}
+
+function OrganiserApprovalCard({ application, onSignOut }) {
+  const status = application?.status || 'NOT_FOUND'
+  const content = {
+    PENDING: {
+      title: 'Awaiting organiser approval',
+      tone: 'loading',
+      message: 'Your lecturer organiser registration is still waiting for a Master Organiser to approve it.',
+    },
+    APPROVED: {
+      title: 'Organiser account approved',
+      tone: 'success',
+      message: 'Your organiser account has been approved. Sign out, then sign in as Organiser to load your new access.',
+    },
+    REJECTED: {
+      title: 'Organiser registration not approved',
+      tone: 'error',
+      message: 'Your organiser registration was not approved. Contact a Master Organiser if you believe this needs to be reviewed.',
+    },
+  }[status]
+
+  if (!content) return null
+
+  return (
+    <main className="auth-shell">
+      <section className="auth-card" aria-live="polite">
+        <Brand />
+        <h1 className="auth-title">{content.title}</h1>
+        <p className={`status-message ${content.tone}`}>{content.message}</p>
+        <div className="auth-actions">
+          <button type="button" className="primary-button" onClick={onSignOut}>Return to role selection</button>
+        </div>
+      </section>
+    </main>
+  )
+}
+
+function ProfileNotFoundGate({ onChooseRole, onSignOut }) {
+  const { getAccessTokenSilently } = useAuth0()
+  const [state, setState] = useState({ loading: true, application: null })
+
+  useEffect(() => {
+    let ignore = false
+    async function loadApplication() {
+      try {
+        const application = await getOwnOrganiserApplication(getAccessTokenSilently)
+        if (!ignore) setState({ loading: false, application })
+      } catch {
+        if (!ignore) setState({ loading: false, application: null })
+      }
+    }
+    loadApplication()
+    return () => { ignore = true }
+  }, [getAccessTokenSilently])
+
+  if (state.loading) return <LoadingCard message="Checking your account status..." />
+  if (state.application) return <OrganiserApprovalCard application={state.application} onSignOut={onSignOut} />
+  return <FinishSetupCard onChooseRole={onChooseRole} onSignOut={onSignOut} />
 }
 
 function FinishSetupCard({ onChooseRole, onSignOut }) {
@@ -239,6 +327,23 @@ function RoleMismatchCard({ requestedRole, actualRole, onSignOut }) {
         </p>
         <div className="auth-actions">
           <button type="button" className="primary-button" onClick={onSignOut}>Return to role selection</button>
+        </div>
+      </section>
+    </main>
+  )
+}
+
+function RoleChangedCard({ onSignOut }) {
+  return (
+    <main className="auth-shell">
+      <section className="auth-card" aria-live="polite">
+        <Brand />
+        <h1 className="auth-title">Your access has changed</h1>
+        <p className="status-message success">
+          Your Tutor MX role was updated. Sign out and sign in again to load your new permissions.
+        </p>
+        <div className="auth-actions">
+          <button type="button" className="primary-button" onClick={onSignOut}>Sign out and continue</button>
         </div>
       </section>
     </main>
@@ -333,11 +438,13 @@ function App() {
     }
   }
 
-  const handleSignOut = () => {
+  const handleSignOut = async () => {
+    invalidateSession('You have signed out of this workspace.')
     window.sessionStorage.removeItem(PENDING_ROLE_KEY)
     setPendingRole(null)
     clearRequestedSignInRole()
-    logout({ logoutParams: { returnTo: window.location.origin } })
+    try { await logout({ logoutParams: { returnTo: window.location.origin } }) }
+    catch { setStatus({ type: 'error', message: 'Sign-out could not reach the identity provider. Your workspace is locked. Try again.' }) }
   }
 
   if (isLoading) return <LoadingCard message="Checking your session..." />
@@ -362,9 +469,11 @@ function App() {
     )
   }
 
+  if (userErrorCode === 'SESSION_EXPIRED') return <main className="auth-shell"><section className="auth-card" role="alert"><h1>Sign in again</h1><p>{userError}</p>{status.type === 'error' && <p>{status.message}</p>}<button type="button" className="primary-button" onClick={handleSignInAgain}>Sign in again</button><button type="button" className="secondary-button" onClick={handleSignOut}>Sign out</button></section></main>
   if (pendingRole) return <OnboardingCard role={pendingRole} onComplete={() => setPendingRole(null)} onSignOut={handleSignOut} onSignInAgain={handleSignInAgain} />
   if (userLoading) return <LoadingCard message="Loading your workspace..." />
-  if (userErrorCode === 'PROFILE_NOT_FOUND') return <FinishSetupCard onChooseRole={rememberPendingRole} onSignOut={handleSignOut} />
+  if (userErrorCode === 'PROFILE_NOT_FOUND') return <ProfileNotFoundGate onChooseRole={rememberPendingRole} onSignOut={handleSignOut} />
+  if (userErrorCode === 'ROLE_MISMATCH') return <RoleChangedCard onSignOut={handleSignOut} />
 
   // Check for role mismatch: if user selected a specific role for sign-in, compare with actual profile role.
   if (requestedSignInRole && currentRole && requestedSignInRole !== currentRole) {
@@ -386,7 +495,7 @@ function App() {
 
   return (
     <div className="app-shell">
-      <RoleRouter currentRole={currentRole} onSignOut={handleSignOut} user={currentUser} />
+      <RoleRouter key={`${currentUser?.data?.profile?.id ?? 'user'}-${currentRole}`} currentRole={currentRole} onSignOut={handleSignOut} user={currentUser} />
     </div>
   )
 }

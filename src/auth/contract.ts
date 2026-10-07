@@ -5,6 +5,8 @@ export type TutorRole = (typeof TUTOR_ROLES)[number];
 export interface AuthContext {
   subject: string;
   role: TutorRole | null;
+  /** All Auth0 role names from the configured custom claim. Optional on test/legacy contexts. */
+  auth0Roles?: string[];
   email?: string;
   claims: Record<string, unknown>;
 }
@@ -29,4 +31,15 @@ export function normalizeTutorRole(value: unknown): TutorRole | null {
   }
 
   return null;
+}
+
+export function normalizeAuth0Role(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const normalized = value.trim().toUpperCase().replace(/[\s-]+/g, "_");
+  return normalized || null;
+}
+
+export function isMasterOrganiserRole(value: unknown): boolean {
+  const normalized = normalizeAuth0Role(value);
+  return normalized === "MASTER_ORGANIZER" || normalized === "MASTER_ORGANISER";
 }

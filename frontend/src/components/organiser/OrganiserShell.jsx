@@ -69,13 +69,16 @@ function useHashTarget(location) {
  * account settings and sign out) and a top bar with the greeting, search and notifications.
  * On narrow screens the sidebar becomes a menu that opens over the page.
  */
-export function OrganiserShell({ user, onSignOut, children }) {
+export function OrganiserShell({ user, onSignOut, children, isMasterOrganiser = false }) {
   const location = useLocation()
   const { user: auth0User } = useAuth0()
   const [menuOpen, setMenuOpen] = useState(false)
   const name = profileName(user) || (typeof auth0User?.name === 'string' && !auth0User.name.includes('@') ? auth0User.name : null) || 'Organiser'
   const onHomePage = location.pathname === '/organiser' || HOME_PAGES.some((path) => location.pathname.startsWith(path))
   const page = pageKey(location.pathname)
+  const navItems = isMasterOrganiser
+    ? [...NAV_ITEMS, { to: '/organiser/organiser-applications', label: 'Organiser applications', icon: 'user-plus' }]
+    : NAV_ITEMS
 
   useHashTarget(location)
 
@@ -110,7 +113,7 @@ export function OrganiserShell({ user, onSignOut, children }) {
 
         <nav className="organiser-nav" aria-label="CSAM Tutor Hub primary navigation">
           <ul>
-            {NAV_ITEMS.map((item) => (
+            {navItems.map((item) => (
               <li key={item.to}>
                 <NavLink
                   to={item.to}
@@ -186,7 +189,7 @@ export function OrganiserShell({ user, onSignOut, children }) {
             </div>
           )}
           <div className="organiser-tools">
-            <CommandPalette variant="field" />
+            <CommandPalette variant="field" role={'ORGANISER'} />
             <NotificationBell icon={<OrganiserIcon name="bell" size={22} />} />
           </div>
         </header>

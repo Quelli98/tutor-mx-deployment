@@ -7,6 +7,7 @@ import {
   type AllocationCandidateQuery,
   type AllocationCandidateSummary,
   type CourseSummary,
+  type OrganiserApplicationSummary,
   type ProfileSummary,
   type TutorDashboardSummary,
   type TutorExcuseSummary,
@@ -33,6 +34,21 @@ const organiserProfile: ProfileSummary = {
   email: "organiser@tutormx.example",
   fullName: "Demo Organiser",
   role: "ORGANISER",
+};
+
+const pendingOrganiserApplication: OrganiserApplicationSummary = {
+  id: 21,
+  status: "PENDING",
+  motivation: "I coordinate CSAM tutoring sessions.",
+  reviewReason: null,
+  createdAt: "2026-09-29T10:00:00.000Z",
+  updatedAt: "2026-09-29T10:00:00.000Z",
+  reviewedAt: null,
+  applicant: {
+    email: "lecturer@wits.ac.za",
+    fullName: "Demo Lecturer",
+  },
+  reviewer: null,
 };
 
 function auth(role: TutorRole | null = "TUTOR"): AuthContext {
@@ -66,7 +82,12 @@ function makeApp(
     deleteCourse: (courseId: number) => Promise<void>;
     findProfileByAuth0Id: (id: string) => Promise<ProfileSummary | null>;
     onboardUser: (id: string, role: TutorRole) => Promise<ProfileSummary>;
-    allowSelfServiceOrganiser: boolean;
+    registerOrganiserApplication: AppDependencies["registerOrganiserApplication"];
+    getOwnOrganiserApplication: AppDependencies["getOwnOrganiserApplication"];
+    getOrganiserApplicationStatusByEmail: AppDependencies["getOrganiserApplicationStatusByEmail"];
+    listOrganiserApplications: AppDependencies["listOrganiserApplications"];
+    approveOrganiserApplication: AppDependencies["approveOrganiserApplication"];
+    rejectOrganiserApplication: AppDependencies["rejectOrganiserApplication"];
     getPublicHolidays: AppDependencies["getPublicHolidays"];
     listCourses: () => Promise<CourseSummary[]>;
     listTutors: () => Promise<TutorSummary[]>;
@@ -138,8 +159,19 @@ function makeApp(
         role,
       })),
 
-    allowSelfServiceOrganiser:
-      overrides.allowSelfServiceOrganiser ?? true,
+    registerOrganiserApplication:
+      overrides.registerOrganiserApplication ?? (async () => pendingOrganiserApplication),
+    getOwnOrganiserApplication:
+      overrides.getOwnOrganiserApplication ?? (async () => null),
+    getOrganiserApplicationStatusByEmail:
+      overrides.getOrganiserApplicationStatusByEmail ?? (async () => "NOT_FOUND"),
+    listOrganiserApplications:
+      overrides.listOrganiserApplications ?? (async () => []),
+    approveOrganiserApplication:
+      overrides.approveOrganiserApplication ?? (async () => { throw new Error("not configured in test"); }),
+    rejectOrganiserApplication:
+      overrides.rejectOrganiserApplication ?? (async () => { throw new Error("not configured in test"); }),
+
 
     getPublicHolidays:
       overrides.getPublicHolidays ??
@@ -471,24 +503,90 @@ describe("authentication contract", () => {
     expect(onboardUser).not.toHaveBeenCalled();
   });
 
-  it("keeps organiser self-sign-up behind the backend environment gate", async () => {
+  it("does not allow organiser registration through Student/Tutor onboarding", async () => {
     const onboardUser = vi.fn();
-
-    const response = await request(
-      makeApp({
-        onboardUser,
-        allowSelfServiceOrganiser: false,
-      }),
-    )
+    const response = await request(makeApp({ onboardUser }))
       .post("/api/auth/onboarding")
       .set("Authorization", "Bearer valid-token")
       .send({ role: "ORGANISER" });
 
-    expect(response.status).toBe(403);
-    expect(response.body.error.code).toBe(
-      "ORGANISER_SELF_SIGNUP_DISABLED",
-    );
+    expect(response.status).toBe(400);
     expect(onboardUser).not.toHaveBeenCalled();
+  });
+
+  it("registers an organiser applicant without creating a Student profile", async () => {
+    const registerOrganiserApplication = vi.fn().mockResolvedValue(pendingOrganiserApplication);
+
+    const response = await request(
+      makeApp({
+        registerOrganiserApplication,
+      }),
+    )
+      .post("/api/auth/organiser-registration")
+      .set("Authorization", "Bearer valid-token")
+      .send();
+
+    expect(response.status).toBe(200);
+    expect(response.body.data.application).toEqual(pendingOrganiserApplication);
+    expect(registerOrganiserApplication).toHaveBeenCalledWith("auth0|tutor");
+  });
+
+  it("allows an organiser applicant to check approval status by email without signing in", async () => {
+    const getOrganiserApplicationStatusByEmail = vi.fn().mockResolvedValue("APPROVED");
+    const response = await request(makeApp({ getOrganiserApplicationStatusByEmail }))
+      .post("/api/auth/organiser-application-status")
+      .send({ email: "Lecturer@Wits.ac.za" });
+
+    expect(response.status).toBe(200);
+    expect(response.body.data.status).toBe("APPROVED");
+    expect(getOrganiserApplicationStatusByEmail).toHaveBeenCalledWith("lecturer@wits.ac.za");
+  });
+
+  it("exposes the Master Organiser capability only when Auth0 supplies that privilege", async () => {
+    const app = makeApp({
+      findProfileByAuth0Id: async () => organiserProfile,
+      verifyAccessToken: async () => ({
+        ...auth("ORGANISER"),
+        auth0Roles: ["ORGANISER", "MASTER_ORGANIZER"],
+      }),
+    });
+
+    const response = await request(app)
+      .get("/api/me")
+      .set("Authorization", "Bearer master-token");
+
+    expect(response.status).toBe(200);
+    expect(response.body.data.capabilities).toEqual({ masterOrganiser: true });
+  });
+
+  it("keeps organiser-application review endpoints restricted to the Master Organiser", async () => {
+    const listOrganiserApplications = vi.fn().mockResolvedValue([pendingOrganiserApplication]);
+
+    const normalOrganiserResponse = await request(makeApp({
+      ...organiserAccess(),
+      listOrganiserApplications,
+    }))
+      .get("/api/master-organiser/organiser-applications")
+      .set("Authorization", "Bearer organiser-token");
+
+    expect(normalOrganiserResponse.status).toBe(403);
+    expect(normalOrganiserResponse.body.error.code).toBe("MASTER_ORGANISER_REQUIRED");
+    expect(listOrganiserApplications).not.toHaveBeenCalled();
+
+    const masterResponse = await request(makeApp({
+      findProfileByAuth0Id: async () => organiserProfile,
+      verifyAccessToken: async () => ({
+        ...auth("ORGANISER"),
+        auth0Roles: ["ORGANISER", "MASTER_ORGANIZER"],
+      }),
+      listOrganiserApplications,
+    }))
+      .get("/api/master-organiser/organiser-applications")
+      .set("Authorization", "Bearer master-token");
+
+    expect(masterResponse.status).toBe(200);
+    expect(masterResponse.body.data.applications).toEqual([pendingOrganiserApplication]);
+    expect(listOrganiserApplications).toHaveBeenCalledOnce();
   });
 
   it("lets a valid token and matching role reach the profile handler", async () => {

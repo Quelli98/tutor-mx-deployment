@@ -1,3 +1,4 @@
+import { sessionDay, attendanceLabel } from '../components/shared/attendance'
 import { useEffect, useMemo, useState } from 'react'
 import { submitWorkLog } from '../api/workLog'
 import TimesheetSection from './TimesheetSection'
@@ -66,9 +67,10 @@ export default function WorkLogForm({ allocations = [], tokenOrGetter, storageSc
   function validate() {
     const nextErrors = {}
     if (!selectedAllocation) nextErrors.allocationId = 'Please select an assigned session.'
+    else if (selectedAllocation.workLogEligible === false) nextErrors.allocationId = 'Approved sick sessions cannot have worked hours.'
     if (!workDate) {
       nextErrors.workDate = 'Date is required.'
-    } else if (selectedAllocation && workDate !== selectedAllocation.startsAt.slice(0, 10)) {
+    } else if (selectedAllocation && workDate !== sessionDay(selectedAllocation.startsAt)) {
       nextErrors.workDate = 'Date must match the selected session.'
     }
 
@@ -140,8 +142,8 @@ export default function WorkLogForm({ allocations = [], tokenOrGetter, storageSc
           {allocations.map((allocation) => {
             const ended = hasSessionEnded(allocation)
             return (
-              <option key={allocation.id} value={allocation.id} disabled={!ended}>
-                {sessionLabel(allocation)}{ended ? '' : ' — Session not completed yet'}
+              <option key={allocation.id} value={allocation.id} disabled={!ended || allocation.workLogEligible === false}>
+                {sessionLabel(allocation)}{allocation.workLogEligible === false ? ` — ${attendanceLabel(allocation)}` : ended ? '' : ' — Session not completed yet'}
               </option>
             )
           })}

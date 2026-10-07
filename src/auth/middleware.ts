@@ -1,5 +1,5 @@
 import type { NextFunction, Request, RequestHandler, Response } from "express";
-import type { AccessTokenVerifier, AuthContext, TutorRole } from "./contract.js";
+import { isMasterOrganiserRole, type AccessTokenVerifier, type AuthContext, type TutorRole } from "./contract.js";
 
 export interface ResolvedProfileRole { role: TutorRole }
 export type AuthenticatedRequest = Request & { auth?: AuthContext };
@@ -40,6 +40,30 @@ export function requireRole(...allowedRoles: TutorRole[]): RequestHandler {
     if (!auth) { sendError(response, 401, "AUTHENTICATION_REQUIRED", "A valid bearer token is required."); return; }
     if (!auth.role || !allowedRoles.includes(auth.role)) {
       sendError(response, 403, "FORBIDDEN", "You do not have permission to perform this action."); return;
+    }
+    next();
+  };
+}
+
+export function hasMasterOrganiserAccess(auth: AuthContext | undefined): boolean {
+  return Boolean(auth?.auth0Roles?.some(isMasterOrganiserRole));
+}
+
+/**
+ * MASTER_ORGANIZER is an Auth0 privilege layered on top of the normal
+ * ORGANISER application role. It is intentionally not stored as Profile.role,
+ * so existing role-specific Tutor Mx data and routes remain unchanged.
+ */
+export function requireMasterOrganiser(): RequestHandler {
+  return (request, response, next) => {
+    const auth = (request as AuthenticatedRequest).auth;
+    if (!auth) {
+      sendError(response, 401, "AUTHENTICATION_REQUIRED", "A valid bearer token is required.");
+      return;
+    }
+    if (!hasMasterOrganiserAccess(auth)) {
+      sendError(response, 403, "MASTER_ORGANISER_REQUIRED", "Only a master organiser can review organiser applications.");
+      return;
     }
     next();
   };

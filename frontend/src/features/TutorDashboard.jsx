@@ -1,3 +1,4 @@
+import { attendanceLabel } from '../components/shared/attendance'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useAuth0 } from '@auth0/auth0-react'
 import { fetchTutorDashboard, isValidWeeklyCapacity, saveWeeklyCapacity } from '../api/tutorDashboard'
@@ -281,8 +282,8 @@ export default function TutorDashboard() {
                     <td>{formatSessionDate(allocation.startsAt, allocation.endsAt)}</td>
                     <td>{allocation.allocatedHours}h</td>
                     <td>
-                      <span className={`status-badge status-${allocation.status.toLowerCase()}`}>
-                        {allocation.status.toLowerCase()}
+                      <span className={`status-badge status-${attendanceLabel(allocation) || allocation.status.toLowerCase()}`}>
+                        {attendanceLabel(allocation) || allocation.status.toLowerCase()}
                       </span>
                     </td>
                   </tr>

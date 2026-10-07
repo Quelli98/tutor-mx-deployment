@@ -1,7 +1,10 @@
+import { resolveNavigation } from './services/navigation-targets.js';
+import { saveManualSchedule } from "./services/manual-schedule.js";
 import "dotenv/config";
 import {
   createApp,
   createRouteError,
+  type OrganiserApplicationSummary,
   type TutorMarkSummary,
   type TutorTimeSlotSummary,
 } from "./app.js";
@@ -14,7 +17,7 @@ import {
   createAuth0PasswordResetRequester,
   type PasswordResetRequester,
 } from "./auth/password-reset.js";
-import { createAuth0RoleProvisioner, createAuth0UserDeleter, createAuth0VerificationEmailSender } from "./auth/management-api.js";
+import { createAuth0RoleProvisioner, createAuth0UserDeleter, createAuth0UserReader, createAuth0VerificationEmailSender } from "./auth/management-api.js";
 import { prisma, queryClient } from "./database.js";
 import { createSouthAfricaPublicHolidayService } from "./integrations/public-holidays.js";
 import {
@@ -29,6 +32,7 @@ import { createBulkAllocationService } from "./services/bulk-allocation-service.
 import { createReportingService } from "./services/reporting-service.js";
 import { createCommandCentreService } from "./services/command-centre-service.js";
 import { payrollFilename, toPayrollCsv } from "./services/payroll-export.js";
+import { allocationAttendance, attendanceSelection, sessionDay } from "./services/session-attendance.js";
 import { createExcuseWorkflowService } from "./services/excuse-workflows.js";
 import { createOrganiserService } from "./services/organiser-service.js";
 import { createStudentWorkflowService } from "./services/student-workflows.js";
@@ -42,7 +46,6 @@ import {
 import {
   buildAllocationCancelledNotifications,
   buildAllocationNotifications,
-  buildExcuseDecisionNotifications,
   buildExcuseSubmittedNotifications,
   buildTimesheetDecisionNotifications,
   buildTimesheetDisputeResolvedNotifications,
@@ -97,6 +100,10 @@ const provisionAuth0Role = auth0ManagementConfig
   ? createAuth0RoleProvisioner(auth0ManagementConfig)
   : async () => { throw new Error("Auth0 Management API onboarding is not configured"); };
 
+const readAuth0User = auth0ManagementConfig
+  ? createAuth0UserReader(auth0ManagementConfig)
+  : async () => { throw new Error("Auth0 Management API user lookup is not configured"); };
+
 // The resend-verification route fails closed when this is undefined (503), so it
 // is only wired when Management API credentials are present.
 const requestVerificationEmail = auth0ManagementConfig
@@ -119,6 +126,51 @@ const courseSelect = {
   hourlyRate: true,
   budget: true,
 } as const;
+
+const organiserApplicationSelect = {
+  id: true,
+  auth0Id: true,
+  email: true,
+  fullName: true,
+  status: true,
+  motivation: true,
+  reviewReason: true,
+  createdAt: true,
+  updatedAt: true,
+  reviewedAt: true,
+  reviewer: {
+    select: { id: true, email: true, fullName: true },
+  },
+} as const;
+
+function toOrganiserApplicationSummary(application: {
+  id: number;
+  auth0Id: string;
+  email: string;
+  fullName: string;
+  status: "PENDING" | "APPROVED" | "REJECTED";
+  motivation: string | null;
+  reviewReason: string | null;
+  createdAt: Date;
+  updatedAt: Date;
+  reviewedAt: Date | null;
+  reviewer: { id: number; email: string; fullName: string } | null;
+}): OrganiserApplicationSummary {
+  return {
+    id: application.id,
+    status: application.status,
+    motivation: application.motivation,
+    reviewReason: application.reviewReason,
+    createdAt: application.createdAt.toISOString(),
+    updatedAt: application.updatedAt.toISOString(),
+    reviewedAt: application.reviewedAt?.toISOString() ?? null,
+    applicant: {
+      email: application.email,
+      fullName: application.fullName,
+    },
+    reviewer: application.reviewer,
+  };
+}
 
 function toCourseSummary(course: {
   id: number;
@@ -172,6 +224,9 @@ function toTimeSlotSummary(timeSlot: {
   recurrenceUntil: Date | null;
   category?: string;
   seriesId?: string | null;
+  termId?: number | null;
+  term?: { teachingBreaks: unknown } | null;
+  exceptions?: Array<{ occurrenceDate: Date; exceptionType: string; newStartsAt: Date | null; newEndsAt: Date | null }>;
 }): TutorTimeSlotSummary {
   return {
     id: timeSlot.id,
@@ -184,17 +239,21 @@ function toTimeSlotSummary(timeSlot: {
     recurrenceUntil: timeSlot.recurrenceUntil?.toISOString() ?? null,
     category: timeSlot.category ?? "UNAVAILABLE",
     seriesId: timeSlot.seriesId ?? null,
+    termId: timeSlot.termId ?? null,
+    teachingBreaks: Array.isArray(timeSlot.term?.teachingBreaks) ? timeSlot.term.teachingBreaks : [],
+    exceptions: timeSlot.exceptions?.map((exception) => ({ ...exception, occurrenceDate: exception.occurrenceDate.toISOString().slice(0, 10), newStartsAt: exception.newStartsAt?.toISOString() ?? null, newEndsAt: exception.newEndsAt?.toISOString() ?? null })) ?? [],
   };
 }
 
 const timeSlotSelect = {
   id: true, type: true, startsAt: true, endsAt: true,
   recurrence: true, label: true, recurrenceUntil: true, category: true, seriesId: true,
+  termId: true, term: { select: { teachingBreaks: true } }, exceptions: true,
 } as const;
 
-async function listTimeSlots(tutorId: number) {
+async function listTimeSlots(ownerId: number, tutorOnly = false) {
   const timeSlots = await prisma.timeSlot.findMany({
-    where: { tutorId },
+    where: { ownerId, ...(tutorOnly ? { owner: { role: "TUTOR" as const } } : {}) },
     orderBy: { startsAt: "asc" },
     select: timeSlotSelect,
   });
@@ -239,6 +298,14 @@ async function findTutorProfileId(auth0Id: string) {
       "TUTOR_PROFILE_NOT_FOUND",
       "No tutor profile is linked to this account.",
     );
+  }
+  return profile.id;
+}
+
+async function findScheduleOwnerId(auth0Id: string) {
+  const profile = await prisma.profile.findUnique({ where: { auth0Id }, select: { id: true, role: true } });
+  if (!profile || !["TUTOR", "STUDENT"].includes(profile.role)) {
+    throw createRouteError(404, "SCHEDULE_OWNER_NOT_FOUND", "No personal timetable is available for this account.");
   }
   return profile.id;
 }
@@ -392,9 +459,16 @@ const app = createApp(
     verifyAccessToken,
     requestPasswordReset,
     requestVerificationEmail,
-    allowSelfServiceOrganiser: process.env.ALLOW_SELF_SERVICE_ORGANISER?.toLowerCase() === "true",
     getPublicHolidays: (year) => publicHolidayService.execute(year),
     async findProfileByAuth0Id(auth0Id) {
+      const organiserApplication = await prisma.organiserApplication.findUnique({
+        where: { auth0Id },
+        select: { status: true },
+      });
+      // A lecturer waiting for organiser approval is not a Student user. This
+      // also safely blocks any profile left by the earlier student-based draft.
+      if (organiserApplication && organiserApplication.status !== "APPROVED") return null;
+
       const profile = await prisma.profile.findUnique({
         where: { auth0Id },
         select: {
@@ -448,13 +522,29 @@ const app = createApp(
     previewTutorTimetableImport: timetableImportService.preview,
     commitTutorTimetableImport: timetableImportService.commit,
     async onboardUser(auth0Id, role) {
+      if (role === "ORGANISER") {
+        throw createRouteError(400, "ORGANISER_REGISTRATION_REQUIRED", "Organisers must register for lecturer approval before access is granted.");
+      }
+
+      const organiserApplication = await prisma.organiserApplication.findUnique({
+        where: { auth0Id },
+        select: { status: true },
+      });
+      if (organiserApplication) {
+        throw createRouteError(409, "ORGANISER_APPLICATION_EXISTS", "This account is already registered for organiser approval.");
+      }
+
       const existing = await prisma.profile.findUnique({
         where: { auth0Id },
         select: { id: true, email: true, fullName: true, role: true },
       });
       if (existing) {
         const existingRole = normalizeTutorRole(existing.role);
-        if (!existingRole || existingRole !== role) {
+        if (!existingRole) {
+          throw createRouteError(409, "ROLE_ALREADY_SET", "This CSAM Tutor Hub account already has a different role.");
+        }
+
+        if (existingRole !== role) {
           throw createRouteError(409, "ROLE_ALREADY_SET", "This CSAM Tutor Hub account already has a different role.");
         }
         const identity = await provisionAuth0Role(auth0Id, role);
@@ -476,6 +566,178 @@ const app = createApp(
         }
         throw error;
       }
+    },
+    async registerOrganiserApplication(auth0Id) {
+      const identity = await readAuth0User(auth0Id);
+      if (!identity.emailVerified) {
+        throw createRouteError(403, "EMAIL_NOT_VERIFIED", "Verify your lecturer email address, then try again.");
+      }
+
+      const existing = await prisma.organiserApplication.findFirst({
+        where: { OR: [{ auth0Id }, { email: identity.email }] },
+        select: organiserApplicationSelect,
+      });
+      if (existing) {
+        if (existing.auth0Id !== auth0Id || existing.email !== identity.email) {
+          throw createRouteError(409, "ORGANISER_APPLICATION_CONFLICT", "This lecturer email is already linked to another organiser registration.");
+        }
+        return toOrganiserApplicationSummary(existing);
+      }
+
+      const existingProfile = await prisma.profile.findFirst({
+        where: { OR: [{ auth0Id }, { email: identity.email }] },
+        select: { id: true, role: true },
+      });
+      if (existingProfile) {
+        throw createRouteError(409, "ROLE_ALREADY_SET", "This account is already linked to an existing Tutor MX role. Organiser registration is for lecturer organiser accounts, not Student or Tutor accounts.");
+      }
+
+      try {
+        const application = await prisma.organiserApplication.create({
+          data: {
+            auth0Id,
+            email: identity.email,
+            fullName: identity.fullName,
+          },
+          select: organiserApplicationSelect,
+        });
+        return toOrganiserApplicationSummary(application);
+      } catch (error) {
+        if (isPrismaErrorCode(error, "P2002")) {
+          throw createRouteError(409, "ORGANISER_APPLICATION_CONFLICT", "This lecturer email already has an organiser registration.");
+        }
+        throw error;
+      }
+    },
+    async getOwnOrganiserApplication(auth0Id) {
+      const application = await prisma.organiserApplication.findUnique({
+        where: { auth0Id },
+        select: organiserApplicationSelect,
+      });
+      return application ? toOrganiserApplicationSummary(application) : null;
+    },
+    async getOrganiserApplicationStatusByEmail(email) {
+      const application = await prisma.organiserApplication.findUnique({
+        where: { email: email.trim().toLowerCase() },
+        select: { status: true },
+      });
+      return application?.status ?? "NOT_FOUND";
+    },
+    async listOrganiserApplications() {
+      const applications = await prisma.organiserApplication.findMany({
+        orderBy: [{ status: "asc" }, { createdAt: "asc" }],
+        select: organiserApplicationSelect,
+      });
+      return applications.map(toOrganiserApplicationSummary);
+    },
+    async approveOrganiserApplication(reviewerAuth0Id, applicationId) {
+      const reviewer = await prisma.profile.findUnique({
+        where: { auth0Id: reviewerAuth0Id },
+        select: { id: true, role: true },
+      });
+      if (!reviewer || reviewer.role !== "ORGANISER") {
+        throw createRouteError(403, "FORBIDDEN", "Only an organiser can review organiser applications.");
+      }
+
+      const application = await prisma.organiserApplication.findUnique({
+        where: { id: applicationId },
+        select: organiserApplicationSelect,
+      });
+      if (!application) {
+        throw createRouteError(404, "ORGANISER_APPLICATION_NOT_FOUND", "The organiser application could not be found.");
+      }
+      if (application.status !== "PENDING") {
+        throw createRouteError(409, "ORGANISER_APPLICATION_ALREADY_REVIEWED", "This organiser application has already been reviewed.");
+      }
+
+      // Auth0 is the authorization source of truth. Grant ORGANISER only after
+      // the Master Organiser approves the lecturer registration.
+      const identity = await provisionAuth0Role(application.auth0Id, "ORGANISER");
+      if (!identity.emailVerified) {
+        throw createRouteError(409, "APPLICANT_EMAIL_NOT_VERIFIED", "The applicant must verify their email before approval.");
+      }
+      if (identity.email !== application.email) {
+        throw createRouteError(409, "APPLICANT_EMAIL_CHANGED", "The Auth0 email no longer matches this organiser registration.");
+      }
+
+      const updated = await prisma.$transaction(async (transaction) => {
+        const claimed = await transaction.organiserApplication.updateMany({
+          where: { id: applicationId, status: "PENDING" },
+          data: {
+            status: "APPROVED",
+            reviewReason: null,
+            reviewedAt: new Date(),
+            reviewerProfileId: reviewer.id,
+          },
+        });
+        if (claimed.count !== 1) {
+          throw createRouteError(409, "ORGANISER_APPLICATION_ALREADY_REVIEWED", "This organiser application has already been reviewed.");
+        }
+
+        const existingProfile = await transaction.profile.findFirst({
+          where: { OR: [{ auth0Id: application.auth0Id }, { email: application.email }] },
+          select: { id: true, auth0Id: true, email: true, role: true },
+        });
+        if (existingProfile) {
+          if (existingProfile.auth0Id !== application.auth0Id || existingProfile.email !== application.email) {
+            throw createRouteError(409, "PROFILE_CONFLICT", "This lecturer email is already linked to another Tutor MX account.");
+          }
+          // Compatibility with the earlier student-based draft: if such a row
+          // exists, convert it to the intended lecturer Organiser account.
+          if (existingProfile.role !== "ORGANISER" && existingProfile.role !== "STUDENT") {
+            throw createRouteError(409, "ROLE_ALREADY_SET", "This account is already linked to a different Tutor MX role.");
+          }
+          await transaction.profile.update({
+            where: { id: existingProfile.id },
+            data: { role: "ORGANISER", fullName: application.fullName },
+          });
+        } else {
+          await transaction.profile.create({
+            data: {
+              auth0Id: application.auth0Id,
+              email: application.email,
+              fullName: application.fullName,
+              role: "ORGANISER",
+            },
+          });
+        }
+        return transaction.organiserApplication.findUniqueOrThrow({
+          where: { id: applicationId },
+          select: organiserApplicationSelect,
+        });
+      });
+      return toOrganiserApplicationSummary(updated);
+    },
+    async rejectOrganiserApplication(reviewerAuth0Id, applicationId, reviewReason) {
+      const reviewer = await prisma.profile.findUnique({
+        where: { auth0Id: reviewerAuth0Id },
+        select: { id: true, role: true },
+      });
+      if (!reviewer || reviewer.role !== "ORGANISER") {
+        throw createRouteError(403, "FORBIDDEN", "Only an organiser can review organiser applications.");
+      }
+
+      const claimed = await prisma.organiserApplication.updateMany({
+        where: { id: applicationId, status: "PENDING" },
+        data: {
+          status: "REJECTED",
+          reviewReason,
+          reviewedAt: new Date(),
+          reviewerProfileId: reviewer.id,
+        },
+      });
+      if (claimed.count !== 1) {
+        const exists = await prisma.organiserApplication.findUnique({ where: { id: applicationId }, select: { id: true } });
+        if (!exists) {
+          throw createRouteError(404, "ORGANISER_APPLICATION_NOT_FOUND", "The organiser application could not be found.");
+        }
+        throw createRouteError(409, "ORGANISER_APPLICATION_ALREADY_REVIEWED", "This organiser application has already been reviewed.");
+      }
+      const updated = await prisma.organiserApplication.findUniqueOrThrow({
+        where: { id: applicationId },
+        select: organiserApplicationSelect,
+      });
+      return toOrganiserApplicationSummary(updated);
     },
     async listCourses() {
       const courses = await prisma.course.findMany({
@@ -590,6 +852,7 @@ const app = createApp(
               allocatedHours: true,
               status: true,
               course: { select: { code: true, name: true } },
+              excuses: { select: attendanceSelection },
             },
           },
         },
@@ -609,10 +872,10 @@ const app = createApp(
         weekStart,
       );
       const countTimeSlots = (prisma.timeSlot as typeof prisma.timeSlot & {
-        count?: (args: { where: { tutorId: number; recurrence: { not: null } } }) => Promise<number>;
+        count?: (args: { where: { ownerId: number; recurrence: { not: null } } }) => Promise<number>;
       }).count;
       const hasSchedule = countTimeSlots
-        ? (await countTimeSlots.call(prisma.timeSlot, { where: { tutorId: profile.id, recurrence: { not: null } } })) > 0
+        ? (await countTimeSlots.call(prisma.timeSlot, { where: { ownerId: profile.id, recurrence: { not: null } } })) > 0
         : undefined;
 
       // A newly self-onboarded tutor can exist before an organiser has configured
@@ -625,6 +888,7 @@ const app = createApp(
         .filter(
           (allocation) =>
             allocation.status === "CONFIRMED" &&
+            allocationAttendance(allocation.excuses).workLogEligible &&
             allocation.startsAt >= weekStart &&
             allocation.startsAt < nextWeekStart,
         )
@@ -641,6 +905,7 @@ const app = createApp(
 
       return {
         allocations: profile.allocations.map((allocation) => ({
+          ...allocationAttendance(allocation.excuses),
           id: allocation.id,
           courseCode: allocation.course.code,
           courseName: allocation.course.name,
@@ -657,22 +922,9 @@ const app = createApp(
       };
     },
     async createTutorTimeSlot(auth0Id, input) {
-      const tutorId = await findTutorProfileId(auth0Id);
+      const tutorId = await findScheduleOwnerId(auth0Id);
       try {
-        const timeSlot = await prisma.timeSlot.create({
-          data: {
-            tutorId,
-            type: input.type,
-            startsAt: input.startsAt,
-            endsAt: input.endsAt,
-            recurrence: input.recurrence ?? null,
-            label: input.label ?? null,
-            recurrenceUntil: input.recurrenceUntil ?? null,
-            ...(input.category !== undefined ? { category: input.category } : {}),
-            ...(input.seriesId !== undefined ? { seriesId: input.seriesId } : {}),
-          },
-          select: timeSlotSelect,
-        });
+        const timeSlot = await saveManualSchedule(prisma, tutorId, input);
         return toTimeSlotSummary(timeSlot);
       } catch (error) {
         if (
@@ -692,7 +944,7 @@ const app = createApp(
       const tutorId = await findTutorProfileId(auth0Id);
       const allocation = await prisma.allocation.findFirst({
         where: { id: input.allocationId, tutorId },
-        select: { id: true, startsAt: true, endsAt: true, status: true },
+        select: { id: true, startsAt: true, endsAt: true, status: true, excuses: { select: attendanceSelection } },
       });
       if (!allocation) {
         throw createRouteError(
@@ -703,12 +955,13 @@ const app = createApp(
       }
       if (
         allocation.status !== "CONFIRMED" ||
-        allocation.startsAt.toISOString().slice(0, 10) !== input.workDate
+        !allocationAttendance(allocation.excuses).workLogEligible ||
+        sessionDay(allocation.startsAt) !== input.workDate
       ) {
         throw createRouteError(
           409,
           "WORK_LOG_CONFLICT",
-          "Worked hours must match a confirmed session owned by the tutor.",
+          "Worked hours must match a confirmed session owned by the tutor without an approved sick excuse.",
         );
       }
       if (new Date() <= allocation.endsAt) {
@@ -776,7 +1029,7 @@ const app = createApp(
         }
         if (
           isPrismaErrorCode(error, "P2003") ||
-          isPrismaErrorCode(error, "P2004")
+          isPrismaErrorCode(error, "P2004") || isPrismaErrorCode(error, "P2039")
         ) {
           throw createRouteError(
             409,
@@ -794,7 +1047,6 @@ const app = createApp(
           id: input.allocationId,
           tutorId,
           status: "CONFIRMED",
-          startsAt: { gt: new Date() },
         },
         select: { id: true },
       });
@@ -802,7 +1054,7 @@ const app = createApp(
         throw createRouteError(
           404,
           "ALLOCATION_NOT_FOUND",
-          "The assigned future session could not be found.",
+          "The assigned confirmed session could not be found.",
         );
       }
 
@@ -918,21 +1170,7 @@ const app = createApp(
       return dispute;
     },
     getTutorExcuseStatus: excuseWorkflowService.getStatus,
-    async decideExcuse(excuseId, input) {
-      const owner = await prisma.excuse.findUnique({
-        where: { id: excuseId },
-        select: { tutorId: true },
-      });
-      const result = await excuseWorkflowService.decide(excuseId, input);
-      if (owner && (result.status === "APPROVED" || result.status === "REJECTED")) {
-        await emitNotifications(buildExcuseDecisionNotifications({
-          id: result.id,
-          status: result.status,
-          reviewReason: result.reviewReason,
-        }, owner.tutorId));
-      }
-      return result;
-    },
+    decideExcuse: excuseWorkflowService.decide,
     async listAllocationCandidates(input) {
       const candidates = await findAllocationCandidates(queryClient, input);
       return candidates.map((candidate) => ({
@@ -1071,28 +1309,16 @@ const app = createApp(
         );
       }
     },
-    listTutorTimeSlots: listTimeSlots,
+    // The legacy organiser view is for Tutors only, never Student private schedules.
+    listTutorTimeSlots: (tutorId) => listTimeSlots(tutorId, true),
+    resolveNavigation: (auth0Id, input) => resolveNavigation(queryClient, auth0Id, input),
     async listOwnTutorTimeSlots(auth0Id) {
-      return listTimeSlots(await findTutorProfileId(auth0Id));
+      return listTimeSlots(await findScheduleOwnerId(auth0Id));
     },
     async updateTutorTimeSlot(auth0Id, timeSlotId, input) {
-      const tutorId = await findTutorProfileId(auth0Id);
+      const tutorId = await findScheduleOwnerId(auth0Id);
       try {
-        const timeSlot = await prisma.timeSlot.update({
-          // Keep ownership in the write predicate, not a separate preflight read.
-          where: { id: timeSlotId, tutorId },
-          data: {
-            type: input.type,
-            startsAt: input.startsAt,
-            endsAt: input.endsAt,
-            recurrence: input.recurrence ?? null,
-            label: input.label ?? null,
-            recurrenceUntil: input.recurrenceUntil ?? null,
-            ...(input.category !== undefined ? { category: input.category } : {}),
-            ...(input.seriesId !== undefined ? { seriesId: input.seriesId } : {}),
-          },
-          select: timeSlotSelect,
-        });
+        const timeSlot = await saveManualSchedule(prisma, tutorId, input, timeSlotId);
         return toTimeSlotSummary(timeSlot);
       } catch (error) {
         if (isPrismaErrorCode(error, "P2025")) {
@@ -1105,9 +1331,9 @@ const app = createApp(
       }
     },
     async deleteTutorTimeSlot(auth0Id, timeSlotId) {
-      const tutorId = await findTutorProfileId(auth0Id);
+      const tutorId = await findScheduleOwnerId(auth0Id);
       const removed = await prisma.timeSlot.deleteMany({
-        where: { id: timeSlotId, tutorId },
+        where: { id: timeSlotId, ownerId: tutorId },
       });
       if (removed.count === 0) {
         throw createRouteError(404, "TIME_SLOT_NOT_FOUND", "The requested time slot could not be found.");
@@ -1175,7 +1401,7 @@ const app = createApp(
           data: { reviewedById: null },
         });
         await transaction.allocation.deleteMany({ where: { tutorId: profile.id } });
-        await transaction.timeSlot.deleteMany({ where: { tutorId: profile.id } });
+        await transaction.timeSlot.deleteMany({ where: { ownerId: profile.id } });
         await transaction.tutorMark.deleteMany({ where: { tutorId: profile.id } });
         await transaction.tutorHourLimit.deleteMany({ where: { tutorId: profile.id } });
         await transaction.profile.delete({ where: { id: profile.id } });

@@ -131,7 +131,7 @@ describe('tutor API contract', () => {
       ),
     ).resolves.toEqual(timeSlot)
     expect(fetchWithBearerToken).toHaveBeenLastCalledWith(
-      '/api/tutor/time-slots',
+      '/api/me/time-slots',
       {
         method: 'POST',
         body: JSON.stringify({

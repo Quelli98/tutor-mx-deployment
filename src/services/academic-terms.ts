@@ -1,3 +1,4 @@
+import { createRouteError } from "../http/errors.js";
 /**
  * Academic terms (Sprint 3, card S3-M3-1; shared timetable extension).
  *
@@ -329,9 +330,9 @@ export function createAcademicTermService(
 
     async create(input) {
       const overlap = await checkOverlap(input.startsOn, input.endsOn);
-      if (overlap) throw new Error(overlap);
+      if (overlap) throw createRouteError(409, "ACADEMIC_TERM_CONFLICT", overlap);
       const unique = await checkYearTermUnique(input.year, input.termNumber);
-      if (unique) throw new Error(unique);
+      if (unique) throw createRouteError(409, "ACADEMIC_TERM_CONFLICT", unique);
 
       const row = await prismaClient.academicTerm.create({
         data: toCreateData(input),
@@ -345,16 +346,16 @@ export function createAcademicTermService(
         where: { id },
         select: termSelection,
       });
-      if (!existing) throw new Error("Term not found.");
+      if (!existing) throw createRouteError(404, "ACADEMIC_TERM_NOT_FOUND", "Term not found.");
 
       const overlap = await checkOverlap(input.startsOn, input.endsOn, id);
-      if (overlap) throw new Error(overlap);
+      if (overlap) throw createRouteError(409, "ACADEMIC_TERM_CONFLICT", overlap);
       const unique = await checkYearTermUnique(
         input.year === undefined ? existing.year : input.year,
         input.termNumber === undefined ? existing.termNumber : input.termNumber,
         id,
       );
-      if (unique) throw new Error(unique);
+      if (unique) throw createRouteError(409, "ACADEMIC_TERM_CONFLICT", unique);
 
       const row = await prismaClient.academicTerm.update({
         where: { id },

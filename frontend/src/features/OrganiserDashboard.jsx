@@ -244,7 +244,6 @@ export default function OrganiserDashboard() {
   const [panelOpen, setPanelOpen] = useState(false)
   const panelOpenerRef = useRef(null)
   const [weekStart, setWeekStart] = useState(() => localMonday(new Date()))
-  const approvals = useOrganiserApprovals()
   const week = useOrganiserWeek(weekStart)
 
   const loadCourses = useCallback(async () => {
@@ -276,6 +275,8 @@ export default function OrganiserDashboard() {
       setAllocationsStatus('error')
     }
   }, [getAccessTokenSilently])
+
+  const approvals = useOrganiserApprovals({ onDecision: loadAllocations })
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect

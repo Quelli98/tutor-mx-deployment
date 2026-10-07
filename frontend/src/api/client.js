@@ -1,7 +1,8 @@
+import { handleAccessFailure, invalidateSession, sessionGeneration } from '../auth/sessionState'
 import { useCallback } from 'react'
 import { useAuth0 } from '@auth0/auth0-react'
 
-const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000').replace(/\/+$/, '')
+export const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000').replace(/\/+$/, '')
 
 async function readJson(response) {
   return response.json().catch(() => ({}))
@@ -12,15 +13,22 @@ function messageFrom(body, fallback) {
 }
 
 export async function fetchResponseWithBearerToken(path, options = {}, tokenOrGetter) {
-  const token =
+  const generation = sessionGeneration()
+  let token
+  try { token =
     typeof tokenOrGetter === 'function'
       ? await tokenOrGetter({
           detailedResponse: false,
           authorizationParams: { audience: import.meta.env.VITE_AUTH0_AUDIENCE },
         })
       : tokenOrGetter
+  } catch (error) {
+    if (['login_required', 'invalid_grant', 'consent_required', 'interaction_required', 'missing_refresh_token'].includes(error?.error)) invalidateSession()
+    throw error
+  }
 
-  if (!token) throw new Error('Missing bearer token')
+  if (!token) { invalidateSession(); throw new Error('Missing bearer token') }
+  if (generation !== sessionGeneration()) throw new Error('Session changed. Please retry.')
 
   const response = await fetch(`${API_BASE_URL}${path}`, {
     ...options,
@@ -36,14 +44,19 @@ export async function fetchResponseWithBearerToken(path, options = {}, tokenOrGe
     const error = new Error(messageFrom(body, 'Request failed'))
     error.code = body?.error?.code || 'REQUEST_FAILED'
     error.status = response.status
+    handleAccessFailure(response.status, error.code, path)
     throw error
   }
 
+  if (generation !== sessionGeneration()) throw new Error('Session changed. Please retry.')
   return response
 }
 
 export async function fetchWithBearerToken(path, options = {}, tokenOrGetter) {
-  return readJson(await fetchResponseWithBearerToken(path, options, tokenOrGetter))
+  const generation = sessionGeneration()
+  const body = await readJson(await fetchResponseWithBearerToken(path, options, tokenOrGetter))
+  if (generation !== sessionGeneration()) throw new Error('Session changed. Please retry.')
+  return body
 }
 
 export async function requestPasswordReset(email) {

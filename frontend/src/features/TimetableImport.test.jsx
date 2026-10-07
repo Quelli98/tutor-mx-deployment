@@ -9,7 +9,7 @@ const tokenGetter = vi.fn()
 const onImported = vi.fn()
 
 vi.mock('../api/timetableImport', () => ({
-  listAcademicTerms: (...args) => mockListTerms(...args),
+  listPublishedAcademicTerms: (...args) => mockListTerms(...args),
   previewTimetableImport: (...args) => mockPreview(...args),
   commitTimetableImport: (...args) => mockCommit(...args),
   currentTimeZone: () => 'UTC',
@@ -72,7 +72,7 @@ function previewPayload(overrides = {}) {
 /** Renders and waits for the term list to settle so no state update lands late. */
 async function renderImport() {
   render(<TimetableImport tokenOrGetter={tokenGetter} onImported={onImported} />)
-  await waitFor(() => expect(screen.getByLabelText(/academic term/i)).toHaveValue('2'))
+  await waitFor(() => expect(screen.getByLabelText(/academic term/i)).toHaveValue(''))
 }
 
 function typeRows(value = csvText) {
@@ -96,25 +96,25 @@ describe('TimetableImport', () => {
     await renderImport()
     typeRows()
     fireEvent.click(screen.getByRole('button', { name: /preview import/i }))
-    fireEvent.click(await screen.findByRole('button', { name: /save 1 entry/i }))
+    fireEvent.click(await screen.findByRole('button', { name: /import 1 new entry/i }))
     expect(await screen.findByText('Imported 1 schedule entry.')).toBeInTheDocument()
     expect(await screen.findByText(/was saved, but the schedule could not be refreshed/i)).toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: /save 1 entry/i })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /import 1 new entry/i })).not.toBeInTheDocument()
     expect(mockCommit).toHaveBeenCalledTimes(1)
   })
 
-  it('previews the pasted rows against the term that has not finished yet', async () => {
+  it('does not default to an unrelated term before parsing', async () => {
     await renderImport()
     typeRows()
     fireEvent.click(screen.getByRole('button', { name: /preview import/i }))
 
-    await screen.findByRole('heading', { name: /check before saving/i })
+    await screen.findByRole('heading', { name: /import preview/i })
     expect(mockPreview).toHaveBeenCalledWith(
-      { source: 'CSV', text: csvText, termId: 2, timeZone: 'UTC' },
+      { source: 'CSV', text: csvText, termId: undefined, timeZone: 'UTC' },
       tokenGetter,
     )
     expect(mockCommit).not.toHaveBeenCalled()
-    expect(screen.getByText(/1 ready to import, 0 with a problem, 0 already in your schedule/i)).toBeInTheDocument()
+    expect(screen.getByText(/1 new entries · ↺ 0 already in your timetable · ⚠ 0 errors/i)).toBeInTheDocument()
   })
 
   it('shows local times and the recurrence that will be stored for each row', async () => {
@@ -128,7 +128,7 @@ describe('TimetableImport', () => {
     expect(within(firstRow).getByText(new Date('2030-09-02T11:00').toLocaleString())).toBeInTheDocument()
     expect(within(firstRow).getByText('Maths tutorial')).toBeInTheDocument()
     expect(within(firstRow).getByText('Weekly until 2030-11-29')).toBeInTheDocument()
-    expect(within(firstRow).getByText('Ready')).toBeInTheDocument()
+    expect(within(firstRow).getByText('✓ New / Ready')).toBeInTheDocument()
   })
 
   it('keeps a bad row beside its own message instead of rejecting the whole file', async () => {
@@ -137,28 +137,28 @@ describe('TimetableImport', () => {
     typeRows()
     fireEvent.click(screen.getByRole('button', { name: /preview import/i }))
 
-    await screen.findByRole('heading', { name: /check before saving/i })
-    expect(screen.getByText(/1 ready to import, 1 with a problem/i)).toBeInTheDocument()
+    await screen.findByRole('heading', { name: /import preview/i })
+    expect(screen.getByText(/1 new entries · ↺ 0 already in your timetable · ⚠ 1 errors/i)).toBeInTheDocument()
     expect(screen.getByText('"2030-13-40" is not a valid date. Use YYYY-MM-DD.')).toBeInTheDocument()
-    expect(screen.getByText('Ready')).toBeInTheDocument()
+    expect(screen.getByText('✓ New / Ready')).toBeInTheDocument()
     // Only the row that parsed can be saved, and the button says how many.
-    expect(screen.getByRole('button', { name: 'Save 1 entry' })).toBeEnabled()
+    expect(screen.getByRole('button', { name: 'Import 1 new entry' })).toBeEnabled()
   })
 
   it('saves exactly what was previewed, then asks the schedule to reload', async () => {
     await renderImport()
     typeRows()
     fireEvent.click(screen.getByRole('button', { name: /preview import/i }))
-    fireEvent.click(await screen.findByRole('button', { name: 'Save 1 entry' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Import 1 new entry' }))
 
     await waitFor(() => expect(onImported).toHaveBeenCalledTimes(1))
     expect(mockCommit).toHaveBeenCalledWith(
       { source: 'CSV', text: csvText, termId: 2, timeZone: 'UTC' },
       tokenGetter,
     )
-    expect(mockCommit.mock.calls[0]).toEqual(mockPreview.mock.calls[0])
+    expect(mockCommit.mock.calls[0][0]).toEqual({ ...mockPreview.mock.calls[0][0], termId: 2 })
     expect(await screen.findByText('Imported 1 schedule entry.')).toBeInTheDocument()
-    expect(screen.queryByRole('heading', { name: /check before saving/i })).not.toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: /import preview/i })).not.toBeInTheDocument()
     expect(screen.getByLabelText(/timetable rows/i)).toHaveValue('')
   })
 
@@ -167,13 +167,13 @@ describe('TimetableImport', () => {
     await renderImport()
     typeRows()
     fireEvent.click(screen.getByRole('button', { name: /preview import/i }))
-    fireEvent.click(await screen.findByRole('button', { name: 'Save 1 entry' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Import 1 new entry' }))
 
     const alert = await screen.findByRole('alert')
     expect(alert).toHaveTextContent(/changed while you were working on it/i)
     expect(onImported).not.toHaveBeenCalled()
     // The preview stays put so the tutor can check it and try again.
-    expect(screen.getByRole('heading', { name: /check before saving/i })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: /import preview/i })).toBeInTheDocument()
   })
 
   it('refuses to save when every row has a problem', async () => {
@@ -182,9 +182,9 @@ describe('TimetableImport', () => {
     typeRows()
     fireEvent.click(screen.getByRole('button', { name: /preview import/i }))
 
-    await screen.findByRole('heading', { name: /check before saving/i })
-    expect(screen.getByRole('button', { name: 'Save 0 entries' })).toBeDisabled()
-    expect(screen.getByText(/nothing can be saved from this file yet/i)).toBeInTheDocument()
+    await screen.findByRole('heading', { name: /import preview/i })
+    expect(screen.getByRole('button', { name: 'Import 0 new entries' })).toBeDisabled()
+    expect(screen.getByText(/fix the rows that need attention/i)).toBeInTheDocument()
   })
 
   it('handles a file with no rows at all', async () => {
@@ -194,7 +194,7 @@ describe('TimetableImport', () => {
     fireEvent.click(screen.getByRole('button', { name: /preview import/i }))
 
     expect(await screen.findByText(/that file had no rows to import/i)).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Save 0 entries' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Import 0 new entries' })).toBeDisabled()
   })
 
   it('shows a file-level problem but keeps the pasted text so it can be fixed', async () => {
@@ -223,11 +223,11 @@ describe('TimetableImport', () => {
     await renderImport()
     typeRows()
     fireEvent.click(screen.getByRole('button', { name: /preview import/i }))
-    await screen.findByRole('heading', { name: /check before saving/i })
+    await screen.findByRole('heading', { name: /import preview/i })
 
     fireEvent.click(screen.getByLabelText(/a calendar \(\.ics\) file/i))
 
-    expect(screen.queryByRole('heading', { name: /check before saving/i })).not.toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: /import preview/i })).not.toBeInTheDocument()
     expect(screen.getByLabelText(/calendar contents/i)).toHaveValue('')
     expect(screen.getByRole('button', { name: /preview import/i })).toBeDisabled()
   })
@@ -242,17 +242,39 @@ describe('TimetableImport', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /retry/i }))
 
-    await waitFor(() => expect(screen.getByLabelText(/academic term/i)).toHaveValue('2'))
+    await waitFor(() => expect(screen.getByLabelText(/academic term/i)).toHaveValue(''))
     expect(screen.queryByRole('heading', { name: /academic terms unavailable/i })).not.toBeInTheDocument()
   })
 
-  it('cannot preview while no term exists to bound the repeat', async () => {
+  it('allows a preview to explain missing published terms', async () => {
     mockListTerms.mockResolvedValue([])
     render(<TimetableImport tokenOrGetter={tokenGetter} onImported={onImported} />)
 
-    expect(await screen.findByRole('option', { name: /no terms available/i })).toBeInTheDocument()
+    expect(await screen.findByRole('option', { name: /no published terms available/i })).toBeInTheDocument()
     typeRows()
 
-    expect(screen.getByRole('button', { name: /preview import/i })).toBeDisabled()
+    expect(screen.getByRole('button', { name: /preview import/i })).toBeEnabled()
   })
+  it('provides a downloadable CSV template and visible column guidance', async () => {
+    await renderImport()
+    expect(screen.getByRole('link', { name: /Download CSV template/i })).toHaveAttribute('href', '/templates/timetable-template.csv')
+    expect(screen.getByRole('link', { name: /Download CSV template/i })).toHaveAttribute('download', 'timetable-template.csv')
+    fireEvent.click(screen.getByText('View example'))
+    expect(screen.getByText(/COMS3010A Lecture - WSS5/)).toBeInTheDocument()
+    expect(screen.getByText(/once \/ weekly \/ fortnightly/)).toBeInTheDocument()
+  })
+  it('shows duplicate rows separately and imports only new entries', async () => {
+    mockPreview.mockResolvedValue(previewPayload({ rows: [readyRow, { ...readyRow, sourceRow: 3, duplicate: true }], validCount: 1, duplicateCount: 1 }))
+    await renderImport(); typeRows()
+    fireEvent.click(screen.getByRole('button', { name: 'Preview import' }))
+    expect(await screen.findByText(/Already in your timetable — skipped/)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Import 1 new entry' })).toBeEnabled()
+  })
+  it('shows the automatically detected Term 4 clearly', async () => {
+    mockPreview.mockResolvedValue(previewPayload({ detectedTerm: true, term: { ...upcomingTerm, termNumber: 4, year: 2030 }, dateRange: { startsOn: '2030-09-02', endsOn: '2030-09-02' } }))
+    await renderImport(); typeRows()
+    fireEvent.click(screen.getByRole('button', { name: 'Preview import' }))
+    expect(await screen.findByText('Automatically detected: Term 4 · 2030 ✓')).toBeInTheDocument()
+  })
+
 })

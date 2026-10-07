@@ -62,7 +62,7 @@ describe('ExcuseForm', () => {
     expect(await screen.findByText(/excuse submitted/i)).toBeInTheDocument()
   })
 
-  it('blocks a session that is no longer future', () => {
+  it('allows a retrospective sick submission', async () => {
     const pastAllocations = [
       {
         id: 2,
@@ -76,10 +76,7 @@ describe('ExcuseForm', () => {
     fireEvent.change(screen.getByLabelText(/^reason$/i), { target: { value: 'Sick' } })
     fireEvent.click(screen.getByRole('button', { name: /submit excuse/i }))
 
-    expect(screen.getByLabelText(/^session$/i)).toHaveAccessibleDescription(
-      /only future sessions can be excused/i,
-    )
-    expect(mockSubmitExcuse).not.toHaveBeenCalled()
+    await waitFor(() => expect(mockSubmitExcuse).toHaveBeenCalledWith({ allocationId: 2, reason: 'Sick' }, tokenGetter))
   })
 
   it('explains when the session was already excused', async () => {
