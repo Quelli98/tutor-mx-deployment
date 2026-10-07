@@ -6293,3 +6293,12 @@ textarea:focus {
     width: 100%;
   }
 }
+
+/* Shared destination shortcuts fit the existing palette on narrow screens. */
+.shortcut-sections { padding: 0 1rem 1rem; max-height: 45vh; overflow-y: auto; }
+.shortcut-sections h3 { font-size: .85rem; margin: .9rem 0 .35rem; }
+.shortcut-row { display: flex; gap: .5rem; margin: .25rem 0; }
+.shortcut-row button { padding: .65rem; border: 1px solid #cbd5e1; border-radius: .45rem; background: white; color: #193549; }
+.shortcut-row button:first-child { flex: 1; text-align: left; }
+.shortcut-row button:focus-visible { outline: 3px solid #087d9d; outline-offset: 2px; }
+.notification-action { display: inline-block; font-weight: 700; text-decoration: underline; }

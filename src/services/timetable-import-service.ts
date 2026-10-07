@@ -95,7 +95,7 @@ interface AcademicTermDelegate {
 interface TimeSlotDelegate {
   findMany(args: {
     where: {
-      tutorId: number;
+      ownerId: number;
       type: "BUSY";
       startsAt: { gte: Date; lte: Date };
     };
@@ -110,7 +110,7 @@ interface TimeSlotDelegate {
   }): Promise<ExistingSlotRow[]>;
   create(args: {
     data: {
-      tutorId: number;
+      ownerId: number;
       type: "BUSY";
       startsAt: Date;
       endsAt: Date;
@@ -212,7 +212,7 @@ async function resolveTutor(
     where: { auth0Id },
     select: { id: true, role: true },
   });
-  if (profile?.role !== "TUTOR") {
+  if (profile?.role !== "TUTOR" && profile?.role !== "STUDENT") {
     throw tutorNotFound();
   }
   return profile;
@@ -259,7 +259,7 @@ function coverageWindow(rows: TimetableImportRow[]): {
  */
 async function markDuplicates(
   client: TimetableImportTransaction,
-  tutorId: number,
+  ownerId: number,
   rows: TimetableImportRow[],
   term: TimetableImportPreview["term"],
 ): Promise<TimetableImportPreview["rows"]> {
@@ -268,7 +268,7 @@ async function markDuplicates(
 
   if (window) {
     const existing = await client.timeSlot.findMany({
-      where: { tutorId, type: "BUSY", startsAt: window },
+      where: { ownerId, type: "BUSY", startsAt: window },
       select: { startsAt: true, endsAt: true, recurrence: true, label: true, category: true, termId: true, recurrenceUntil: true },
     });
     for (const slot of existing) {
@@ -422,7 +422,7 @@ export function createTimetableImportService(
               const slot = row.slot!;
               const created = await transaction.timeSlot.create({
                 data: {
-                  tutorId: tutor.id,
+                  ownerId: tutor.id,
                   type: slot.type,
                   startsAt: new Date(slot.startsAt),
                   endsAt: new Date(slot.endsAt),

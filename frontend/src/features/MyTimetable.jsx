@@ -1,3 +1,4 @@
+import ScheduleEntryPanel from './ScheduleEntryPanel'
 import { attendanceLabel, sickStyle } from '../components/shared/attendance'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useAuth0 } from '@auth0/auth0-react'
@@ -36,8 +37,8 @@ function toAllocationEntries(allocations) {
     }))
 }
 
-export default function MyTimetable() {
-  const { getAccessTokenSilently } = useAuth0()
+export default function MyTimetable({ role = 'TUTOR' }) {
+  const { getAccessTokenSilently, user } = useAuth0()
   const [status, setStatus] = useState('loading')
   const [slots, setSlots] = useState([])
   const [allocations, setAllocations] = useState([])
@@ -51,7 +52,7 @@ export default function MyTimetable() {
     try {
       const [slotResult, dashboard] = await Promise.all([
         listOwnTimeSlots(getAccessTokenSilently),
-        fetchTutorDashboard(getAccessTokenSilently),
+        role === 'TUTOR' ? fetchTutorDashboard(getAccessTokenSilently) : Promise.resolve({ allocations: [] }),
       ])
       if (!isMountedRef.current) return
       setSlots(slotResult)
@@ -67,7 +68,7 @@ export default function MyTimetable() {
         setStatus('error')
       }
     }
-  }, [getAccessTokenSilently])
+  }, [getAccessTokenSilently, role])
 
   useEffect(() => {
     isMountedRef.current = true
@@ -114,10 +115,10 @@ export default function MyTimetable() {
     <main id="main-content" className="dashboard-shell tutor-workspace">
       <header className="dashboard-header">
         <div>
-          <p className="eyebrow">Tutor workspace</p>
+          <p className="eyebrow">{role === 'STUDENT' ? 'Student' : 'Tutor'} workspace</p>
           <h1>My timetable</h1>
           <p className="helper-text">
-            Your classes, tutoring sessions and unavailable times in one view.
+            {role === 'STUDENT' ? 'Your classes and unavailable times in one view.' : 'Your classes, tutoring sessions and unavailable times in one view.'}
           </p>
         </div>
         <div className="button-row">
@@ -137,18 +138,20 @@ export default function MyTimetable() {
         />
       )}
 
-      <section className="role-card" aria-labelledby="timetable-summary-heading">
+      <section className="role-card" aria-label="Timetable summary">
         <div className="timetable-summary">
           <div>
             <strong>{totalSlots}</strong>
             <span>{totalSlots === 1 ? 'schedule entry' : 'schedule entries'}</span>
           </div>
-          <div>
+          {role === 'TUTOR' && <div>
             <strong>{confirmedCount}</strong>
             <span>{confirmedCount === 1 ? 'tutoring session' : 'tutoring sessions'}</span>
-          </div>
+          </div>}
         </div>
       </section>
+
+      {role === 'STUDENT' && <ScheduleEntryPanel role={role} tokenOrGetter={getAccessTokenSilently} storageScope={user?.sub ?? null} onChanged={load} />}
 
       <WeeklySchedule
         slots={combined}

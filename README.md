@@ -188,3 +188,8 @@ The preceding document was generated and reviewed with the assistance of the fol
 See [Member 5 handoff](MEMBER5_HANDOFF.md) for setup and the new migration, and [API audit and evidence](docs/sprint3-member5-completion.md) for S3-M5-1/2/3. The documentation website includes [Member 5 evidence](docs-site/member5-sprint3.html). This is a locally verified source handoff; production integration and deployment remain with the Integration Lead.
 
 The revised archive includes a [follow-up bug audit](docs/sprint3-member5-followup-audit.md) covering payroll exports, timesheet history recovery and import refresh errors.
+
+
+## Sprint 4 Member 1 update - 3 October 2026
+
+Codex assisted with AI code generation, AI in-line editing and AI code review for shared Student/Tutor schedules, session hardening, permission-checked navigation, notifications and recent/favourite destinations. It also generated regression tests and the handoff notes. The final integrator should review the changes and run project CI before merging. See `START-HERE-SPRINT4-MEMBER1.md` and `docs/sprint4-member1-handoff.md`. No live production deployment or stakeholder validation is claimed.

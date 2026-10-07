@@ -91,7 +91,6 @@ describe('TutorForms accessibility', () => {
 
     const expectedControls = [
       screen.getByRole('tab', { name: 'Add manually' }),
-      screen.getByRole('tab', { name: 'Import timetable' }),
       await screen.findByRole('button', { name: /previous week/i }),
       screen.getByRole('button', { name: /^this week$/i }),
       screen.getByRole('button', { name: /next week/i }),
@@ -119,8 +118,9 @@ describe('TutorForms accessibility', () => {
     }
 
     const importTab = screen.getByRole('tab', { name: 'Import timetable' })
-    importTab.focus()
-    await user.keyboard('{Enter}')
+    screen.getByRole('tab', { name: 'Add manually' }).focus()
+    await user.keyboard('{ArrowRight}')
+    expect(importTab).toHaveFocus()
     expect(importTab).toHaveAttribute('aria-selected', 'true')
     for (const control of [
       screen.getByRole('link', { name: /download CSV template/i }),

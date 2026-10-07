@@ -1,3 +1,5 @@
+import { resolveDestination } from '../../api/navigation'
+vi.mock('../../api/navigation', () => ({ resolveDestination: vi.fn() }))
 import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
@@ -66,6 +68,7 @@ function renderBell() {
 
 beforeEach(() => {
   navigateMock.mockReset()
+  resolveDestination.mockResolvedValue({ linkPath: '/organiser/approvals', action: 'Review' })
   fetchUnreadCount.mockResolvedValue(0)
   fetchNotifications.mockResolvedValue(listResult([]))
   markNotificationRead.mockResolvedValue({ id: 1, readAt: 'now' })
@@ -125,7 +128,7 @@ describe('NotificationBell', () => {
     const dialog = await screen.findByRole('dialog')
     await userEvent.click(within(dialog).getByText('Excuse awaiting decision'))
 
-    await waitFor(() => expect(navigateMock).toHaveBeenCalledWith('/organiser'))
+    await waitFor(() => expect(navigateMock).toHaveBeenCalledWith('/organiser/approvals'))
     expect(markNotificationRead).toHaveBeenCalledWith(1, expect.any(Function))
   })
 
@@ -154,4 +157,15 @@ describe('NotificationBell', () => {
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
     expect(bell).toHaveFocus()
   })
+})
+
+it('does not navigate or mark read when a notification target was removed', async () => {
+  resolveDestination.mockRejectedValue(new Error('Unavailable'))
+  fetchNotifications.mockResolvedValue(listResult([makeItem()]))
+  renderBell()
+  await userEvent.click(screen.getByRole('button', { name: /Notifications,/ }))
+  await userEvent.click(await screen.findByText('Excuse awaiting decision'))
+  expect(await screen.findByText(/This item is no longer available/)).toBeInTheDocument()
+  expect(navigateMock).not.toHaveBeenCalled()
+  expect(markNotificationRead).not.toHaveBeenCalled()
 })

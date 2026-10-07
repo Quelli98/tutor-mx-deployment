@@ -6,11 +6,11 @@ import { sessionDay } from './session-attendance.js';
 import { toDateOnly } from './academic-terms.js';
 
 /** Manual and imported entries share TimeSlot, comparison rules and a unique hash. */
-export async function saveManualSchedule(prisma: PrismaClient, tutorId: number, input: TutorTimeSlotWriteInput, id?: number) {
+export async function saveManualSchedule(prisma: PrismaClient, ownerId: number, input: TutorTimeSlotWriteInput, id?: number) {
   for (let attempt = 0; attempt < 3; attempt += 1) {
     try {
       return await prisma.$transaction(async (tx) => {
-        if (id && !await tx.timeSlot.findFirst({ where: { id, tutorId }, select: { id: true } })) {
+        if (id && !await tx.timeSlot.findFirst({ where: { id, ownerId }, select: { id: true } })) {
           throw createRouteError(404, 'TIME_SLOT_NOT_FOUND', 'The requested time slot could not be found.');
         }
         const day = new Date(`${sessionDay(input.startsAt)}T00:00:00Z`);
@@ -22,19 +22,19 @@ export async function saveManualSchedule(prisma: PrismaClient, tutorId: number, 
         const recurring = input.recurrence === 'WEEKLY' || input.recurrence === 'FORTNIGHTLY';
         const recurrenceUntil = recurring ? input.recurrenceUntil ?? (term ? new Date(`${term.endsOn}T23:59:59.999+02:00`) : null) : null;
         const data = {
-          tutorId, type: input.type, startsAt: input.startsAt, endsAt: input.endsAt,
+          ownerId, type: input.type, startsAt: input.startsAt, endsAt: input.endsAt,
           recurrence: recurring ? input.recurrence : null, label: input.label?.trim() || null,
           recurrenceUntil, category: input.category ?? 'UNAVAILABLE', seriesId: input.seriesId ?? null,
           termId: term?.id ?? null,
         };
-        const existing = await tx.timeSlot.findMany({ where: { tutorId, type: input.type, startsAt: input.startsAt } });
+        const existing = await tx.timeSlot.findMany({ where: { ownerId, type: input.type, startsAt: input.startsAt } });
         const equivalent = existing.find((slot) => slot.id !== id && timeSlotDedupeKey(slot, term) === timeSlotDedupeKey(data, term));
         if (equivalent) {
           throw createRouteError(409, 'TIME_SLOT_DUPLICATE', 'Already in your timetable — no duplicate was added.');
         }
-        const write = { ...data, dedupeKey: scheduleFingerprint(tutorId, data, term) };
+        const write = { ...data, dedupeKey: scheduleFingerprint(ownerId, data, term) };
         const include = { term: { select: { teachingBreaks: true } }, exceptions: true } as const;
-        return id ? tx.timeSlot.update({ where: { id, tutorId }, data: write, include }) : tx.timeSlot.create({ data: write, include });
+        return id ? tx.timeSlot.update({ where: { id, ownerId }, data: write, include }) : tx.timeSlot.create({ data: write, include });
       }, { isolationLevel: 'Serializable' });
     } catch (error) {
       const code = typeof error === 'object' && error && 'code' in error ? error.code : null;

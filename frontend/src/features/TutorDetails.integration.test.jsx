@@ -46,7 +46,7 @@ describe('Organiser detail API integration', () => {
     expect(await screen.findByRole('region', { name: 'Schedule for Raquel' })).toBeVisible()
     expect(request).toHaveBeenCalledWith('/api/tutors/7/marks', {}, tokenGetter)
     expect(request).toHaveBeenCalledWith('/api/tutors/7/time-slots', {}, tokenGetter)
-    expect(request.mock.calls.some(([path]) => path === '/api/tutor/time-slots')).toBe(false)
+    expect(request.mock.calls.some(([path]) => path === '/api/me/time-slots')).toBe(false)
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()
     const calendar = screen.getByRole('region', { name: 'Schedule for Raquel' })
     if (!slots.length) expect(within(calendar).getByText('No times added')).toBeVisible()

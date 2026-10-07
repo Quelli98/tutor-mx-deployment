@@ -89,7 +89,7 @@ describe('previewTimetableImport', () => {
 
     expect(preview).toEqual(previewPayload)
     const [url, options] = globalThis.fetch.mock.calls[0]
-    expect(url).toContain('/api/tutor/time-slots/import/preview')
+    expect(url).toContain('/api/me/time-slots/import/preview')
     expect(options.method).toBe('POST')
     expect(JSON.parse(options.body)).toEqual({ source: 'CSV', text: 'date,start,end', timeZone: 'UTC', termId: 1 })
   })
@@ -112,7 +112,7 @@ describe('commitTimetableImport', () => {
     await expect(
       commitTimetableImport({ source: 'ICS', text: 'BEGIN:VEVENT', termId: 2, timeZone: 'UTC' }, token),
     ).resolves.toEqual(commitPayload)
-    expect(globalThis.fetch.mock.calls[0][0]).toContain('/api/tutor/time-slots/import/commit')
+    expect(globalThis.fetch.mock.calls[0][0]).toContain('/api/me/time-slots/import/commit')
   })
 
   it('rejects a result that breaks the contract', async () => {

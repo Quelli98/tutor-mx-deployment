@@ -1,3 +1,4 @@
+import type { NavigationInput, NavigationResult } from './services/navigation-targets.js';
 import { normalizeIdempotencyKey } from "./http/idempotency.js";
 import { createRouteError, sanitizeError } from "./http/errors.js";
 import { boundedInteger, MAX_DATABASE_ID, parsePage } from "./http/validation.js";
@@ -914,6 +915,7 @@ export interface AppDependencies {
   ) => Promise<{ linkPath: string; targetType: string; targetId: number | null } | null>;
   markAllNotificationsRead?: (auth0Id: string) => Promise<{ updated: number }>;
   runDueReminders?: () => Promise<{ generated: number }>;
+  resolveNavigation?: (auth0Id: string, input: NavigationInput) => Promise<NavigationResult>;
   search?: (auth0Id: string, query: ResolvedSearchQuery) => Promise<SearchResponse>;
   workloadReport?: (query: WorkloadReportQuery) => Promise<WorkloadReport>;
   payrollExportCsv?: (
@@ -3742,10 +3744,10 @@ export function createApp(
   );
 
   app.post(
-    "/api/tutor/time-slots",
+    ["/api/tutor/time-slots", "/api/me/time-slots"],
     authenticate,
     resolveProfileRole,
-    requireRole("TUTOR"),
+    (request, response, next) => requireRole(...(request.path.startsWith("/api/tutor/") ? ["TUTOR"] as const : ["TUTOR", "STUDENT"] as const))(request, response, next),
     async (request, response) => {
       const parsed = parseTutorTimeSlotInput(request.body);
       if ("error" in parsed) {
@@ -3772,10 +3774,10 @@ export function createApp(
   );
 
   app.get(
-    "/api/tutor/time-slots",
+    ["/api/tutor/time-slots", "/api/me/time-slots"],
     authenticate,
     resolveProfileRole,
-    requireRole("TUTOR"),
+    (request, response, next) => requireRole(...(request.path.startsWith("/api/tutor/") ? ["TUTOR"] as const : ["TUTOR", "STUDENT"] as const))(request, response, next),
     async (request, response) => {
       try {
         const timeSlots = await dependencies.listOwnTutorTimeSlots(
@@ -3789,10 +3791,10 @@ export function createApp(
   );
 
   app.patch(
-    "/api/tutor/time-slots/:timeSlotId",
+    ["/api/tutor/time-slots/:timeSlotId", "/api/me/time-slots/:timeSlotId"],
     authenticate,
     resolveProfileRole,
-    requireRole("TUTOR"),
+    (request, response, next) => requireRole(...(request.path.startsWith("/api/tutor/") ? ["TUTOR"] as const : ["TUTOR", "STUDENT"] as const))(request, response, next),
     async (request, response) => {
       const timeSlotId = parseNumericId(request.params.timeSlotId, "Time slot");
       const parsed = parseTutorTimeSlotInput(request.body);
@@ -3812,10 +3814,10 @@ export function createApp(
   );
 
   app.delete(
-    "/api/tutor/time-slots/:timeSlotId",
+    ["/api/tutor/time-slots/:timeSlotId", "/api/me/time-slots/:timeSlotId"],
     authenticate,
     resolveProfileRole,
-    requireRole("TUTOR"),
+    (request, response, next) => requireRole(...(request.path.startsWith("/api/tutor/") ? ["TUTOR"] as const : ["TUTOR", "STUDENT"] as const))(request, response, next),
     async (request, response) => {
       const timeSlotId = parseNumericId(request.params.timeSlotId, "Time slot");
       if ("error" in timeSlotId || (request.body !== undefined && !hasOnlyFields(request.body, []))) {
@@ -3981,10 +3983,10 @@ export function createApp(
   );
 
   app.post(
-    "/api/tutor/time-slots/import/preview",
+    ["/api/tutor/time-slots/import/preview", "/api/me/time-slots/import/preview"],
     authenticate,
     resolveProfileRole,
-    requireRole("TUTOR"),
+    (request, response, next) => requireRole(...(request.path.startsWith("/api/tutor/") ? ["TUTOR"] as const : ["TUTOR", "STUDENT"] as const))(request, response, next),
     async (request, response) => {
       const parsed = parseTimetableImportRequest(request.body);
       if ("error" in parsed) {
@@ -4017,10 +4019,10 @@ export function createApp(
   );
 
   app.post(
-    "/api/tutor/time-slots/import/commit",
+    ["/api/tutor/time-slots/import/commit", "/api/me/time-slots/import/commit"],
     authenticate,
     resolveProfileRole,
-    requireRole("TUTOR"),
+    (request, response, next) => requireRole(...(request.path.startsWith("/api/tutor/") ? ["TUTOR"] as const : ["TUTOR", "STUDENT"] as const))(request, response, next),
     async (request, response) => {
       const parsed = parseTimetableImportRequest(request.body);
       if ("error" in parsed) {
@@ -4648,6 +4650,21 @@ export function createApp(
       }
     },
   );
+
+  app.post('/api/navigation/resolve', authenticate, resolveProfileRole, requireTutorMxRole, async (request, response) => {
+    const body = request.body;
+    const validId = (value: unknown) => Number.isSafeInteger(value) && Number(value) > 0;
+    const valid = body && (
+      (hasOnlyFields(body, ['destinationId']) && typeof body.destinationId === 'string' && body.destinationId.length <= 80) ||
+      (hasOnlyFields(body, ['notificationId']) && validId(body.notificationId)) ||
+      (hasOnlyFields(body, ['targetType', 'targetId']) && typeof body.targetType === 'string' && ['course', 'person', 'timesheet', 'excuse', 'allocation', 'volunteer'].includes(body.targetType) && validId(body.targetId))
+    );
+    if (!valid) { response.status(400).json({ error: { code: 'VALIDATION_ERROR', message: 'Choose one valid destination or target.' } }); return; }
+    try {
+      if (!dependencies.resolveNavigation) throw createRouteError(503, 'NAVIGATION_UNAVAILABLE', 'Navigation is temporarily unavailable.');
+      response.status(200).json({ data: await dependencies.resolveNavigation((request as AuthenticatedRequest).auth!.subject, body) });
+    } catch (value) { sendRouteError(response, value); }
+  });
 
   app.get(
     "/api/search",

@@ -220,7 +220,7 @@ model AcademicTerm {
 
 model TimeSlot {
   id               Int          @id @default(autoincrement())
-  tutorId          Int
+  ownerId          Int          @map("tutorId")
   type             TimeSlotType
   startsAt         DateTime
   endsAt           DateTime
@@ -231,12 +231,12 @@ model TimeSlot {
   seriesId         String?      @db.VarChar(36)
   termId           Int?
   dedupeKey        String? @unique @db.VarChar(64)
-  tutor            Profile      @relation(fields: [tutorId], references: [id], onDelete: Cascade)
+  owner            Profile      @relation(fields: [ownerId], references: [id], onDelete: Cascade)
   term             AcademicTerm? @relation(fields: [termId], references: [id], onDelete: SetNull)
   exceptions       OccurrenceException[]
 
-  @@index([tutorId, type, startsAt, endsAt])
-  @@index([tutorId, category, startsAt])
+  @@index([ownerId, type, startsAt, endsAt], map: "TimeSlot_tutorId_type_startsAt_endsAt_idx")
+  @@index([ownerId, category, startsAt], map: "TimeSlot_category_idx")
   @@index([seriesId])
 }
 

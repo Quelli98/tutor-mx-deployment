@@ -107,3 +107,8 @@ Follow-up audit: Codex reviewed API routing and save/refresh handling, corrected
 - Each tutor opens the allocation panel. Remove moved into that panel, in a "This allocation" summary, and still asks for confirmation.
 - It wrote the timetable component and helper tests and updated the dashboard tests.
 - Verified locally with the frontend test suite (722 tests), lint, the production build, the repository security check, and headless-browser screenshots with sample data at 1440px, 1000px and 390px wide. No deployed-environment or live-API check is claimed.
+
+
+## Sprint 4 Member 1 update - 3 October 2026
+
+Codex assisted with AI code generation, AI in-line editing and AI code review for shared Student/Tutor schedules, session hardening, permission-checked navigation, notifications and recent/favourite destinations. It also generated regression tests and the handoff notes. The final integrator should review the changes and run project CI before merging. See `START-HERE-SPRINT4-MEMBER1.md` and `docs/sprint4-member1-handoff.md`. No live production deployment or stakeholder validation is claimed.

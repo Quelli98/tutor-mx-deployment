@@ -65,7 +65,7 @@ function createImportClient(database: PGlite, failAfter = Number.POSITIVE_INFINI
 
   const timeSlot = (executor: PGlite | Transaction) => ({
     async findMany(args: {
-      where: { tutorId: number; type: "BUSY"; startsAt: { gte: Date; lte: Date } | Date };
+      where: { ownerId: number; type: "BUSY"; startsAt: { gte: Date; lte: Date } | Date };
     }) {
       const result = await executor.query<{
         id: number;
@@ -84,7 +84,7 @@ function createImportClient(database: PGlite, failAfter = Number.POSITIVE_INFINI
          WHERE "tutorId" = $1 AND "type" = 'BUSY'
            AND "startsAt" >= $2 AND "startsAt" <= $3`,
         [
-          args.where.tutorId,
+          args.where.ownerId,
           toNaiveUtcText(args.where.startsAt instanceof Date ? args.where.startsAt : args.where.startsAt.gte),
           toNaiveUtcText(args.where.startsAt instanceof Date ? args.where.startsAt : args.where.startsAt.lte),
         ],
@@ -102,7 +102,7 @@ function createImportClient(database: PGlite, failAfter = Number.POSITIVE_INFINI
 
     async create(args: {
       data: {
-        tutorId: number;
+        ownerId: number;
         type: "BUSY";
         startsAt: Date;
         endsAt: Date;
@@ -125,7 +125,7 @@ function createImportClient(database: PGlite, failAfter = Number.POSITIVE_INFINI
            ("tutorId","type","startsAt","endsAt","recurrence","label","recurrenceUntil","category","seriesId","termId","dedupeKey")
          VALUES ($1,'BUSY',$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING "id"`,
         [
-          data.tutorId,
+          data.ownerId,
           toNaiveUtcText(data.startsAt),
           toNaiveUtcText(data.endsAt),
           data.recurrence,
@@ -247,6 +247,20 @@ describe("timetable import service", () => {
 
   beforeEach(async () => {
     await database.query(`DELETE FROM "TimeSlot" WHERE "tutorId" = $1`, [tutorId]);
+  });
+
+  it.each(['CSV', 'ICS'] as const)('imports Student %s with shared recurrence and duplicate rules', async source => {
+    await database.query(`DELETE FROM "TimeSlot" WHERE "tutorId" = (SELECT "id" FROM "Profile" WHERE "auth0Id" = 'demo|student')`);
+    const text = source === 'CSV' ? 'date,start,end,label,repeat\n2030-09-02,09:00,10:00,Student class,fortnightly'
+      : 'BEGIN:VCALENDAR\nVERSION:2.0\nBEGIN:VEVENT\nUID:s4-student\nDTSTART:20300902T090000Z\nDTEND:20300902T100000Z\nRRULE:FREQ=WEEKLY;INTERVAL=2;UNTIL=20301129T235959Z\nSUMMARY:Student class\nEND:VEVENT\nEND:VCALENDAR';
+    const input = request(text, { source });
+    expect((await service().preview('demo|student', input)).validCount).toBe(1);
+    expect((await service().commit('demo|student', input)).created).toBe(1);
+    expect((await service().commit('demo|student', input)).duplicateCount).toBe(1);
+    expect((await database.query<{ recurrence: string }>(`SELECT "recurrence" FROM "TimeSlot" WHERE "tutorId" = (SELECT "id" FROM "Profile" WHERE "auth0Id" = 'demo|student')`)).rows[0]!.recurrence).toBe('FORTNIGHTLY');
+    // An identical entry for another owner is not a duplicate.
+    expect((await service().preview(TUTOR, input)).duplicateCount).toBe(0);
+    await database.query(`DELETE FROM "TimeSlot" WHERE "tutorId" = (SELECT "id" FROM "Profile" WHERE "auth0Id" = 'demo|student')`);
   });
 
   function service(failAfter = Number.POSITIVE_INFINITY) {
@@ -388,9 +402,9 @@ describe("timetable import service", () => {
       expect(preview.rows[1]!.duplicate).toBe(true);
     });
 
-    it("refuses an account with no tutor profile", async () => {
+    it("refuses an organiser account without a personal schedule", async () => {
       await expect(
-        service().preview("demo|student", request("date,start,end\n2030-09-02,09:00,10:00")),
+        service().preview("demo|organiser", request("date,start,end\n2030-09-02,09:00,10:00")),
       ).rejects.toMatchObject({ status: 404, code: "TUTOR_PROFILE_NOT_FOUND" });
     });
 

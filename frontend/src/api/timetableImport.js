@@ -119,7 +119,7 @@ export async function deleteAcademicTerm(id, tokenOrGetter) {
 
 export async function previewTimetableImport(input, tokenOrGetter) {
   const payload = buildImportRequest(input)
-  const body = await fetchWithBearerToken('/api/tutor/time-slots/import/preview', {
+  const body = await fetchWithBearerToken('/api/me/time-slots/import/preview', {
     method: 'POST', body: JSON.stringify(payload),
   }, tokenOrGetter)
   return previewFrom(body)
@@ -128,7 +128,7 @@ export async function previewTimetableImport(input, tokenOrGetter) {
 export async function commitTimetableImport(input, tokenOrGetter) {
   const payload = buildImportRequest(input)
   return withRetryKey('timetable-import', payload, async (key) => {
-    const body = await fetchWithBearerToken('/api/tutor/time-slots/import/commit', {
+    const body = await fetchWithBearerToken('/api/me/time-slots/import/commit', {
       method: 'POST', headers: { 'Idempotency-Key': key }, body: JSON.stringify(payload),
     }, tokenOrGetter)
     return commitFrom(body)

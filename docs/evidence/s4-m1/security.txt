@@ -1,0 +1,6 @@
+npm warn Unknown env config "http-proxy". This will stop working in the next major version of npm.
+
+> tutoring-management-system@1.0.0 security:check
+> node scripts/check-repository.mjs
+
+Tracked-file secret and AI-attribution checks passed.

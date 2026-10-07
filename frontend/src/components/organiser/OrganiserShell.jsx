@@ -189,7 +189,7 @@ export function OrganiserShell({ user, onSignOut, children, isMasterOrganiser = 
             </div>
           )}
           <div className="organiser-tools">
-            <CommandPalette variant="field" />
+            <CommandPalette variant="field" role={'ORGANISER'} />
             <NotificationBell icon={<OrganiserIcon name="bell" size={22} />} />
           </div>
         </header>

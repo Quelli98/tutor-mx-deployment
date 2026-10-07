@@ -1,0 +1,20 @@
+npm warn Unknown env config "http-proxy". This will stop working in the next major version of npm.
+
+> tutoring-management-system@1.0.0 lint
+> npm run lint:backend && npm run lint:frontend
+
+npm warn Unknown env config "http-proxy". This will stop working in the next major version of npm.
+
+> tutoring-management-system@1.0.0 lint:backend
+> eslint "src/**/*.ts"
+
+npm warn Unknown env config "http-proxy". This will stop working in the next major version of npm.
+
+> tutoring-management-system@1.0.0 lint:frontend
+> npm run lint --prefix frontend
+
+npm warn Unknown env config "http-proxy". This will stop working in the next major version of npm.
+
+> tutor-mx-system@0.0.0 lint
+> eslint .
+

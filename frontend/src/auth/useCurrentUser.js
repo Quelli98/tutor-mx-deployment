@@ -1,3 +1,4 @@
+import { SESSION_EVENT, PERMISSION_EVENT, isSessionLocked } from './sessionState'
 import { useEffect, useState } from 'react'
 import { useAuth0 } from '@auth0/auth0-react'
 import { fetchWithBearerToken } from '../api/client'
@@ -37,8 +38,11 @@ export function useCurrentUser({ enabled = true } = {}) {
     }
 
     let ignore = false
+    let revision = 0
+    let locked = false
 
     async function loadUser() {
+      const request = ++revision
       setLoading(true)
       setError('')
       setErrorCode('')
@@ -50,7 +54,7 @@ export function useCurrentUser({ enabled = true } = {}) {
           getAccessTokenSilently,
         )
 
-        if (ignore) return
+        if (ignore || request !== revision) return
 
         const roleSource =
           profile?.profile?.role ||
@@ -64,23 +68,38 @@ export function useCurrentUser({ enabled = true } = {}) {
         setUser(profile)
         setRole(normalizeRole(roleSource))
       } catch (err) {
-        if (!ignore) {
+        if (!ignore && request === revision) {
           setUser(null)
           setRole(null)
           setError(err?.message || 'Unable to load user profile')
           setErrorCode(err?.code || 'REQUEST_FAILED')
         }
       } finally {
-        if (!ignore) {
+        if (!ignore && request === revision) {
           setLoading(false)
         }
       }
     }
 
-    loadUser()
+    function invalidate(event) {
+      locked = true
+      revision += 1
+      setUser(null); setRole(null); setLoading(false)
+      setError(event.detail?.message || 'Your session has expired. Please sign in again.')
+      setErrorCode('SESSION_EXPIRED')
+    }
+    function revalidate() { if (locked) return; setUser(null); setRole(null); loadUser() }
+    window.addEventListener(SESSION_EVENT, invalidate)
+    window.addEventListener(PERMISSION_EVENT, revalidate)
+    window.addEventListener('focus', revalidate)
+    if (isSessionLocked()) invalidate({ detail: {} })
+    else loadUser()
 
     return () => {
       ignore = true
+      window.removeEventListener(SESSION_EVENT, invalidate)
+      window.removeEventListener(PERMISSION_EVENT, revalidate)
+      window.removeEventListener('focus', revalidate)
     }
   }, [isAuthenticated, enabled, getAccessTokenSilently])
 

@@ -104,4 +104,15 @@ describe('AccountSettings', () => {
     expect(mockLogout).not.toHaveBeenCalled()
     expect(screen.getByRole('button', { name: /confirm deletion/i })).toBeEnabled()
   })
+  it('locks the local session after account deletion even when Auth0 logout fails', async () => {
+    mockLogout.mockRejectedValueOnce(new Error('Provider offline'))
+    sessionStorage.removeItem('tutormx.sessionLocked')
+    render(<AccountSettings />)
+    fireEvent.click(screen.getByRole('button', { name: /delete my account/i }))
+    fireEvent.change(screen.getByLabelText(/type delete to confirm/i), { target: { value: 'DELETE' } })
+    fireEvent.click(screen.getByRole('button', { name: /confirm deletion/i }))
+    expect(await screen.findByText(/automatic sign-out failed/i)).toBeInTheDocument()
+    expect(sessionStorage.getItem('tutormx.sessionLocked')).toBe('true')
+  })
+
 })

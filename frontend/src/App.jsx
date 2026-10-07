@@ -1,3 +1,4 @@
+import { invalidateSession } from './auth/sessionState'
 import { useCallback, useEffect, useState } from 'react'
 import { Route, Routes } from 'react-router-dom'
 import { useAuth0 } from '@auth0/auth0-react'
@@ -437,11 +438,13 @@ function App() {
     }
   }
 
-  const handleSignOut = () => {
+  const handleSignOut = async () => {
+    invalidateSession('You have signed out of this workspace.')
     window.sessionStorage.removeItem(PENDING_ROLE_KEY)
     setPendingRole(null)
     clearRequestedSignInRole()
-    logout({ logoutParams: { returnTo: window.location.origin } })
+    try { await logout({ logoutParams: { returnTo: window.location.origin } }) }
+    catch { setStatus({ type: 'error', message: 'Sign-out could not reach the identity provider. Your workspace is locked. Try again.' }) }
   }
 
   if (isLoading) return <LoadingCard message="Checking your session..." />
@@ -466,6 +469,7 @@ function App() {
     )
   }
 
+  if (userErrorCode === 'SESSION_EXPIRED') return <main className="auth-shell"><section className="auth-card" role="alert"><h1>Sign in again</h1><p>{userError}</p>{status.type === 'error' && <p>{status.message}</p>}<button type="button" className="primary-button" onClick={handleSignInAgain}>Sign in again</button><button type="button" className="secondary-button" onClick={handleSignOut}>Sign out</button></section></main>
   if (pendingRole) return <OnboardingCard role={pendingRole} onComplete={() => setPendingRole(null)} onSignOut={handleSignOut} onSignInAgain={handleSignInAgain} />
   if (userLoading) return <LoadingCard message="Loading your workspace..." />
   if (userErrorCode === 'PROFILE_NOT_FOUND') return <ProfileNotFoundGate onChooseRole={rememberPendingRole} onSignOut={handleSignOut} />
@@ -491,7 +495,7 @@ function App() {
 
   return (
     <div className="app-shell">
-      <RoleRouter currentRole={currentRole} onSignOut={handleSignOut} user={currentUser} />
+      <RoleRouter key={`${currentUser?.data?.profile?.id ?? 'user'}-${currentRole}`} currentRole={currentRole} onSignOut={handleSignOut} user={currentUser} />
     </div>
   )
 }

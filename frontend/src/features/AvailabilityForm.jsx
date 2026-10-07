@@ -40,7 +40,7 @@ function validate(form) {
   return errors
 }
 
-export default function AvailabilityForm({ tokenOrGetter, refreshVersion = 0 }) {
+export default function AvailabilityForm({ tokenOrGetter, refreshVersion = 0, showCalendar = true, role = 'TUTOR', onChanged }) {
   const [form, setForm] = useState(EMPTY_FORM)
   const [editingId, setEditingId] = useState(null)
   const [errors, setErrors] = useState({})
@@ -117,6 +117,7 @@ export default function AvailabilityForm({ tokenOrGetter, refreshVersion = 0 }) 
         ? await updateOwnTimeSlot(editingId, payload, tokenOrGetter)
         : await submitTimeSlot(payload, tokenOrGetter)
       setSlots((current) => [...current.filter((item) => item.id !== slot.id), slot])
+      onChanged?.()
       setMessage(editingId ? 'Schedule entry updated.' : 'Schedule entry added.')
       reset()
     } catch (failure) {
@@ -135,6 +136,7 @@ export default function AvailabilityForm({ tokenOrGetter, refreshVersion = 0 }) 
       await deleteOwnTimeSlot(slotToDelete.id, tokenOrGetter)
       setSlots((current) => current.filter((slot) => slot.id !== slotToDelete.id))
       if (editingId === slotToDelete.id) reset()
+      onChanged?.()
       setMessage('Schedule entry deleted.')
     } catch {
       setError('Schedule entry could not be deleted. Try again.')
@@ -155,10 +157,10 @@ export default function AvailabilityForm({ tokenOrGetter, refreshVersion = 0 }) 
       <div>
         <h2 id="own-schedule-heading">Your schedule (classes, study, unavailable)</h2>
         <p className="helper-text" id="schedule-help">
-          Enter the date and time for the first occurrence. Choose how often it repeats. Schedule entries block allocations during those times.
+          Enter the date and time for the first occurrence. Choose how often it repeats. {role === 'STUDENT' ? 'These entries record when you are busy.' : 'Schedule entries block allocations during those times.'}
         </p>
       </div>
-      {loadStatus === 'success' && <WeeklySchedule slots={slots} label="Your weekly schedule" />}
+      {showCalendar && loadStatus === 'success' && <WeeklySchedule slots={slots} label="Your weekly schedule" />}
       <form className="tutor-form schedule-editor" onSubmit={handleSubmit} noValidate aria-describedby="schedule-help">
         <h3>{editingId ? 'Edit schedule entry' : 'Add schedule entry'}</h3>
         <div className="field-group">

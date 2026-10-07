@@ -61,7 +61,7 @@ function requireSlotId(id) {
 }
 
 export async function listOwnTimeSlots(tokenOrGetter) {
-  const body = await fetchWithBearerToken('/api/tutor/time-slots', {}, tokenOrGetter)
+  const body = await fetchWithBearerToken('/api/me/time-slots', {}, tokenOrGetter)
   const slots = body?.data?.timeSlots
   if (!Array.isArray(slots) || !slots.every(isTimeSlotSummary)) {
     throw new Error('The availability response did not match the agreed contract.')
@@ -71,7 +71,7 @@ export async function listOwnTimeSlots(tokenOrGetter) {
 
 export async function submitTimeSlot(input, tokenOrGetter) {
   const payload = slotPayload(input)
-  const body = await fetchWithBearerToken('/api/tutor/time-slots', {
+  const body = await fetchWithBearerToken('/api/me/time-slots', {
     method: 'POST', body: JSON.stringify(payload),
   }, tokenOrGetter)
   return slotFrom(body)
@@ -80,7 +80,7 @@ export async function submitTimeSlot(input, tokenOrGetter) {
 export async function updateOwnTimeSlot(timeSlotId, input, tokenOrGetter) {
   requireSlotId(timeSlotId)
   const payload = slotPayload(input)
-  const body = await fetchWithBearerToken(`/api/tutor/time-slots/${timeSlotId}`, {
+  const body = await fetchWithBearerToken(`/api/me/time-slots/${timeSlotId}`, {
     method: 'PATCH', body: JSON.stringify(payload),
   }, tokenOrGetter)
   return slotFrom(body)
@@ -88,5 +88,5 @@ export async function updateOwnTimeSlot(timeSlotId, input, tokenOrGetter) {
 
 export async function deleteOwnTimeSlot(timeSlotId, tokenOrGetter) {
   requireSlotId(timeSlotId)
-  await fetchWithBearerToken(`/api/tutor/time-slots/${timeSlotId}`, { method: 'DELETE' }, tokenOrGetter)
+  await fetchWithBearerToken(`/api/me/time-slots/${timeSlotId}`, { method: 'DELETE' }, tokenOrGetter)
 }

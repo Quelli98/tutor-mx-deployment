@@ -1,8 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useAuth0 } from '@auth0/auth0-react'
 import { fetchTutorDashboard } from '../api/tutorDashboard'
-import AvailabilityForm from './AvailabilityForm'
-import TimetableImport from './TimetableImport'
+import ScheduleEntryPanel from './ScheduleEntryPanel'
 import WorkLogForm from './WorkLogForm'
 import ExcuseForm from './ExcuseForm'
 
@@ -10,10 +9,6 @@ export default function TutorForms() {
   const { getAccessTokenSilently, user } = useAuth0()
   const [status, setStatus] = useState('loading')
   const [allocations, setAllocations] = useState([])
-  // Bumped when an import lands, so the schedule list above reloads and shows the
-  // newly imported entries alongside the hand-entered ones.
-  const [scheduleVersion, setScheduleVersion] = useState(0)
-  const [activeTab, setActiveTab] = useState('manual')
 
   const loadSessions = useCallback(async () => {
     setStatus('loading')
@@ -76,57 +71,7 @@ export default function TutorForms() {
           <p className="helper-text">Manage your busy schedule, log completed work and submit excuses.</p>
         </div>
       </header>
-      <section className="role-card tutor-form-card" aria-labelledby="add-to-timetable-heading">
-        <div>
-          <h2 id="add-to-timetable-heading">Add to my timetable</h2>
-          <p className="helper-text">
-            Import your classes from a file or add them manually. Both methods update the same calendar and block allocations during those times.
-          </p>
-        </div>
-        <div className="timetable-tabs" role="tablist" aria-label="Timetable entry methods">
-          <button
-            type="button"
-            role="tab"
-            aria-selected={activeTab === 'manual'}
-            aria-controls="tab-panel-manual"
-            id="tab-manual"
-            className={`timetable-tab-button${activeTab === 'manual' ? ' active' : ''}`}
-            onClick={() => setActiveTab('manual')}
-          >
-            Add manually
-          </button>
-          <button
-            type="button"
-            role="tab"
-            aria-selected={activeTab === 'import'}
-            aria-controls="tab-panel-import"
-            id="tab-import"
-            className={`timetable-tab-button${activeTab === 'import' ? ' active' : ''}`}
-            onClick={() => setActiveTab('import')}
-          >
-            Import timetable
-          </button>
-        </div>
-        <div
-          role="tabpanel"
-          id="tab-panel-manual"
-          aria-labelledby="tab-manual"
-          hidden={activeTab !== 'manual'}
-        >
-          <AvailabilityForm refreshVersion={scheduleVersion} tokenOrGetter={getAccessTokenSilently} />
-        </div>
-        <div
-          role="tabpanel"
-          id="tab-panel-import"
-          aria-labelledby="tab-import"
-          hidden={activeTab !== 'import'}
-        >
-          <TimetableImport
-            tokenOrGetter={getAccessTokenSilently}
-            onImported={() => setScheduleVersion((current) => current + 1)}
-          />
-        </div>
-      </section>
+      <ScheduleEntryPanel tokenOrGetter={getAccessTokenSilently} storageScope={storageScope} />
       <div className="tutor-form-grid">
         <WorkLogForm
           key={`work-log-${storageScope ?? 'unknown'}`}

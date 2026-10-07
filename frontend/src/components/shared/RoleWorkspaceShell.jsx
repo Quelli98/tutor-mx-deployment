@@ -14,6 +14,7 @@ const ROLE_CONFIG = {
     photo: tutorPhoto,
     nav: [
       { to: '/tutor', label: 'Tutor workspace', icon: 'house', end: true },
+      { to: '/tutor/timetable', label: 'My timetable', icon: 'calendar' },
       { to: '/tutor/forms', label: 'Tutor forms', icon: 'clipboard-plus' },
     ],
     cardTitle: 'Your tutoring workspace',
@@ -24,6 +25,7 @@ const ROLE_CONFIG = {
     photo: studentPhoto,
     nav: [
       { to: '/student', label: 'Student workspace', icon: 'book-open', end: true },
+      { to: '/student/timetable', label: 'My timetable', icon: 'calendar' },
     ],
     cardTitle: 'Find tutoring work',
     cardText: 'Browse open opportunities, volunteer and keep track of your requests.',
@@ -136,7 +138,7 @@ export function RoleWorkspaceShell({ role, user, onSignOut, children }) {
             <div><p className="organiser-greeting-hello">Welcome back</p><p className="organiser-greeting-name">{name}</p></div>
           </div>
           <div className="organiser-tools">
-            <CommandPalette variant="field" />
+            <CommandPalette variant="field" role={role} />
             <NotificationBell icon={<OrganiserIcon name="bell" size={22} />} />
           </div>
         </header>

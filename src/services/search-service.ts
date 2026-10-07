@@ -71,7 +71,8 @@ const COURSE_SQL_STUDENT = `
 SELECT DISTINCT c."id", c."code", c."name"
 FROM "Course" c
 JOIN "OverflowWork" ow ON ow."courseId" = c."id"
-WHERE c."code" ILIKE $1 OR c."name" ILIKE $1
+WHERE (c."code" ILIKE $1 OR c."name" ILIKE $1)
+  AND ow."status" = 'OPEN' AND (ow."closesAt" IS NULL OR ow."closesAt" > NOW())
 ORDER BY c."code" ASC
 LIMIT $2 OFFSET $3;
 `;
@@ -79,7 +80,7 @@ LIMIT $2 OFFSET $3;
 const PERSON_SQL_ORGANISER = `
 SELECT "id", "fullName", "role"::text AS "role"
 FROM "Profile"
-WHERE "role" IN ('TUTOR', 'STUDENT')
+WHERE "role" = 'TUTOR'
   AND ("fullName" ILIKE $1 OR "email" ILIKE $1)
 ORDER BY "fullName" ASC, "id" ASC
 LIMIT $2 OFFSET $3;

@@ -1,3 +1,4 @@
+import { clearSessionLock } from './auth/sessionState'
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { BrowserRouter } from 'react-router-dom'
@@ -15,6 +16,10 @@ createRoot(document.getElementById('root')).render(
     <Auth0Provider
       domain={domain}
       clientId={clientId}
+      onRedirectCallback={() => {
+        clearSessionLock()
+        window.history.replaceState({}, document.title, window.location.pathname)
+      }}
       cacheLocation="localstorage"
       useRefreshTokens={false}
       authorizationParams={{

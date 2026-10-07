@@ -1,3 +1,4 @@
+import { resolveNavigation } from './services/navigation-targets.js';
 import { saveManualSchedule } from "./services/manual-schedule.js";
 import "dotenv/config";
 import {
@@ -250,9 +251,9 @@ const timeSlotSelect = {
   termId: true, term: { select: { teachingBreaks: true } }, exceptions: true,
 } as const;
 
-async function listTimeSlots(tutorId: number) {
+async function listTimeSlots(ownerId: number, tutorOnly = false) {
   const timeSlots = await prisma.timeSlot.findMany({
-    where: { tutorId },
+    where: { ownerId, ...(tutorOnly ? { owner: { role: "TUTOR" as const } } : {}) },
     orderBy: { startsAt: "asc" },
     select: timeSlotSelect,
   });
@@ -297,6 +298,14 @@ async function findTutorProfileId(auth0Id: string) {
       "TUTOR_PROFILE_NOT_FOUND",
       "No tutor profile is linked to this account.",
     );
+  }
+  return profile.id;
+}
+
+async function findScheduleOwnerId(auth0Id: string) {
+  const profile = await prisma.profile.findUnique({ where: { auth0Id }, select: { id: true, role: true } });
+  if (!profile || !["TUTOR", "STUDENT"].includes(profile.role)) {
+    throw createRouteError(404, "SCHEDULE_OWNER_NOT_FOUND", "No personal timetable is available for this account.");
   }
   return profile.id;
 }
@@ -863,10 +872,10 @@ const app = createApp(
         weekStart,
       );
       const countTimeSlots = (prisma.timeSlot as typeof prisma.timeSlot & {
-        count?: (args: { where: { tutorId: number; recurrence: { not: null } } }) => Promise<number>;
+        count?: (args: { where: { ownerId: number; recurrence: { not: null } } }) => Promise<number>;
       }).count;
       const hasSchedule = countTimeSlots
-        ? (await countTimeSlots.call(prisma.timeSlot, { where: { tutorId: profile.id, recurrence: { not: null } } })) > 0
+        ? (await countTimeSlots.call(prisma.timeSlot, { where: { ownerId: profile.id, recurrence: { not: null } } })) > 0
         : undefined;
 
       // A newly self-onboarded tutor can exist before an organiser has configured
@@ -913,7 +922,7 @@ const app = createApp(
       };
     },
     async createTutorTimeSlot(auth0Id, input) {
-      const tutorId = await findTutorProfileId(auth0Id);
+      const tutorId = await findScheduleOwnerId(auth0Id);
       try {
         const timeSlot = await saveManualSchedule(prisma, tutorId, input);
         return toTimeSlotSummary(timeSlot);
@@ -1300,12 +1309,14 @@ const app = createApp(
         );
       }
     },
-    listTutorTimeSlots: listTimeSlots,
+    // The legacy organiser view is for Tutors only, never Student private schedules.
+    listTutorTimeSlots: (tutorId) => listTimeSlots(tutorId, true),
+    resolveNavigation: (auth0Id, input) => resolveNavigation(queryClient, auth0Id, input),
     async listOwnTutorTimeSlots(auth0Id) {
-      return listTimeSlots(await findTutorProfileId(auth0Id));
+      return listTimeSlots(await findScheduleOwnerId(auth0Id));
     },
     async updateTutorTimeSlot(auth0Id, timeSlotId, input) {
-      const tutorId = await findTutorProfileId(auth0Id);
+      const tutorId = await findScheduleOwnerId(auth0Id);
       try {
         const timeSlot = await saveManualSchedule(prisma, tutorId, input, timeSlotId);
         return toTimeSlotSummary(timeSlot);
@@ -1320,9 +1331,9 @@ const app = createApp(
       }
     },
     async deleteTutorTimeSlot(auth0Id, timeSlotId) {
-      const tutorId = await findTutorProfileId(auth0Id);
+      const tutorId = await findScheduleOwnerId(auth0Id);
       const removed = await prisma.timeSlot.deleteMany({
-        where: { id: timeSlotId, tutorId },
+        where: { id: timeSlotId, ownerId: tutorId },
       });
       if (removed.count === 0) {
         throw createRouteError(404, "TIME_SLOT_NOT_FOUND", "The requested time slot could not be found.");
@@ -1390,7 +1401,7 @@ const app = createApp(
           data: { reviewedById: null },
         });
         await transaction.allocation.deleteMany({ where: { tutorId: profile.id } });
-        await transaction.timeSlot.deleteMany({ where: { tutorId: profile.id } });
+        await transaction.timeSlot.deleteMany({ where: { ownerId: profile.id } });
         await transaction.tutorMark.deleteMany({ where: { tutorId: profile.id } });
         await transaction.tutorHourLimit.deleteMany({ where: { tutorId: profile.id } });
         await transaction.profile.delete({ where: { id: profile.id } });
