@@ -31,3 +31,7 @@ it('does not duplicate a cancellation during an in-flight response',async()=>{
 it('updates a notification detail target without remounting the timetable',async()=>{
  const view=render(<BookingPanel bookingId={1}/>);await screen.findByRole('heading',{name:'COMS — Computing'});mocks.get.mockResolvedValue({...detail,booking:{...booking,id:2,courseCode:'MATH',courseName:'Mathematics'}});view.rerender(<BookingPanel bookingId={2}/>);await screen.findByRole('heading',{name:'MATH — Mathematics'});expect(mocks.get).toHaveBeenLastCalledWith(2,mocks.token)
 })
+
+it('does not claim refresh succeeded when a stale cancellation detail fetch fails',async()=>{
+ await open();mocks.cancel.mockRejectedValueOnce(Object.assign(new Error('Session changed'),{status:409}));mocks.get.mockRejectedValueOnce(new Error('Offline'));fireEvent.click(screen.getByRole('button',{name:'Cancel booking'}));fireEvent.click(screen.getByRole('button',{name:'Confirm cancellation'}));await waitFor(()=>expect(screen.getByRole('alert')).toHaveTextContent('Refresh failed: Offline'));expect(screen.queryByRole('button',{name:'Cancel booking'})).not.toBeInTheDocument();expect(screen.getByRole('alert')).not.toHaveTextContent('Latest booking loaded')
+})

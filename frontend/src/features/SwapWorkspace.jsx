@@ -1,3 +1,4 @@
+import { ConflictNotice } from '../components/shared/ConflictNotice'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useAuth0 } from '@auth0/auth0-react'
 import { listSwaps, getSwap, replacementOptions, createSwap, changeSwap } from '../api/scheduling'
@@ -17,7 +18,7 @@ export default function SwapWorkspace({ role = 'TUTOR', swapId = Number(new URLS
   const [list, setList] = useState(null), [page, setPage] = useState(1), [allocations, setAllocations] = useState([]), [detail, setDetail] = useState(null)
   const [allocationId, setAllocationId] = useState(''), [options, setOptions] = useState(null), [replacementId, setReplacementId] = useState(''), [reason, setReason] = useState(''), [note, setNote] = useState('')
   const [error, setError] = useState(''), [message, setMessage] = useState(''), [pending, setPending] = useState(false), [confirmation, setConfirmation] = useState(null)
-  const busy = useRef(false), sequence = useRef(0), optionSequence = useRef(0)
+  const heading = useRef(null), busy = useRef(false), sequence = useRef(0), optionSequence = useRef(0)
   const refresh = useCallback(async () => {
     const [requests, dashboard] = await Promise.all([listSwaps(page, getAccessTokenSilently), role === 'TUTOR' ? fetchTutorDashboard(getAccessTokenSilently) : Promise.resolve({ allocations: [] })])
     setList(requests); setAllocations(dashboard.allocations.filter(a => a.status === 'CONFIRMED' && new Date(a.startsAt) > new Date()))
@@ -31,7 +32,7 @@ export default function SwapWorkspace({ role = 'TUTOR', swapId = Number(new URLS
   const open = useCallback(async id => {
     const seq = ++sequence.current; setError(''); setConfirmation(null)
     try { const data = await getSwap(id, getAccessTokenSilently); if (seq === sequence.current) { setDetail(data); setNote('') } }
-    catch (err) { if (seq === sequence.current) { setDetail(null); setError(err.message) } }
+    catch (err) { if (seq === sequence.current) { setDetail(null); setError(err.message) }; throw err }
   }, [getAccessTokenSilently])
   useEffect(() => {
     let active = true
@@ -45,7 +46,7 @@ export default function SwapWorkspace({ role = 'TUTOR', swapId = Number(new URLS
     const seq = ++optionSequence.current; setAllocationId(id); setOptions(null); setReplacementId(''); setError('')
     if (!id) return
     try { const data = await replacementOptions(Number(id), getAccessTokenSilently); if (seq === optionSequence.current) setOptions(data) }
-    catch (err) { if (seq === optionSequence.current) setError(err.message) }
+    catch (err) { if (seq === optionSequence.current) setError(err.message); throw err }
   }
   async function act() {
     if (busy.current) return
@@ -60,9 +61,9 @@ export default function SwapWorkspace({ role = 'TUTOR', swapId = Number(new URLS
     } catch (err) {
       setError(err.message)
       if (err.status === 409) {
-        if (detail) await open(detail.swap.id)
+        try { if (detail) await open(detail.swap.id)
         if (allocationId) await chooseAllocation(allocationId)
-        try { await refresh(); setError(`${err.message} Latest state loaded. Review it before retrying.`) } catch (refreshError) { setError(`${err.message} Refresh failed: ${refreshError.message}`) }
+        await refresh(); setError(`${err.message} Latest state loaded. Review it before retrying.`) } catch (refreshError) { setError(`${err.message} Refresh failed: ${refreshError.message}`) }
       }
     } finally { busy.current = false; setPending(false); setConfirmation(null) }
   }
@@ -71,11 +72,11 @@ export default function SwapWorkspace({ role = 'TUTOR', swapId = Number(new URLS
     ? [...(swap.status === 'ACCEPTED' ? ['approve'] : []), ...(['REQUESTED', 'ACCEPTED'].includes(swap.status) ? ['reject'] : [])]
     : [...(swap.requesterId === list?.actorId && ['REQUESTED', 'ACCEPTED'].includes(swap.status) ? ['cancel'] : []), ...(swap.replacementId === list?.actorId && swap.status === 'REQUESTED' ? ['accept', 'decline'] : [])]
   return <main id="main-content" className="dashboard-shell tutor-workspace planning-workspace">
-    <header className="dashboard-header"><div><p className="eyebrow">{role === 'ORGANISER' ? 'Organiser' : 'Tutor'} workspace</p><h1>Tutor swaps</h1><p className="helper-text">The replacement Tutor accepts first. An Organiser makes the final decision before any live assignment changes.</p></div></header>
-    {error && <p role="alert" className="status-message error">{error}</p>}{message && <p role="status" className="status-message">{message}</p>}
+    <header className="dashboard-header"><div><p className="eyebrow">{role === 'ORGANISER' ? 'Organiser' : 'Tutor'} workspace</p><h1 ref={heading} tabIndex={-1}>Tutor swaps</h1><p className="helper-text">The replacement Tutor accepts first. An Organiser makes the final decision before any live assignment changes.</p></div></header>
+    <ConflictNotice message={error}/>{message && <p role="status" className="status-message">{message}</p>}
     {role === 'TUTOR' && <section className="role-card"><h2>Request a replacement</h2><p className="helper-text">Choose a future confirmed session without attendance or payroll history. All dates and times below use South African time.</p>
       <form className="planning-form" onSubmit={e => { e.preventDefault(); setConfirmation('request') }}>
-        <label>Your session<select required value={allocationId} disabled={pending} onChange={e => chooseAllocation(e.target.value)}><option value="">Choose session</option>{allocations.map(a => <option key={a.id} value={a.id}>{a.courseCode} · {when(a.startsAt)}</option>)}</select></label>
+        <label>Your session<select required value={allocationId} disabled={pending} onChange={e => chooseAllocation(e.target.value).catch(() => {})}><option value="">Choose session</option>{allocations.map(a => <option key={a.id} value={a.id}>{a.courseCode} · {when(a.startsAt)}</option>)}</select></label>
         <label>Replacement Tutor<select required value={replacementId} disabled={!options || pending} onChange={e => setReplacementId(e.target.value)}><option value="">Choose eligible Tutor</option>{options?.choices.map(c => <option key={c.tutorId} value={c.tutorId}>{c.fullName}</option>)}</select></label>
         <label>Reason for swap<textarea required maxLength="1000" value={reason} onChange={e => setReason(e.target.value)} /></label>
         <div className="button-row"><button className="primary-button" disabled={!choice || pending}>Request swap</button><button type="button" className="secondary-button" disabled={!allocationId || pending} onClick={() => chooseAllocation(allocationId)}>Refresh eligible Tutors</button></div>
@@ -84,15 +85,15 @@ export default function SwapWorkspace({ role = 'TUTOR', swapId = Number(new URLS
       {choice && <Preview requester="You" replacement={choice.fullName} value={{ ...options.allocation, requesterHoursBefore: options.requesterHoursBefore, requesterHoursAfter: options.requesterHoursAfter, replacementHoursBefore: choice.hoursBefore, replacementHoursAfter: choice.hoursAfter }} />}
     </section>}
     <section className="role-card"><div className="planning-section-heading"><h2>{role === 'ORGANISER' ? 'Swap decisions' : 'Your swap requests and invitations'}</h2><button className="secondary-button" disabled={pending} onClick={() => refresh().catch(err => setError(err.message))}>Refresh swaps</button></div>
-      {!list ? <p role="status">Loading swaps...</p> : <><ul className="scenario-library">{list.items.map(s => <li key={s.id}><div><strong>{s.snapshot.courseCode} · {s.requesterName} → {s.replacementName}</strong><p>{when(s.snapshot.startsAt)} · {s.status}</p></div><button className="secondary-button" disabled={pending} onClick={() => open(s.id)}>Swap details #{s.id}</button></li>)}</ul>{!list.items.length && <p>No swap requests yet.</p>}
+      {!list ? <p role="status">Loading swaps...</p> : <><ul className="scenario-library">{list.items.map(s => <li key={s.id}><div><strong>{s.snapshot.courseCode} · {s.requesterName} → {s.replacementName}</strong><p>{when(s.snapshot.startsAt)} · {s.status}</p></div><button className="secondary-button" disabled={pending} onClick={() => open(s.id).catch(() => {})}>Swap details #{s.id}</button></li>)}</ul>{!list.items.length && <p>No swap requests yet.</p>}
         <div className="button-row"><button className="secondary-button" disabled={page === 1 || pending} onClick={() => setPage(p => p - 1)}>Previous swaps</button><span>Page {page}</span><button className="secondary-button" disabled={!list.hasMore || pending} onClick={() => setPage(p => p + 1)}>More swaps</button></div></>}
     </section>
     {swap && <section className="role-card" aria-label="Swap details"><h2>Swap #{swap.id} · {swap.status}</h2><p>Version {swap.version} · {swap.requesterName} → {swap.replacementName}</p><p>{swap.reason}</p><Preview value={swap.snapshot} requester={swap.requesterName} replacement={swap.replacementName} />
       <p className="helper-text">This is the preview recorded when the request was created. Current hard rules are checked again when accepting and approving.</p>
-      <button className="secondary-button" disabled={pending} onClick={() => open(swap.id)}>Refresh swap details</button>
+      <button className="secondary-button" disabled={pending} onClick={() => open(swap.id).catch(() => {})}>Refresh swap details</button>
       {actions.length > 0 && <><label className="scheduling-note">Decision note (optional)<textarea maxLength="1000" value={note} onChange={e => setNote(e.target.value)} /></label><div className="button-row">{actions.map(action => <button key={action} className={['reject', 'decline', 'cancel'].includes(action) ? 'danger-button' : 'primary-button'} disabled={pending} onClick={() => setConfirmation(action)}>{action[0].toUpperCase() + action.slice(1)} swap</button>)}</div></>}
       <h3>Request history</h3><ol>{detail.history.map(e => <li key={e.id}>{e.action} · {e.actorName} · {when(e.createdAt)}{e.note && <p>{e.note}</p>}</li>)}</ol>
     </section>}
-    <ConfirmationDialog open={Boolean(confirmation)} title={confirmation === 'request' ? 'Send this swap request?' : `${confirmation ? confirmation[0].toUpperCase() + confirmation.slice(1) : 'Review'} this swap?`} confirmLabel="Confirm decision" isPending={pending} onCancel={() => setConfirmation(null)} onConfirm={act}><p>{confirmation === 'approve' ? 'The original allocation will be cancelled and a replacement confirmed together, after checking the latest rules.' : 'This decision is recorded in the request history. Only final Organiser approval changes the live assignment.'}</p></ConfirmationDialog>
+    <ConfirmationDialog returnFocusRef={heading} open={Boolean(confirmation)} title={confirmation === 'request' ? 'Send this swap request?' : `${confirmation ? confirmation[0].toUpperCase() + confirmation.slice(1) : 'Review'} this swap?`} confirmLabel="Confirm decision" isPending={pending} onCancel={() => setConfirmation(null)} onConfirm={act}><p>{confirmation === 'approve' ? 'The original allocation will be cancelled and a replacement confirmed together, after checking the latest rules.' : 'This decision is recorded in the request history. Only final Organiser approval changes the live assignment.'}</p></ConfirmationDialog>
   </main>
 }

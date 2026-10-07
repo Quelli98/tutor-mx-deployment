@@ -26,6 +26,7 @@ export default function WeeklySchedule({
   emptyMessage,
   onWeekChange,
 }) {
+  const [listView, setListView] = useState(false)
   const headingId = useId()
   const [weekStart, setWeekStart] = useState(() => localMonday(initialDate ?? new Date()))
   // A parent may recreate the Date on every render. Only an actual change
@@ -62,6 +63,7 @@ export default function WeeklySchedule({
           <button className="secondary-button" type="button" onClick={() => setWeekStart(addDays(weekStart, 7))}>Next week</button>
         </div>
       </div>
+      <label className="density-toggle"><input type="checkbox" checked={listView} onChange={e => setListView(e.target.checked)}/>Show schedule as a list</label>
       <p className="helper-text">Free space means available.</p>
       {activeLegend.length > 0 && (
         <div className="calendar-legend" role="list" aria-label="Legend">
@@ -76,7 +78,8 @@ export default function WeeklySchedule({
       {slots.length === 0
         ? <p className="empty-inline">{emptyMessage ?? 'No times added'}</p>
         : blocks.length === 0 && <p className="empty-inline">No entries this week.</p>}
-      <div className="calendar-scroll" role="region" aria-labelledby={headingId} tabIndex={0}>
+      {listView && <div aria-label="Schedule list">{days.map(day => <section key={day.date.valueOf()}><h5>{day.date.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'short' })}</h5>{day.blocks.length ? <ul>{day.blocks.map(block => <li key={block.id}><strong>{block.label}</strong> · {localTime(block.startsAt)}–{block.endMinute === 1440 ? '24:00' : localTime(block.endsAt)} · {block.category}{block.attendanceLabel && ` · ${block.attendanceLabel}`}</li>)}</ul> : <p>No entries.</p>}</section>)}</div>}
+      <div hidden={listView} className="calendar-scroll" role="region" aria-labelledby={headingId} tabIndex={0}>
         <div className="calendar-grid" style={{ gridTemplateRows: `auto repeat(${rows}, minmax(${blocks.length ? 12 : 6}px, auto))` }}>
           <span className="calendar-day-heading">Time</span>
           {days.map((day) => <div className="calendar-day-heading" key={day.date.valueOf()}>

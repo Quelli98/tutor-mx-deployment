@@ -1,0 +1,33 @@
+{
+  "method": "WCAG sRGB relative luminance; specified solid colors only, not a rendered whole-app audit",
+  "results": [
+    {
+      "element": "Primary button text",
+      "foreground": "#ffffff",
+      "background": "#17406e",
+      "contrast": 10.53,
+      "normalTextPass": true
+    },
+    {
+      "element": "Sick attendance text",
+      "foreground": "#78350f",
+      "background": "#fef3c7",
+      "contrast": 8.15,
+      "normalTextPass": true
+    },
+    {
+      "element": "Calendar class text",
+      "foreground": "#1e40af",
+      "background": "#dbeafe",
+      "contrast": 7.15,
+      "normalTextPass": true
+    },
+    {
+      "element": "Calendar tutoring text",
+      "foreground": "#166534",
+      "background": "#dcfce7",
+      "contrast": 6.49,
+      "normalTextPass": true
+    }
+  ]
+}

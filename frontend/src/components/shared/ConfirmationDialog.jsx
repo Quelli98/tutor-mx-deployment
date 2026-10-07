@@ -12,6 +12,7 @@ export function ConfirmationDialog({
   onConfirm,
   onCancel,
   isPending = false,
+  returnFocusRef,
 }) {
   const dialogRef = useRef(null)
   const cancelButtonRef = useRef(null)
@@ -24,14 +25,17 @@ export function ConfirmationDialog({
     }
 
     previouslyFocusedRef.current = document.activeElement
+    const returnTarget = returnFocusRef?.current
     cancelButtonRef.current?.focus()
 
     return () => {
-      if (previouslyFocusedRef.current?.isConnected) {
+      if (previouslyFocusedRef.current?.isConnected && !previouslyFocusedRef.current.disabled) {
         previouslyFocusedRef.current.focus()
+      } else if (returnTarget?.isConnected) {
+        returnTarget.focus()
       }
     }
-  }, [open])
+  }, [open, returnFocusRef])
 
   useEffect(() => {
     if (!open) {

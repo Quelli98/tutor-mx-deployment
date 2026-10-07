@@ -94,6 +94,7 @@ describe('TutorForms accessibility', () => {
       await screen.findByRole('button', { name: /previous week/i }),
       screen.getByRole('button', { name: /^this week$/i }),
       screen.getByRole('button', { name: /next week/i }),
+      screen.getByRole('checkbox', { name: 'Show schedule as a list' }),
       document.querySelector('.calendar-scroll'),
       screen.getByLabelText(/^category$/i),
       screen.getByLabelText(/from.*date and time/i),

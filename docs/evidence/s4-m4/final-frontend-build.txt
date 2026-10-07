@@ -1,0 +1,56 @@
+npm warn Unknown env config "http-proxy". This will stop working in the next major version of npm.
+
+> tutoring-management-system@1.0.0 build:frontend
+> npm run build --prefix frontend
+
+npm warn Unknown env config "http-proxy". This will stop working in the next major version of npm.
+
+> tutor-mx-system@0.0.0 build
+> vite build
+
+vite v8.2.1 building client environment for production...
+[2Ktransforming...✓ 146 modules transformed.
+rendering chunks...
+computing gzip size...
+dist/index.html                                  0.94 kB │ gzip:   0.50 kB
+dist/assets/alarm-clock-DYGGRxS7.svg             4.73 kB │ gzip:   1.39 kB
+dist/assets/local-server-Cq35yqdg.svg            5.24 kB │ gzip:   1.53 kB
+dist/assets/calendar-CBq65Scn.svg                5.34 kB │ gzip:   2.03 kB
+dist/assets/check-boxes-CZStYm2X.svg             6.50 kB │ gzip:   2.40 kB
+dist/assets/database-tables-DsIKVa3w.svg        10.37 kB │ gzip:   1.21 kB
+dist/assets/code-review-_BQu2DqR.svg            13.59 kB │ gzip:   2.72 kB
+dist/assets/group-project-dyCAhokf.svg          14.05 kB │ gzip:   4.68 kB
+dist/assets/organiser-elearning-u2v13ywD.webp   14.16 kB
+dist/assets/whiteboard-DfMEh0Kn.webp            17.50 kB
+dist/assets/books-_ZE_Wa9O.webp                 18.48 kB
+dist/assets/tutor-online-Pv2XfnVn.png           18.66 kB
+dist/assets/wallet-BQYtIOkW.svg                 21.28 kB │ gzip:   8.19 kB
+dist/assets/code-ByFfdIA-.webp                  21.71 kB
+dist/assets/terminal-DPIaNmqZ.webp              30.98 kB
+dist/assets/bulk-zlDxYBTf.webp                  33.42 kB
+dist/assets/home-DCAEQ047.webp                  33.94 kB
+dist/assets/approvals-D_UfPfvY.webp             34.39 kB
+dist/assets/settings-9ktWAydY.webp              34.58 kB
+dist/assets/overflow-DSAQPTi9.webp              34.81 kB
+dist/assets/reports-Ba166sdK.webp               35.79 kB
+dist/assets/tutors-M7PZLqHy.webp                37.85 kB
+dist/assets/student-9vObH9Ce.webp               38.69 kB
+dist/assets/staffing-fGjt6yww.webp              39.34 kB
+dist/assets/courses-BulZ2TsR.webp               39.57 kB
+dist/assets/desk-DDaejZb2.webp                  40.36 kB
+dist/assets/notebook-Ce6SxpSi.webp              42.47 kB
+dist/assets/organiser-CXLv5Cw-.webp             42.66 kB
+dist/assets/library-DQByuRwU.webp               74.41 kB
+dist/assets/lecture-9hBGrX-3.webp               75.83 kB
+dist/assets/tutor-BqXSnDiq.webp                120.97 kB
+dist/assets/student-support-C-MYa9IW.webp      167.45 kB
+dist/assets/tutor-cover-BTYDjOfB.png           341.51 kB
+dist/assets/index-BEDSbjf8.css                 123.08 kB │ gzip:  24.20 kB
+dist/assets/index-yUq47_N8.js                  855.72 kB │ gzip: 232.97 kB
+
+[plugin builtin:vite-reporter] 
+(!) Some chunks are larger than 500 kB after minification. Consider:
+- Using dynamic import() to code-split the application
+- Use build.rolldownOptions.output.codeSplitting to improve chunking: https://rolldown.rs/reference/OutputOptions.codeSplitting
+- Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.
+✓ built in 375ms

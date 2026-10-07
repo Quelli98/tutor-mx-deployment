@@ -6331,3 +6331,29 @@ textarea:focus {
 .booking-detail { margin-top: 1.5rem; padding-top: 1rem; border-top: 1px solid #b5c1d0; }
 .scheduling-note { display: grid; gap: .5rem; margin: 1rem 0; font-weight: 600; }
 .scheduling-note textarea { width: 100%; min-height: 5rem; padding: .75rem; font: inherit; border: 1px solid #b5c1d0; border-radius: .5rem; box-sizing: border-box; }
+
+/* Sprint 4: same content/actions in compact mode, including phone widths. */
+[hidden] { display: none !important; }
+.density-toggle { display: inline-flex; align-items: center; gap: .5rem; flex-wrap: wrap; font-size: .9rem; }
+.density-toggle input { width: 1.1rem; height: 1.1rem; }
+.compact-mode .role-card, .compact-mode .approval-card, .compact-mode .work-card { padding: .75rem; }
+.compact-mode .approval-list, .compact-mode .approval-sections, .compact-mode .scenario-library { gap: .5rem; }
+.compact-mode .planning-table th, .compact-mode .planning-table td { padding: .4rem .6rem; }
+.member-main, .organiser-main, .role-card, .approval-card, .planning-workspace, .booking-detail { min-width: 0; }
+.booking-detail, .approval-card, .scenario-library, .confirmation-dialog-body, .weekly-schedule { overflow-wrap: anywhere; }
+.approval-card textarea, .booking-detail textarea { display: block; width: 100%; max-width: 100%; box-sizing: border-box; min-height: 6rem; }
+.confirmation-dialog { max-height: 90dvh; overflow-y: auto; max-width: calc(100vw - 2rem); }
+.status-message:focus, h2:focus, h4:focus { outline: 3px solid #1d4ed8; outline-offset: 3px; }
+.compact-mode button { min-height: 2.5rem; }
+@media (max-width: 640px) {
+ .planning-section-heading, .section-heading-row, .approval-card-header { flex-wrap: wrap; gap: .75rem; }
+ .button-row { flex-wrap: wrap; }
+ .button-row button, .approval-card button { max-width: 100%; white-space: normal; }
+ .organiser-tools { flex-wrap: wrap; }
+ .approval-facts { grid-template-columns: minmax(0, 1fr); }
+}
+/* Match the Organiser action treatment and keep normal text contrast above 4.5:1. */
+.member-shell .primary-button { background: var(--csam-navy); color: #fff; }
+.member-shell .primary-button:hover:not(:disabled) { background: var(--csam-navy-deep); }
+.compact-mode button { min-height: 2.75rem; }
+.density-toggle input:focus-visible { outline: 3px solid #1d4ed8; outline-offset: 3px; }

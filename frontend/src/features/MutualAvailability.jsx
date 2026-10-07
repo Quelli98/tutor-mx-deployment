@@ -1,3 +1,4 @@
+import { ConflictNotice } from '../components/shared/ConflictNotice'
 import { createBooking } from '../api/scheduling'
 import { ConfirmationDialog } from '../components/shared/ConfirmationDialog'
 import { useEffect, useRef, useState } from 'react'
@@ -12,7 +13,7 @@ export default function MutualAvailability() {
   const [form, setForm] = useState({ choice: '', termId: '', startsAt: '', endsAt: '', durationMinutes: '60', dailyStartHour: '8', dailyEndHour: '18' })
   const [retry, setRetry] = useState(0), [limited, setLimited] = useState(false)
   const [selectedSlot, setSelectedSlot] = useState(null), [booking, setBooking] = useState(null), [bookingPending, setBookingPending] = useState(false)
-  const bookingBusy = useRef(false)
+  const bookingBusy = useRef(false), heading = useRef(null)
   const request = useRef(0)
   useEffect(() => {
     let active = true
@@ -46,9 +47,9 @@ export default function MutualAvailability() {
   }
   const when = value => new Date(value).toLocaleString('en-ZA', { timeZone: 'Africa/Johannesburg', dateStyle: 'medium', timeStyle: 'short' })
   return <main id="main-content" className="dashboard-shell tutor-workspace">
-    <header className="dashboard-header"><div><p className="eyebrow">Student workspace</p><h1>Find a tutoring time</h1><p className="helper-text">Choose a course and tutor to see when you are both free. Your private timetable descriptions stay private.</p></div></header>
+    <header className="dashboard-header"><div><p className="eyebrow">Student workspace</p><h1 ref={heading} tabIndex={-1}>Find a tutoring time</h1><p className="helper-text">Choose a course and tutor to see when you are both free. Your private timetable descriptions stay private.</p></div></header>
     {booking && <p role="status" className="status-message">{booking.status === 'CONFIRMED' ? 'Booking confirmed.' : `Booking status: ${booking.status}.`} <a href={`/student/timetable?booking=${booking.id}`}>View booking and timetable</a></p>}
-    {error && <div className="status-message error" role="alert">{error} {state === 'error' && <button className="secondary-button" onClick={() => setRetry(x => x + 1)}>Retry</button>}</div>}
+    <ConflictNotice message={error}/>{error && state === 'error' && <button className="secondary-button" onClick={() => setRetry(x => x + 1)}>Retry</button>}
     {state === 'loading' ? <p role="status">Loading tutors and academic terms...</p> : <section className="role-card">
       <h2>Search availability</h2>
       <p className="helper-text">All times below are South African time (Africa/Johannesburg). Search up to 14 days within the next 180 days. These times are suggestions and are not reserved.</p>
@@ -70,7 +71,7 @@ export default function MutualAvailability() {
       {result.truncated && <p>Showing the first 80 times. Narrow the search or move the start date to see later options.</p>}
       {result.slots.length > 0 && <div className="planning-table-scroll" tabIndex="0" role="region" aria-label="Available session times"><table className="planning-table"><thead><tr><th>Starts</th><th>Ends</th><th>Duration</th><th>Book</th></tr></thead><tbody>{result.slots.map(slot => <tr key={slot.startsAt}><td>{when(slot.startsAt)}</td><td>{when(slot.endsAt)}</td><td>{result.durationMinutes} minutes</td><td><button className="primary-button" disabled={bookingPending} onClick={() => setSelectedSlot(slot)}>Book this time</button></td></tr>)}</tbody></table></div>}
     </section>}
-    <ConfirmationDialog open={Boolean(selectedSlot)} title="Confirm this tutoring booking?" confirmLabel="Confirm booking" isPending={bookingPending} onCancel={() => setSelectedSlot(null)} onConfirm={book}>
+    <ConfirmationDialog returnFocusRef={heading} open={Boolean(selectedSlot)} title="Confirm this tutoring booking?" confirmLabel="Confirm booking" isPending={bookingPending} onCancel={() => setSelectedSlot(null)} onConfirm={book}>
       {selectedSlot && <p>{choices.find(x => `${x.courseId}:${x.tutorId}` === form.choice)?.courseCode} with {choices.find(x => `${x.courseId}:${x.tutorId}` === form.choice)?.tutorName}: {when(selectedSlot.startsAt)} to {when(selectedSlot.endsAt)}. Availability is checked again when you confirm.</p>}
     </ConfirmationDialog>
   </main>
