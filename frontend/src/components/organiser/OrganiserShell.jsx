@@ -10,6 +10,7 @@ import bulkAllocationArt from '../../assets/organiser/group-project.svg'
 
 const NAV_ITEMS = [
   { to: '/organiser', label: 'Home', icon: 'house' },
+  { to: '/organiser/scenarios', label: 'Scenario planning', icon: 'clipboard-plus' },
   { to: '/organiser/command-centre', label: 'Command centre', icon: 'gauge' },
   { to: '/organiser/courses', label: 'Courses', icon: 'book-open' },
   { to: '/organiser/tutors', label: 'Tutors', icon: 'users' },

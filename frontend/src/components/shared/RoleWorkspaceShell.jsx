@@ -26,6 +26,7 @@ const ROLE_CONFIG = {
     nav: [
       { to: '/student', label: 'Student workspace', icon: 'book-open', end: true },
       { to: '/student/timetable', label: 'My timetable', icon: 'calendar' },
+      { to: '/student/availability', label: 'Find a tutoring time', icon: 'calendar' },
     ],
     cardTitle: 'Find tutoring work',
     cardText: 'Browse open opportunities, volunteer and keep track of your requests.',

@@ -25,7 +25,7 @@ export interface ClashDetail {
   label: string | null;
   startsAt: string;
   endsAt: string;
-  recurrence: "WEEKLY" | "ONCE" | null;
+  recurrence: "WEEKLY" | "FORTNIGHTLY" | "ONCE" | null;
 }
 
 interface CandidateRow {

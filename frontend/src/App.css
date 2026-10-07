@@ -6302,3 +6302,28 @@ textarea:focus {
 .shortcut-row button:first-child { flex: 1; text-align: left; }
 .shortcut-row button:focus-visible { outline: 3px solid #087d9d; outline-offset: 2px; }
 .notification-action { display: inline-block; font-weight: 700; text-decoration: underline; }
+
+/* Sprint 4 planning shares the existing workspace cards, buttons and navy shell. */
+.planning-workspace { min-width: 0; }
+.planning-form { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 230px), 1fr)); gap: 1rem; align-items: end; margin: 1.1rem 0; }
+.planning-form label { display: flex; flex-direction: column; gap: .45rem; font-weight: 600; min-width: 0; }
+.planning-form input, .planning-form select, .planning-form textarea, .planning-section-heading select { width: 100%; min-width: 0; padding: .75rem; color: #142b49; border: 1px solid #b5c1d0; background: #fff; border-radius: .5rem; font: inherit; box-sizing: border-box; }
+.planning-form textarea { min-height: 5rem; resize: vertical; }
+.planning-form .button-row { flex-wrap: wrap; }
+.planning-section-heading { display: flex; justify-content: space-between; align-items: center; gap: 1rem; flex-wrap: wrap; }
+.planning-section-heading label { display: flex; gap: .5rem; align-items: center; }
+.scenario-library, .scenario-assignments { list-style: none; padding: 0; margin: 1rem 0; }
+.scenario-library li, .scenario-assignments li { display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: 1rem 0; border-bottom: 1px solid #dce3ec; overflow-wrap: anywhere; }
+.scenario-library li span { color: #4c5d73; font-size: .88rem; }
+.scenario-assignments li p { margin: .4rem 0; }
+.scenario-assignments .button-row { flex-wrap: wrap; }
+.planning-table-scroll { max-width: 100%; overflow: auto; margin: 1rem 0; border: 1px solid #dce3ec; border-radius: .65rem; }
+.planning-table { width: 100%; min-width: 560px; border-collapse: collapse; font-size: .92rem; }
+.planning-table th, .planning-table td { padding: .85rem 1rem; text-align: left; vertical-align: top; border-bottom: 1px solid #dce3ec; overflow-wrap: anywhere; }
+.planning-table thead { background: #edf3f8; color: #18344e; }
+.planning-table tbody tr:last-child th, .planning-table tbody tr:last-child td { border-bottom: 0; }
+@media (max-width: 700px) {
+  .scenario-library li, .scenario-assignments li { align-items: stretch; flex-direction: column; }
+  .planning-section-heading label { width: 100%; }
+  .planning-workspace .button-row { flex-wrap: wrap; }
+}

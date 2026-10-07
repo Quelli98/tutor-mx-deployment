@@ -104,6 +104,10 @@ enum StaffingRequirementStatus {
 }
 
 model Profile {
+  createdScenarios Scenario[] @relation("ScenarioCreator")
+  editedScenarios Scenario[] @relation("ScenarioEditor")
+  scenarioItems ScenarioItem[]
+  scenarioPresence ScenarioPresence[]
   apiWriteReceipts ApiWriteReceipt[]
   id                  Int              @id @default(autoincrement())
   auth0Id             String           @unique
@@ -170,6 +174,7 @@ model Notification {
 }
 
 model Course {
+  scenarioItems ScenarioItem[]
   id           Int            @id @default(autoincrement())
   code         String         @unique
   name         String
@@ -493,4 +498,54 @@ model ApiWriteReceipt {
   profile     Profile  @relation(fields: [profileId], references: [id], onDelete: Cascade)
 
   @@id([profileId, key])
+}
+
+/// A bounded, versioned planning context. Publishing is handled transactionally.
+model Scenario {
+  id Int @id @default(autoincrement())
+  name String @db.VarChar(120)
+  notes String @default("") @db.VarChar(2000)
+  startsAt DateTime
+  endsAt DateTime
+  status String @default("DRAFT") @db.VarChar(16)
+  version Int @default(1)
+  baseLiveRevision String @db.VarChar(64)
+  createdById Int?
+  updatedById Int?
+  createdBy Profile? @relation("ScenarioCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  updatedBy Profile? @relation("ScenarioEditor", fields: [updatedById], references: [id], onDelete: SetNull)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @default(now())
+  items ScenarioItem[]
+  presence ScenarioPresence[]
+  @@index([status, updatedAt])
+}
+
+model ScenarioItem {
+  id Int @id @default(autoincrement())
+  scenarioId Int
+  sourceAllocationId Int?
+  tutorId Int
+  courseId Int
+  startsAt DateTime
+  endsAt DateTime
+  allocatedHours Decimal @db.Decimal(5,2)
+  minimumMark Decimal @default(50) @db.Decimal(5,2)
+  locked Boolean @default(false)
+  scenario Scenario @relation(fields: [scenarioId], references: [id], onDelete: Cascade)
+  tutor Profile @relation(fields: [tutorId], references: [id], onDelete: Restrict)
+  course Course @relation(fields: [courseId], references: [id], onDelete: Restrict)
+  @@unique([scenarioId, sourceAllocationId])
+  @@index([scenarioId])
+}
+
+/// Presence is a TTL activity hint, never an authorization or editing lock.
+model ScenarioPresence {
+  scenarioId Int
+  profileId Int
+  lastSeenAt DateTime @default(now())
+  scenario Scenario @relation(fields: [scenarioId], references: [id], onDelete: Cascade)
+  profile Profile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  @@id([scenarioId, profileId])
+  @@index([lastSeenAt])
 }

@@ -6,6 +6,8 @@ export interface NavigationInput { destinationId?: string; targetType?: string; 
 export interface NavigationResult { linkPath: string; action: 'View' | 'Fix' | 'Review' }
 export const DESTINATIONS: Record<string, { path: string; roles: TutorRole[] }> = {
   'student-home': { path: '/student', roles: ['STUDENT'] },
+  'student-availability': { path: '/student/availability', roles: ['STUDENT'] },
+  'organiser-scenarios': { path: '/organiser/scenarios', roles: ['ORGANISER'] },
   'student-timetable': { path: '/student/timetable', roles: ['STUDENT'] },
   'tutor-home': { path: '/tutor', roles: ['TUTOR'] },
   'tutor-timetable': { path: '/tutor/timetable', roles: ['TUTOR'] },

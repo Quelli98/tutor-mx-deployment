@@ -85,7 +85,7 @@ function isClashDetail(value) {
     (value.label === null || typeof value.label === 'string') &&
     typeof value.startsAt === 'string' &&
     typeof value.endsAt === 'string' &&
-    (value.recurrence == null || ['WEEKLY', 'ONCE'].includes(value.recurrence))
+    (value.recurrence == null || ['WEEKLY', 'FORTNIGHTLY', 'ONCE'].includes(value.recurrence))
   )
 }
 

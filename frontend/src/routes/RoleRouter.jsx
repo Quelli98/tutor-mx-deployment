@@ -1,3 +1,5 @@
+import ScenarioPlanning from '../features/ScenarioPlanning'
+import MutualAvailability from '../features/MutualAvailability'
 import TargetGate from '../features/TargetGate'
 import { NavLink, Navigate, Route, Routes } from 'react-router-dom'
 import { ProtectedRoute } from '../auth/ProtectedRoute'
@@ -182,6 +184,8 @@ export function RoleRouter({ currentRole, onSignOut, user = null }) {
         path="/tutor/timetable"
         element={protect(currentRole, ['TUTOR'], <MyTimetable />)}
       />
+      <Route path="/organiser/scenarios" element={protect(currentRole, ['ORGANISER'], <ScenarioPlanning />)} />
+      <Route path="/student/availability" element={protect(currentRole, ['STUDENT'], <MutualAvailability />)} />
       <Route path="/student/timetable" element={protect(currentRole, ['STUDENT'], <MyTimetable role="STUDENT" />)} />
       <Route
         path="/student"
