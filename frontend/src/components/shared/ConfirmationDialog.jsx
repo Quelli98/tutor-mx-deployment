@@ -29,6 +29,12 @@ export function ConfirmationDialog({
     cancelButtonRef.current?.focus()
 
     return () => {
+      // Only rescue focus when the browser dropped it (the focused element was
+      // removed). If an async action already moved focus elsewhere - e.g. a
+      // conflict notice - that target wins over the stale opener.
+      if (document.activeElement !== document.body) {
+        return
+      }
       if (previouslyFocusedRef.current?.isConnected && !previouslyFocusedRef.current.disabled) {
         previouslyFocusedRef.current.focus()
       } else if (returnTarget?.isConnected) {

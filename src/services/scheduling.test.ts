@@ -18,6 +18,7 @@ const live=async()=> (await db.query('SELECT * FROM "Allocation" ORDER BY "id"')
 beforeAll(async()=>{
  db=new PGlite({parsers:{1114:value=>new Date(value.replace(' ','T')+'Z')}});const dir=new URL('../../prisma/migrations/',import.meta.url);
  for(const name of (await readdir(dir)).sort())if(name!=='migration_lock.toml')await db.exec(await readFile(new URL(name+'/migration.sql',dir),'utf8'));
+ await db.exec(`SET TIME ZONE 'UTC'`);
  const adapter=(q:Pick<PGlite,'query'>):QueryClient=>({async query<Row>(sql:string,params:unknown[]=[]){return {rows:(await q.query(sql,params)).rows as Row[]};}});
  store={...adapter(db),transaction:work=>db.transaction(tx=>work(adapter(tx)))};bookings=createBookingService(store,()=>now);swaps=createSwapService(store,()=>now);
 });
