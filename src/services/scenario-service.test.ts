@@ -87,6 +87,7 @@ describe('atomic scenario publishing',()=>{
   await edit(id,3,{action:'publish',liveRevision:comparison.liveRevision});
   const allocations=await db.query<{status:string}>('SELECT "status" FROM "Allocation" ORDER BY "id"');expect(allocations.rows.map(x=>x.status)).toEqual(['CANCELLED','CONFIRMED','CONFIRMED']);
   expect((await db.query('SELECT * FROM "Notification"')).rows).toHaveLength(3);
+  const audit=(await db.query<{action:string;actorId:number}>('SELECT * FROM "AuditEvent" ORDER BY "id"')).rows;expect(audit.some(e=>e.action==='SCENARIO_PUBLISH'&&e.actorId===1)).toBe(true);expect(audit.filter(e=>e.action==='ALLOCATION_SCENARIO_CREATED')).toHaveLength(2);
   expect((await service.get(org,id)).scenario.status).toBe('PUBLISHED');expect(await service.list(org,'PUBLISHED')).toHaveLength(1);
   await expect(edit(id,4,{action:'archive'})).rejects.toMatchObject({code:'SCENARIO_READ_ONLY'});
  });
@@ -98,8 +99,9 @@ describe('atomic scenario publishing',()=>{
   expect((await service.compare(org,id)).liveChanged).toBe(true);
   await edit(id,1,{action:'save-item',item:item(4)});
   await edit(id,2,{action:'save-item',item:{...item(5),startsAt:'2030-09-02T13:00:00Z',endsAt:'2030-09-02T14:00:00Z'}});
-  const before=await rows(),ready=await service.compare(org,id);
+  const before=await rows(),auditBefore=(await db.query('SELECT * FROM "AuditEvent" ORDER BY "id"')).rows,ready=await service.compare(org,id);
   await expect(edit(id,3,{action:'publish',liveRevision:ready.liveRevision})).rejects.toMatchObject({code:'SCENARIO_RULE_FAILED'});
+  expect((await db.query('SELECT * FROM "AuditEvent" ORDER BY "id"')).rows).toEqual(auditBefore);
   expect(await rows()).toEqual(before);expect((await db.query('SELECT * FROM "Notification"')).rows).toHaveLength(0);expect((await service.get(org,id)).scenario.version).toBe(3);
  });
  it.each(['clash','capacity'])('rechecks %s changes after draft creation',async mode=>{

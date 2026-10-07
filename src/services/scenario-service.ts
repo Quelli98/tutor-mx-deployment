@@ -1,3 +1,4 @@
+import {auditAllocation,writeAudit} from './audit-service.js';
 import { createHash } from 'node:crypto';
 import { findAllocationCandidates, toNaiveUtcText, type QueryClient } from './allocation-queries.js';
 import { requiredHoursFor } from './staffing-requirement-service.js';
@@ -8,7 +9,7 @@ import { createRouteError } from '../http/errors.js';
 interface ScenarioRow { id: number; name: string; notes: string; startsAt: Date; endsAt: Date; status: string; version: number; baseLiveRevision: string; updatedAt: Date; updatedByName: string | null }
 export interface PlanItem { id: number; sourceAllocationId: number | null; tutorId: number; tutorName: string; courseId: number; courseCode: string; startsAt: Date; endsAt: Date; allocatedHours: number; minimumMark: number; locked: boolean; updatedAt?: Date; protected?: boolean; excused?: boolean }
 const normaliseItem = (x: PlanItem): PlanItem => ({ ...x, startsAt: new Date(x.startsAt), endsAt: new Date(x.endsAt), allocatedHours: Number(x.allocatedHours), minimumMark: Number(x.minimumMark) });
-const signature = (x: PlanItem) => JSON.stringify([x.tutorId,x.courseId,new Date(x.startsAt).toISOString(),new Date(x.endsAt).toISOString(),Number(x.allocatedHours)]);
+const signature = (x: PlanItem) => JSON.stringify([x.tutorId,x.courseId,new Date(x.startsAt).toISOString(),new Date(x.endsAt).toISOString(),Number(x.allocatedHours),Number(x.minimumMark)]);
 const revision = (items: PlanItem[]) => createHash('sha256').update(JSON.stringify(items.map(x => [x.id,signature(x),x.updatedAt,x.protected,x.excused]))).digest('hex');
 const notFound = () => createRouteError(404, 'SCENARIO_NOT_FOUND', 'This scenario or assignment is no longer available.');
 const conflict = () => createRouteError(409, 'SCENARIO_STALE', 'Someone changed this scenario. Refresh, compare your changes, then retry.');
@@ -28,7 +29,7 @@ async function readItems(client: QueryClient, id: number) {
   return rows.map(normaliseItem);
 }
 async function liveItems(client: QueryClient, scenario: Pick<ScenarioRow,'startsAt'|'endsAt'>) {
-  const { rows } = await client.query<PlanItem>(`SELECT a.*,a."id" AS "sourceAllocationId",50 AS "minimumMark",false AS "locked",p."fullName" AS "tutorName",c."code" AS "courseCode",
+  const { rows } = await client.query<PlanItem>(`SELECT a.*,a."id" AS "sourceAllocationId",false AS "locked",p."fullName" AS "tutorName",c."code" AS "courseCode",
     (EXISTS(SELECT 1 FROM "WorkLog" w WHERE w."allocationId"=a."id") OR EXISTS(SELECT 1 FROM "Excuse" e WHERE e."allocationId"=a."id") OR EXISTS(SELECT 1 FROM "OverflowWork" o WHERE o."sourceAllocationId"=a."id")) AS protected,
     EXISTS(SELECT 1 FROM "Excuse" e WHERE e."allocationId"=a."id" AND e."status"='APPROVED' AND e."occurrenceStatus"='EXCUSED') AS excused
     FROM "Allocation" a JOIN "Profile" p ON p."id"=a."tutorId" JOIN "Course" c ON c."id"=a."courseId"
@@ -85,7 +86,9 @@ async function publish(client: QueryClient, scenario: ScenarioRow, subjectId: nu
   if (replaced.some(x=>x.protected || x.startsAt<=now) || diff.added.some(x=>x.startsAt<=now) || diff.changed.some(x=>x.after.startsAt<=now)) throw createRouteError(409,'ALLOCATION_HISTORY_PROTECTED','Past assignments and assignments with work logs, excuses or overflow history cannot be changed by a scenario.');
   // Cancel old identities, never delete payroll/attendance history. A later failure rolls all of this back.
   for (const item of replaced) {
+    const before=(await client.query('SELECT *,"allocatedHours"::float8 AS "allocatedHours" FROM "Allocation" WHERE "id"=$1',[item.id])).rows[0];
     await client.query(`UPDATE "Allocation" SET "status"='CANCELLED',"updatedAt"=CURRENT_TIMESTAMP,"reviewedById"=$2,"reviewedAt"=CURRENT_TIMESTAMP WHERE "id"=$1`,[item.id,subjectId]);
+    await auditAllocation(client,subjectId,item.id,before,'ALLOCATION_SCENARIO_CANCELLED');
     await notifyAllocation(client,item,item.id,scenario,true);
   }
   for (const item of draft) {
@@ -96,13 +99,15 @@ async function publish(client: QueryClient, scenario: ScenarioRow, subjectId: nu
     if (!candidate?.isEligible) throw createRouteError(409,'SCENARIO_RULE_FAILED',`${item.tutorName} cannot be published for ${item.courseCode}: ${candidate?.reasonCodes.join(', ') || 'tutor/course eligibility changed'}. Refresh and adjust the draft.`);
     if ((await readBookingBusy(client,[item.tutorId],item)).length) throw createRouteError(409,'SCENARIO_RULE_FAILED','A tutoring booking now overlaps a draft assignment. Refresh and adjust the draft.');
     if (unchanged) continue;
-    const {rows}=await client.query<{id:number}>(`INSERT INTO "Allocation" ("tutorId","courseId","startsAt","endsAt","allocatedHours","status","updatedAt") VALUES ($1,$2,$3::timestamp,$4::timestamp,$5,'PROPOSED',CURRENT_TIMESTAMP) RETURNING "id"`,[item.tutorId,item.courseId,toNaiveUtcText(item.startsAt),toNaiveUtcText(item.endsAt),item.allocatedHours]);
+    const {rows}=await client.query<{id:number}>(`INSERT INTO "Allocation" ("tutorId","courseId","startsAt","endsAt","allocatedHours","status","updatedAt","minimumMark") VALUES ($1,$2,$3::timestamp,$4::timestamp,$5,'PROPOSED',CURRENT_TIMESTAMP,$6) RETURNING "id"`,[item.tutorId,item.courseId,toNaiveUtcText(item.startsAt),toNaiveUtcText(item.endsAt),item.allocatedHours,item.minimumMark]);
     await client.query(`UPDATE "Allocation" SET "status"='CONFIRMED',"reviewedById"=$2,"reviewedAt"=CURRENT_TIMESTAMP,"updatedAt"=CURRENT_TIMESTAMP WHERE "id"=$1`,[rows[0]!.id,subjectId]);
+    await auditAllocation(client,subjectId,rows[0]!.id,{},'ALLOCATION_SCENARIO_CREATED','',item.minimumMark);
     await notifyAllocation(client,item,rows[0]!.id,scenario,false);
   }
   await client.query(`UPDATE "Scenario" SET "status"='PUBLISHED' WHERE "id"=$1`,[scenario.id]);
 }
 export function createScenarioService(store: PlanningStore, clock=()=>new Date()) {
+  const audit=async(client:QueryClient,actorId:number,id:number,before:unknown,action:string)=>writeAudit(client,actorId,action,'scenario',id,before,{...await readScenario(client,id),items:await readItems(client,id)});
   const detail=async(client:QueryClient,id:number)=>({scenario:await readScenario(client,id),items:await readItems(client,id)});
   return {
     async list(subject:string, status:string='DRAFT') {
@@ -119,7 +124,7 @@ export function createScenarioService(store: PlanningStore, clock=()=>new Date()
         const owner=await requireProfile(client,subject,'ORGANISER');await capacity(client);
         const live=await liveItems(client,{startsAt,endsAt});
         const {rows}=await client.query<{id:number}>(`INSERT INTO "Scenario" ("name","notes","startsAt","endsAt","baseLiveRevision","createdById","updatedById") VALUES ($1,$2,$3::timestamp,$4::timestamp,$5,$6,$6) RETURNING "id"`,[name,notes,toNaiveUtcText(startsAt),toNaiveUtcText(endsAt),revision(live),owner.id]);
-        await copyItems(client,rows[0]!.id,live);return detail(client,rows[0]!.id);
+        await copyItems(client,rows[0]!.id,live);await audit(client,owner.id,rows[0]!.id,{},'SCENARIO_CREATED');return detail(client,rows[0]!.id);
       });
     },
     async get(subject:string,id:number) { return inPlanningTransaction(store,async client=>{await requireProfile(client,subject,'ORGANISER');return detail(client,positiveId(id));}); },
@@ -141,14 +146,15 @@ export function createScenarioService(store: PlanningStore, clock=()=>new Date()
       return inPlanningTransaction(store,async client=>{
         const owner=await requireProfile(client,subject,'ORGANISER');
         const scenario=await readScenario(client,positiveId(id),true);
+        const before={...scenario,items:await readItems(client,id)};
         if (scenario.version!==version) throw conflict();
         if (action==='duplicate') {
           await capacity(client);const name=textInput(input.name,120);
           const {rows}=await client.query<{id:number}>(`INSERT INTO "Scenario" ("name","notes","startsAt","endsAt","baseLiveRevision","createdById","updatedById") VALUES ($1,$2,$3::timestamp,$4::timestamp,$5,$6,$6) RETURNING "id"`,[name,scenario.notes,toNaiveUtcText(scenario.startsAt),toNaiveUtcText(scenario.endsAt),scenario.baseLiveRevision,owner.id]);
-          await copyItems(client,rows[0]!.id,await readItems(client,id));return detail(client,rows[0]!.id);
+          await copyItems(client,rows[0]!.id,await readItems(client,id));await audit(client,owner.id,rows[0]!.id,{},'SCENARIO_DUPLICATED');return detail(client,rows[0]!.id);
         }
         if (scenario.status==='PUBLISHED') throw createRouteError(409,'SCENARIO_READ_ONLY','Published scenarios are read-only. Duplicate to plan another version.');
-        if (action==='delete') {await client.query('DELETE FROM "Scenario" WHERE "id"=$1',[id]);return {deleted:true};}
+        if (action==='delete') {await writeAudit(client,owner.id,'SCENARIO_DELETED','scenario',id,before,{});await client.query('DELETE FROM "Scenario" WHERE "id"=$1',[id]);return {deleted:true};}
         if (action==='reopen') {
           if(scenario.status!=='ARCHIVED') throw conflict();await capacity(client);
           await client.query(`UPDATE "Scenario" SET "status"='DRAFT' WHERE "id"=$1`,[id]);
@@ -177,6 +183,7 @@ export function createScenarioService(store: PlanningStore, clock=()=>new Date()
           if(action==='publish') await publish(client,scenario,owner.id,input,clock());
         }
         await client.query('UPDATE "Scenario" SET "version"="version"+1,"updatedById"=$2,"updatedAt"=CURRENT_TIMESTAMP WHERE "id"=$1',[id,owner.id]);
+        await audit(client,owner.id,id,before,`SCENARIO_${action.toUpperCase().replaceAll('-','_')}`);
         return detail(client,id);
       });
     },

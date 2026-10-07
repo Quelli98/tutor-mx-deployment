@@ -1,3 +1,5 @@
+import type {AuditService} from './services/audit-service.js';
+import type {AllocationRestoreService} from './services/allocation-restore-service.js';
 import type {StudentSickNoteService} from './services/student-sick-note-service.js';
 import type {BookingService} from './services/booking-service.js';
 import type {SwapService} from './services/swap-service.js';
@@ -991,6 +993,8 @@ export interface AppDependencies {
     request: TimetableImportRequest,
     idempotencyKey?: string,
   ) => Promise<TimetableImportCommitResult>;
+  auditService?: AuditService;
+  allocationRestoreService?: AllocationRestoreService;
   studentSickNoteService?: StudentSickNoteService;
   bookingService?: BookingService;
   swapService?: SwapService;
@@ -4661,6 +4665,14 @@ export function createApp(
     },
   );
 
+  const auditService=()=>{if(!dependencies.auditService)throw createRouteError(503,'AUDIT_UNAVAILABLE','Audit history is temporarily unavailable.');return dependencies.auditService;};
+  const restoreService=()=>{if(!dependencies.allocationRestoreService)throw createRouteError(503,'RESTORE_UNAVAILABLE','Restore is temporarily unavailable.');return dependencies.allocationRestoreService;};
+  app.get('/api/organiser/audit',authenticate,resolveProfileRole,requireRole('ORGANISER'),async(req,res)=>{try{res.json({data:await auditService().list((req as AuthenticatedRequest).auth!.subject,req.query)});}catch(e){sendRouteError(res,e);}});
+  app.get('/api/organiser/audit/export',authenticate,resolveProfileRole,requireRole('ORGANISER'),async(req,res)=>{try{res.json({data:await auditService().export((req as AuthenticatedRequest).auth!.subject,req.query)});}catch(e){sendRouteError(res,e);}});
+  app.get('/api/organiser/audit/:id',authenticate,resolveProfileRole,requireRole('ORGANISER'),async(req,res)=>{try{res.json({data:await auditService().get((req as AuthenticatedRequest).auth!.subject,schedulingId(req.params.id))});}catch(e){sendRouteError(res,e);}});
+  app.get('/api/organiser/allocations/:id/history',authenticate,resolveProfileRole,requireRole('ORGANISER'),async(req,res)=>{try{res.json({data:await restoreService().history((req as AuthenticatedRequest).auth!.subject,schedulingId(req.params.id))});}catch(e){sendRouteError(res,e);}});
+  app.post('/api/organiser/allocations/:id/restore-preview',authenticate,resolveProfileRole,requireRole('ORGANISER'),async(req,res)=>{try{res.json({data:await restoreService().preview((req as AuthenticatedRequest).auth!.subject,schedulingId(req.params.id),req.body)});}catch(e){sendRouteError(res,e);}});
+  app.post('/api/organiser/allocations/:id/restore',authenticate,resolveProfileRole,requireRole('ORGANISER'),async(req,res)=>{try{res.json({data:await restoreService().restore((req as AuthenticatedRequest).auth!.subject,schedulingId(req.params.id),req.body)});}catch(e){sendRouteError(res,e);}});
   const sickNotes=()=>{if(!dependencies.studentSickNoteService)throw createRouteError(503,'SICK_NOTES_UNAVAILABLE','Sick notes are temporarily unavailable.');return dependencies.studentSickNoteService;};
   app.post('/api/student/bookings/:id/sick-notes',authenticate,resolveProfileRole,requireRole('STUDENT'),async(req,res)=>{try{res.status(201).json({data:await sickNotes().submit((req as AuthenticatedRequest).auth!.subject,schedulingId(req.params.id),req.body)});}catch(e){sendRouteError(res,e);}});
   app.get('/api/organiser/student-sick-notes',authenticate,resolveProfileRole,requireRole('ORGANISER'),async(req,res)=>{try{res.json({data:await sickNotes().list((req as AuthenticatedRequest).auth!.subject,req.query)});}catch(e){sendRouteError(res,e);}});

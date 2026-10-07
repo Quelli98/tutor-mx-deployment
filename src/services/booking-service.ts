@@ -48,7 +48,7 @@ export function createBookingService(store:PlanningStore,clock=()=>new Date()){
    if(booking.version!==version||booking.status!=='CONFIRMED'||booking.occurrenceStatus!=='SCHEDULED')throw stale();
    if(new Date(booking.startsAt)<=clock())throw createRouteError(409,'BOOKING_STARTED','Only a future booking can be cancelled.');
    await client.query(`UPDATE "TutoringBooking" SET "status"='CANCELLED',"version"="version"+1,"updatedAt"=CURRENT_TIMESTAMP WHERE "id"=$1`,[id]);
-   await recordEvent(client,'Booking',id,actor.id,'CANCELLED',version+1,text);await schedulingNotification(client,[booking.studentId,booking.tutorId],'BOOKING_CANCELLED','booking',id,version+1,'Tutoring booking cancelled');return detail(client,id,actor.id);
+   await recordEvent(client,'Booking',id,actor.id,'CANCELLED',version+1,text,booking);await schedulingNotification(client,[booking.studentId,booking.tutorId],'BOOKING_CANCELLED','booking',id,version+1,'Tutoring booking cancelled');return detail(client,id,actor.id);
   });},
  };
 }

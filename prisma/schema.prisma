@@ -111,6 +111,8 @@ enum StaffingRequirementStatus {
 }
 
 model Profile {
+  auditEvents AuditEvent[]
+  mutationReceipts MutationReceipt[]
   reviewedStudentSickNotes StudentSickNote[]
   scheduleRevision Int @default(0)
   studentBookings TutoringBooking[] @relation("StudentBookings")
@@ -286,6 +288,8 @@ model TutorHourLimit {
 }
 
 model Allocation {
+  minimumMark Float @default(50)
+  version Int @default(1)
   swapRequests TutorSwap[] @relation("SwapSource")
   completedSwaps TutorSwap[] @relation("SwapResult")
   id             Int              @id @default(autoincrement())
@@ -652,4 +656,31 @@ model StudentSickNote {
  booking TutoringBooking @relation(fields:[bookingId],references:[id],onDelete:Restrict)
  reviewedBy Profile? @relation(fields:[reviewedById],references:[id],onDelete:Restrict)
  @@index([status,id])
+}
+
+model AuditEvent {
+ id Int @id @default(autoincrement())
+ actorId Int
+ action String @db.VarChar(64)
+ targetType String @db.VarChar(24)
+ targetId Int
+ before Json @default("{}")
+ after Json @default("{}")
+ reason String @default("") @db.VarChar(1000)
+ createdAt DateTime @default(now())
+ actor Profile @relation(fields:[actorId],references:[id],onDelete:Restrict)
+ @@index([createdAt,id])
+ @@index([targetType,targetId,id])
+ @@index([actorId,createdAt])
+}
+model MutationReceipt {
+ id Int @id @default(autoincrement())
+ actorId Int
+ scope String @db.VarChar(100)
+ requestKey String @db.VarChar(128)
+ requestHash String @db.VarChar(64)
+ resultId Int
+ createdAt DateTime @default(now())
+ actor Profile @relation(fields:[actorId],references:[id],onDelete:Restrict)
+ @@unique([actorId,scope,requestKey])
 }

@@ -1,0 +1,14 @@
+npm warn Unknown env config "http-proxy". This will stop working in the next major version of npm.
+
+> tutoring-management-system@1.0.0 test:backend
+> vitest run src/services/scheduling.test.ts src/services/scenario-service.test.ts src/services/organiser-service.test.ts
+
+
+ RUN  v4.1.10 /workspace/scratch/cf095b00fbe5/work/tutor-mx-system
+
+
+ Test Files  3 passed (3)
+      Tests  162 passed (162)
+   Start at  01:47:33
+   Duration  15.21s (transform 492ms, setup 0ms, import 994ms, tests 13.76s, environment 0ms)
+

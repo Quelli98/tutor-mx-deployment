@@ -363,6 +363,7 @@ describe("organiser allocation service", () => {
           startsAt,
           endsAt,
           allocatedHours: 2,
+          minimumMark: 65,
         },
       }),
     );
@@ -684,7 +685,7 @@ describe("organiser allocation service", () => {
       endsAt: endsAt.toISOString(),
       allocatedHours: 2,
     });
-    expect(harness.transaction.$queryRawUnsafe).not.toHaveBeenCalled();
+    expect(harness.transaction.$queryRawUnsafe).toHaveBeenCalledWith(expect.stringContaining('INSERT INTO "AuditEvent"'),21,'ALLOCATION_CANCELLED','allocation',11,expect.any(String),expect.any(String),'');
     expect(harness.transaction.allocation.updateMany).toHaveBeenCalledWith({
       where: { id: 11, status: "CONFIRMED" },
       data: { status: "CANCELLED", reviewedById: 21, reviewedAt: expect.any(Date) },

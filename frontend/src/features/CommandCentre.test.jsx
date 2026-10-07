@@ -1,3 +1,4 @@
+vi.mock('../api/audit', () => ({ listAudit: vi.fn(async () => ({ items: [], page: 1, hasMore: false })), getAudit: vi.fn(), exportAudit: vi.fn(), allocationHistory: vi.fn(), previewRestore: vi.fn(), restoreAllocation: vi.fn() }))
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'

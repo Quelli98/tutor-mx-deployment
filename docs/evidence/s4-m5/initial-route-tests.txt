@@ -1,0 +1,33 @@
+npm warn Unknown env config "http-proxy". This will stop working in the next major version of npm.
+
+> tutoring-management-system@1.0.0 test:backend
+> vitest run src/audit-routes.test.ts src/scheduling-routes.test.ts src/planning-routes.test.ts
+
+
+ RUN  v4.1.10 /workspace/scratch/cf095b00fbe5/work/tutor-mx-system
+
+ ❯ src/audit-routes.test.ts (40 tests | 1 failed) 485ms
+   × Sprint 4 role matrix put /api/me/time-slots/1 rejects missing auth and ORGANISER 9ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/audit-routes.test.ts > Sprint 4 role matrix put /api/me/time-slots/1 rejects missing auth and ORGANISER
+AssertionError: expected 404 to be 401 // Object.is equality
+
+- Expected
++ Received
+
+- 401
++ 404
+
+ ❯ src/audit-routes.test.ts:42:178
+
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed | 2 passed (3)
+      Tests  1 failed | 85 passed (86)
+   Start at  01:40:50
+   Duration  2.20s (transform 285ms, setup 0ms, import 677ms, tests 1.01s, environment 0ms)
+

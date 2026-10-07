@@ -1,0 +1,127 @@
+npm warn Unknown env config "http-proxy". This will stop working in the next major version of npm.
+
+> tutoring-management-system@1.0.0 test:backend
+> vitest run src/services/scheduling.test.ts src/services/scenario-service.test.ts src/services/organiser-service.test.ts
+
+
+ RUN  v4.1.10 /workspace/scratch/cf095b00fbe5/work/tutor-mx-system
+
+ ❯ src/services/organiser-service.test.ts (54 tests | 6 failed) 61ms
+     × returns a non-revealing missing-tutor error for null 9ms
+     × returns a non-revealing missing-tutor error for { role: 'STUDENT' } 2ms
+     × rejects a missing course before persistence 1ms
+     × rejects an update for a 'cancelled allocation' 1ms
+     × rejects an update for a 'invalid confirmed-to-proposed transit…' 1ms
+     × soft-removes an allocation and releases its hours without an eligibility recheck 1ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 6 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/services/organiser-service.test.ts > organiser allocation service > returns a non-revealing missing-tutor error for null
+ FAIL  src/services/organiser-service.test.ts > organiser allocation service > returns a non-revealing missing-tutor error for { role: 'STUDENT' }
+AssertionError: expected Error: No organiser profile is linked to … { …(2) } to match object { Object (status, code) }
+
+- Expected
++ Received
+
+- {
+-   "code": "TUTOR_NOT_FOUND",
++ Error {
++   "code": "ORGANISER_PROFILE_NOT_FOUND",
+    "status": 404,
+  }
+
+ ❯ src/services/organiser-service.test.ts:531:8
+    529|       await expect(
+    530|         harness.service.createAllocation("auth0|organiser", allocation…
+    531|       ).rejects.toMatchObject({ status: 404, code: "TUTOR_NOT_FOUND" }…
+       |        ^
+    532|       expect(harness.transaction.course.findUnique).not.toHaveBeenCall…
+    533|     },
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/6]⎯
+
+ FAIL  src/services/organiser-service.test.ts > organiser allocation service > rejects a missing course before persistence
+AssertionError: expected Error: No organiser profile is linked to … { …(2) } to match object { status: 404, …(1) }
+
+- Expected
++ Received
+
+- {
+-   "code": "COURSE_NOT_FOUND",
++ Error {
++   "code": "ORGANISER_PROFILE_NOT_FOUND",
+    "status": 404,
+  }
+
+ ❯ src/services/organiser-service.test.ts:542:6
+    540|     await expect(
+    541|       harness.service.createAllocation("auth0|organiser", allocationIn…
+    542|     ).rejects.toMatchObject({ status: 404, code: "COURSE_NOT_FOUND" });
+       |      ^
+    543|     expect(harness.transaction.allocation.create).not.toHaveBeenCalled…
+    544|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/6]⎯
+
+ FAIL  src/services/organiser-service.test.ts > organiser allocation service > rejects an update for a 'cancelled allocation'
+ FAIL  src/services/organiser-service.test.ts > organiser allocation service > rejects an update for a 'invalid confirmed-to-proposed transit…'
+AssertionError: expected Error: No organiser profile is linked to … { …(2) } to match object { status: 409, …(1) }
+
+- Expected
++ Received
+
+- {
+-   "code": "ALLOCATION_CONFLICT",
+-   "status": 409,
++ Error {
++   "code": "ORGANISER_PROFILE_NOT_FOUND",
++   "status": 404,
+  }
+
+ ❯ src/services/organiser-service.test.ts:637:6
+    635|         allocationInput(requested ? { status: requested } : {}),
+    636|       ),
+    637|     ).rejects.toMatchObject({ status: 409, code: "ALLOCATION_CONFLICT"…
+       |      ^
+    638|     expect(harness.transaction.allocation.updateMany).not.toHaveBeenCa…
+    639|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/6]⎯
+
+ FAIL  src/services/organiser-service.test.ts > organiser allocation service > soft-removes an allocation and releases its hours without an eligibility recheck
+AssertionError: expected "vi.fn()" to not be called at all, but actually been called 1 times
+
+Received:
+
+  1st vi.fn() call:
+
+    Array [
+      "INSERT INTO "AuditEvent" ("actorId","action","targetType","targetId","before","after","reason") VALUES ($1,$2,$3,$4,$5::jsonb,$6::jsonb,$7)",
+      21,
+      "ALLOCATION_CANCELLED",
+      "allocation",
+      11,
+      "{"id":11,"tutorId":7,"courseId":9,"startsAt":"2030-09-04T14:00:00.000Z","endsAt":"2030-09-04T16:00:00.000Z","allocatedHours":2,"status":"CONFIRMED"}",
+      "{"id":11,"tutorId":7,"courseId":9,"startsAt":"2030-09-04T14:00:00.000Z","endsAt":"2030-09-04T16:00:00.000Z","allocatedHours":2,"status":"CANCELLED"}",
+      "",
+    ]
+
+
+Number of calls: 1
+
+ ❯ src/services/organiser-service.test.ts:687:53
+    685|       allocatedHours: 2,
+    686|     });
+    687|     expect(harness.transaction.$queryRawUnsafe).not.toHaveBeenCalled();
+       |                                                     ^
+    688|     expect(harness.transaction.allocation.updateMany).toHaveBeenCalled…
+    689|       where: { id: 11, status: "CONFIRMED" },
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/6]⎯
+
+
+ Test Files  1 failed | 2 passed (3)
+      Tests  6 failed | 131 passed (137)
+   Start at  01:34:28
+   Duration  12.70s (transform 428ms, setup 0ms, import 753ms, tests 11.44s, environment 0ms)
+
