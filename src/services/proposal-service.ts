@@ -11,8 +11,9 @@ type Requirement = { id:number; courseId:number; courseCode:string; startsAt:Dat
 type PlanItem = { id?:number; sourceAllocationId:number|null; tutorId:number; tutorName:string; courseId:number; courseCode:string; startsAt:Date; endsAt:Date; allocatedHours:number; minimumMark:number; locked:boolean };
 type CandidateExplanation = { tutorId:number; fullName:string; eligible:boolean; chosen:boolean; hardFailures:string[]; softScore:number|null; factors:string[]; reason:string };
 type ProposalAssignment = { requirementId:number; courseId:number; courseCode:string; tutorId:number; tutorName:string; startsAt:string; endsAt:string; allocatedHours:number; minimumMark:number; explanation:CandidateExplanation[] };
+type ScenarioDetail = Awaited<ReturnType<ScenarioService['get']>>;
 
-const HOUR=3_600_000, WEEK=7*24*HOUR;
+const HOUR=3_600_000;
 const round=(n:number)=>Math.round(n*100)/100;
 const overlap=(a:PlanItem,start:Date,end:Date)=>Math.max(0,Math.min(+a.endsAt,+end)-Math.max(+a.startsAt,+start))/HOUR;
 const monday=(d:Date)=>{const x=new Date(d);x.setUTCHours(0,0,0,0);const day=x.getUTCDay();x.setUTCDate(x.getUTCDate()-(day===0?6:day-1));return x;};
@@ -41,11 +42,6 @@ async function requirements(client:QueryClient,start:Date,end:Date){
   const {rows}=await client.query<Requirement>(`SELECT r."id",r."courseId",c."code" AS "courseCode",r."startsAt",r."endsAt",r."tutorsNeeded",c."hourlyRate"::float8 AS "hourlyRate",c."budget"::float8 AS budget FROM "StaffingRequirement" r JOIN "Course" c ON c."id"=r."courseId" WHERE r."status"='OPEN' AND r."startsAt">=$1::timestamp AND r."endsAt"<=$2::timestamp ORDER BY r."startsAt",r."id" LIMIT 201`,[toNaiveUtcText(start),toNaiveUtcText(end)]);
   if(rows.length>200)throw createRouteError(422,'PROPOSAL_TOO_LARGE','Choose a smaller planning window (maximum 200 open requirements).');
   return rows.map(r=>({...r,startsAt:new Date(r.startsAt),endsAt:new Date(r.endsAt)}));
-}
-async function readScenarioItems(client:QueryClient,id:number){
-  const {rows}=await client.query<PlanItem>(`SELECT i."id",i."sourceAllocationId",i."tutorId",p."fullName" AS "tutorName",i."courseId",c."code" AS "courseCode",i."startsAt",i."endsAt",i."allocatedHours"::float8 AS "allocatedHours",i."minimumMark"::float8 AS "minimumMark",i."locked" FROM "ScenarioItem" i JOIN "Profile" p ON p."id"=i."tutorId" JOIN "Course" c ON c."id"=i."courseId" WHERE i."scenarioId"=$1 ORDER BY i."startsAt",i."id" LIMIT 201`,[id]);
-  if(rows.length>200)throw createRouteError(422,'PROPOSAL_TOO_LARGE','Choose a smaller planning context.');
-  return rows.map(i=>({...i,startsAt:new Date(i.startsAt),endsAt:new Date(i.endsAt)}));
 }
 async function liveItems(client:QueryClient,start:Date,end:Date){
   const {rows}=await client.query<PlanItem>(`SELECT a."id",a."id" AS "sourceAllocationId",a."tutorId",p."fullName" AS "tutorName",a."courseId",c."code" AS "courseCode",a."startsAt",a."endsAt",a."allocatedHours"::float8 AS "allocatedHours",a."minimumMark"::float8 AS "minimumMark",false AS "locked" FROM "Allocation" a JOIN "Profile" p ON p."id"=a."tutorId" JOIN "Course" c ON c."id"=a."courseId" WHERE a."status"='CONFIRMED' AND a."startsAt">=$1::timestamp AND a."startsAt"<$2::timestamp AND NOT EXISTS(SELECT 1 FROM "Excuse" e WHERE e."allocationId"=a."id" AND e."status"='APPROVED' AND e."occurrenceStatus"='EXCUSED') ORDER BY a."startsAt",a."id" LIMIT 201`,[toNaiveUtcText(start),toNaiveUtcText(end)]);
@@ -107,11 +103,21 @@ export function createProposalService(store:PlanningStore,scenarios:ScenarioServ
     preview,
     async compare(subject:string,raw:unknown){const input=exactFields(raw,['name','startsAt','endsAt','baseScenarioId']);return Promise.all(PROPOSAL_PRESETS.map(p=>preview(subject,{...input,name:input.name??'Strategy comparison',preset:p})));},
     async generate(subject:string,raw:unknown){
-      const c=await context(subject,raw);let created;
-      if(c.baseScenarioId){const base=await scenarios.get(subject,c.baseScenarioId);if(+new Date(base.scenario.startsAt)!==+c.startsAt||+new Date(base.scenario.endsAt)!==+c.endsAt)invalid('The locked base scenario must use the same planning window.');created=await scenarios.change(subject,c.baseScenarioId,{action:'duplicate',version:base.scenario.version,name:c.name});}
+      const c=await context(subject,raw);let created:ScenarioDetail;
+      if(c.baseScenarioId){
+        const base=await scenarios.get(subject,c.baseScenarioId);
+        if(+new Date(base.scenario.startsAt)!==+c.startsAt||+new Date(base.scenario.endsAt)!==+c.endsAt)invalid('The locked base scenario must use the same planning window.');
+        const duplicated=await scenarios.change(subject,c.baseScenarioId,{action:'duplicate',version:base.scenario.version,name:c.name});
+        if('deleted' in duplicated)throw createRouteError(500,'PROPOSAL_SCENARIO_FAILED','The proposal scenario could not be created.');
+        created=duplicated;
+      }
       else created=await scenarios.create(subject,{name:c.name,notes:`Generated by ${c.p} proposal preset.`,startsAt:c.startsAt.toISOString(),endsAt:c.endsAt.toISOString()});
-      const built=await build(store,c.startsAt,c.endsAt,c.p,created.items as PlanItem[]);let detail=created;
-      for(const a of built.assignments){detail=await scenarios.change(subject,detail.scenario.id,{action:'save-item',version:detail.scenario.version,item:{id:null,tutorId:a.tutorId,courseId:a.courseId,startsAt:a.startsAt,endsAt:a.endsAt,allocatedHours:a.allocatedHours,minimumMark:a.minimumMark}});}
+      const built=await build(store,c.startsAt,c.endsAt,c.p,created.items as PlanItem[]);let detail:ScenarioDetail=created;
+      for(const a of built.assignments){
+        const changed=await scenarios.change(subject,detail.scenario.id,{action:'save-item',version:detail.scenario.version,item:{id:null,tutorId:a.tutorId,courseId:a.courseId,startsAt:a.startsAt,endsAt:a.endsAt,allocatedHours:a.allocatedHours,minimumMark:a.minimumMark}});
+        if('deleted' in changed)throw createRouteError(500,'PROPOSAL_SCENARIO_FAILED','The proposal scenario could not be updated.');
+        detail=changed;
+      }
       return {scenario:detail.scenario,items:detail.items,proposal:built};
     },
     async explain(subject:string,id:number){await requireProfile(store,subject,'ORGANISER');const detail=await scenarios.get(subject,positiveId(id));const p=(String(detail.scenario.notes).match(/Generated by ([A-Z_]+) proposal preset/)?.[1]??'BALANCED') as ProposalPreset;const generated=(detail.items as PlanItem[]).filter(i=>i.sourceAllocationId===null);const assignments=[];for(const item of generated){const candidates=await findAllocationCandidates(store,{courseId:item.courseId,startsAt:new Date(item.startsAt),endsAt:new Date(item.endsAt),minimumMark:item.minimumMark,requestedHours:item.allocatedHours});const ex=candidates.map(c=>({tutorId:c.tutorId,fullName:c.fullName,eligible:c.reasonCodes.length===0,chosen:c.tutorId===item.tutorId,hardFailures:c.reasonCodes,softScore:c.reasonCodes.length?null:score(c,p),factors:factors(c,p),reason:c.tutorId===item.tutorId?'Chosen in this proposal.':c.reasonCodes.length?`Why not: ${c.reasonCodes.join(', ')}.`:'Why not: lower soft score for this preset.'}));assignments.push({...item,startsAt:new Date(item.startsAt).toISOString(),endsAt:new Date(item.endsAt).toISOString(),explanation:ex});}return {preset:p,scenario:detail.scenario,assignments};},
