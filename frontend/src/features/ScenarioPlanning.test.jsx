@@ -40,3 +40,14 @@ it('creates a draft with South African input times and duplicates using the curr
  fireEvent.click(screen.getByRole('button',{name:'Create draft'}));await screen.findByRole('heading',{name:'Draft assignments'});expect(mocks.create).toHaveBeenCalledWith({name:'New plan',startsAt:'2030-09-02T06:00:00.000Z',endsAt:'2030-09-09T06:00:00.000Z'},mocks.token)
  fireEvent.click(screen.getByRole('button',{name:'Duplicate scenario'}));await waitFor(()=>expect(mocks.change).toHaveBeenCalledWith(1,{action:'duplicate',version:1,name:'Option A copy'},mocks.token))
 })
+it('opens a generated proposal scenario directly from the proposal handoff query',async()=>{
+ const previous=`${window.location.pathname}${window.location.search}`
+ window.history.pushState({},'', '/organiser/scenarios?scenario=1')
+ try {
+  render(<ScenarioPlanning/>)
+  await waitFor(()=>expect(mocks.get).toHaveBeenCalledWith(1,mocks.token))
+  expect(await screen.findByRole('heading',{name:'Option A'})).toBeInTheDocument()
+ } finally {
+  window.history.pushState({},'', previous || '/')
+ }
+})

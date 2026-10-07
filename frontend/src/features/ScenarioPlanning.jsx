@@ -41,7 +41,7 @@ export default function ScenarioPlanning() {
   const [create, setCreate] = useState({ name: '', startsAt: '', endsAt: '' }), [meta, setMeta] = useState({ name: '', notes: '' }), [duplicateName, setDuplicateName] = useState('')
   const [item, setItem] = useState(blankItem), [candidates, setCandidates] = useState([])
   const [pending, setPending] = useState(false), [loading, setLoading] = useState(true), [error, setError] = useState(''), [message, setMessage] = useState(''), [confirmation, setConfirmation] = useState(null)
-  const selected = useRef(null), request = useRef(0), busy = useRef(false)
+  const selected = useRef(null), request = useRef(0), busy = useRef(false), openedFromQuery = useRef(false)
   const scenario = detail?.scenario
   const refreshLibrary = useCallback(async () => { setLibrary(await listScenarios(filter, getAccessTokenSilently)) }, [filter, getAccessTokenSilently])
   useEffect(() => {
@@ -52,6 +52,24 @@ export default function ScenarioPlanning() {
     return () => { active = false }
   }, [filter, getAccessTokenSilently])
   useEffect(() => () => { request.current++ }, [])
+  useEffect(() => {
+    if (openedFromQuery.current) return undefined
+    openedFromQuery.current = true
+    const id = Number(new URLSearchParams(window.location.search).get('scenario'))
+    if (!Number.isSafeInteger(id) || id < 1) return undefined
+    let active = true
+    const seq = ++request.current
+    getScenario(id, getAccessTokenSilently)
+      .then(data => {
+        if (!active || seq !== request.current) return
+        selected.current = data.scenario.id
+        setDetail(data); setComparison(null)
+        setMeta({ name:data.scenario.name, notes:data.scenario.notes })
+        setItem(blankItem); setCandidates([]); setDuplicateName(`${data.scenario.name} copy`.slice(0,120))
+      })
+      .catch(err => { if (active && seq === request.current) setError(err.message) })
+    return () => { active = false }
+  }, [getAccessTokenSilently])
   useEffect(() => {
     if (!scenario?.id) return undefined
     let active = true

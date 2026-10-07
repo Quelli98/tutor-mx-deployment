@@ -60,6 +60,8 @@ type FakeState = {
   profile: boolean;
   requirements: RequirementRow[];
   live: ItemRow[];
+  carryIn: ItemRow[];
+  finances: Array<{ id: number; code: string; hourlyRate: number | null; budget: number | null }>;
   candidates: CandidateRow[];
   audits: unknown[][];
 };
@@ -106,6 +108,11 @@ function fakeState(extra: Partial<FakeState> = {}): FakeState {
     profile: true,
     requirements: [requirement()],
     live: [],
+    carryIn: [],
+    finances: [
+      { id: 1, code: 'COMS', hourlyRate: 100, budget: 1000 },
+      { id: 2, code: 'COMS2', hourlyRate: 100, budget: 1000 },
+    ],
     candidates: [
       candidate({ tutorId: 2, fullName: 'Tutor Two', mark: 80, usedHours: 0, remainingHours: 10 }),
       candidate({ tutorId: 3, fullName: 'Tutor Three', mark: 95, usedHours: 5, remainingHours: 5 }),
@@ -121,10 +128,16 @@ function makeStore(state: FakeState): PlanningStore {
       if (sql.includes('FROM "Profile" WHERE "auth0Id"')) {
         return { rows: (state.profile ? [{ id: 7, fullName: 'Organiser One' }] : []) as unknown as Row[] };
       }
-      if (sql.includes('FROM "StaffingRequirement" r JOIN "Course"')) {
+      if (sql.includes('FROM "StaffingRequirement" r') && sql.includes('JOIN "Course" c')) {
         return { rows: state.requirements as unknown as Row[] };
       }
-      if (sql.includes('FROM "Allocation" a JOIN "Profile" p') && sql.includes('sourceAllocationId')) {
+      if (sql.includes('FROM "Course" ORDER BY "id" LIMIT 5001')) {
+        return { rows: state.finances as unknown as Row[] };
+      }
+      if (sql.includes('FROM "Allocation" a') && sql.includes('JOIN "Profile" p') && sql.includes('sourceAllocationId')) {
+        if (sql.includes('a."startsAt"<$1::timestamp')) {
+          return { rows: state.carryIn as unknown as Row[] };
+        }
         return { rows: state.live as unknown as Row[] };
       }
       if (sql.includes('WITH tutor_hours AS')) {
@@ -175,7 +188,7 @@ function scenarios(initial = detail()) {
     if (input.action === 'save-item') {
       const saved = input.item as Record<string, unknown>;
       const next = item({
-        id: Number(saved.id ?? current.items.length + 1),
+        id: Number(saved.id ?? Math.max(0, ...current.items.map(value => value.id ?? 0)) + 1),
         tutorId: Number(saved.tutorId),
         courseId: Number(saved.courseId),
         startsAt: new Date(String(saved.startsAt)),
@@ -188,6 +201,17 @@ function scenarios(initial = detail()) {
       if (existing >= 0) nextItems[existing] = next;
       else nextItems.push(next);
       current = { ...current, scenario: { ...current.scenario, version: current.scenario.version + 1 }, items: nextItems };
+    }
+    if (input.action === 'metadata') {
+      current = {
+        ...current,
+        scenario: {
+          ...current.scenario,
+          name: String(input.name),
+          notes: String(input.notes ?? ''),
+          version: current.scenario.version + 1,
+        },
+      };
     }
     return current;
   });
@@ -204,7 +228,7 @@ describe('proposal service generation and explanations', () => {
     expect(result.preset).toBe('BALANCED');
     expect(result.assignments).toHaveLength(2);
     expect(result.assignments.map(x => x.tutorId).sort()).toEqual([2, 3]);
-    expect(result.metrics).toMatchObject({ proposedAssignments: 2, coveredTutorHours: 4, shortageHours: 0, projectedAddedSpend: 400 });
+    expect(result.metrics).toMatchObject({ proposedAssignments: 2, coveredTutorHours: 4, allocatedHours: 4, shortageHours: 0, projectedAddedSpend: 400, projectedCost: 400, workloadSpread: 0 });
     expect(result.metrics.workload).toEqual([
       { tutorId: 2, tutorName: 'Tutor Two', hours: 2 },
       { tutorId: 3, tutorName: 'Tutor Three', hours: 2 },
@@ -226,8 +250,20 @@ describe('proposal service generation and explanations', () => {
     expect(compared).toHaveLength(4);
     const budget = compared.find(x => x.preset === 'BUDGET_AWARE')!;
     expect(budget.assignments[0]!.courseCode).toBe('CHEAP');
-    expect(compared.find(x => x.preset === 'STRONGEST_MATCH')!.assignments[0]!.explanation.some(x => x.factors.some(f => f.includes('higher course mark')))).toBe(true);
+    expect(compared.find(x => x.preset === 'STRONGEST_MATCH')!.assignments[0]!.explanation.some(x => x.factors.some(f => f.includes('course mark')))).toBe(true);
     expect(compared.find(x => x.preset === 'FAIR_WORKLOAD')!.assignments[0]!.explanation.some(x => x.factors.some(f => f.includes('unused weekly capacity')))).toBe(true);
+  });
+
+  it('fails strategy comparison if the shared starting draft changes mid-comparison', async () => {
+    const first = detail([], { version: 3 });
+    const second = detail([], { version: 4 });
+    const scenarioService = {
+      get: vi.fn().mockResolvedValueOnce(first).mockResolvedValueOnce(second),
+      create: vi.fn(),
+      change: vi.fn(),
+    } as unknown as ScenarioService;
+    const service = createProposalService(makeStore(fakeState({ requirements: [] })), scenarioService);
+    await expect(service.compare('auth|org', { name:'Strategies', startsAt:START, endsAt:END, baseScenarioId:10 })).rejects.toMatchObject({ code:'SCENARIO_STALE' });
   });
 
   it('breaks equal soft-score ties deterministically and stays stable across runs', async () => {
@@ -262,12 +298,44 @@ describe('proposal service generation and explanations', () => {
     expect(saveCalls.every(c => (c[2] as { item: { tutorId: number } }).item.tutorId !== 8)).toBe(true);
   });
 
+  it('evaluates a base Scenario against its draft state instead of stale live allocation clashes/capacity', async () => {
+    const oldLive = item({
+      id: 70,
+      sourceAllocationId: 70,
+      tutorId: 2,
+      tutorName: 'Tutor Two',
+      allocatedHours: 2,
+    });
+    const state = fakeState({
+      live: [oldLive],
+      requirements: [requirement({ tutorsNeeded: 1 })],
+      candidates: [candidate({
+        tutorId: 2,
+        fullName: 'Tutor Two',
+        weeklyLimit: 2,
+        usedHours: 2,
+        remainingHours: 0,
+        hasClash: true,
+        isEligible: false,
+        clashDetails: [{ kind:'allocation', label:'COMS', startsAt:SLOT_START.toISOString(), endsAt:SLOT_END.toISOString(), recurrence:null }],
+      })],
+    });
+    // The base draft deliberately removed allocation 70. Scenario publishing
+    // would cancel that live identity before rechecking the final draft, so the
+    // proposal preview must not keep treating it as a clash/capacity consumer.
+    const scenario = scenarios(detail([], { notes:'Base with allocation removed', version:3 }));
+    const result = await createProposalService(makeStore(state), scenario.service).preview('auth|org', input({ baseScenarioId:10 }));
+    expect(result.assignments).toHaveLength(1);
+    expect(result.assignments[0]!.tutorId).toBe(2);
+    expect(result.assignments[0]!.explanation.find(row => row.chosen)?.hardFailures).toEqual([]);
+  });
+
   it('resets proposed weekly capacity at the ISO week boundary', async () => {
     const sameWeek = [
       requirement({ id: 1, tutorsNeeded: 1 }),
       requirement({ id: 2, courseId: 2, courseCode: 'COMS2', startsAt: new Date('2030-10-09T08:00:00Z'), endsAt: new Date('2030-10-09T10:00:00Z'), tutorsNeeded: 1 }),
     ];
-    const oneCourse = fakeState({ requirements: sameWeek, candidates: [candidate({ tutorId: 2, remainingHours: 2 })] });
+    const oneCourse = fakeState({ requirements: sameWeek, candidates: [candidate({ tutorId: 2, weeklyLimit: 2, remainingHours: 2 })] });
     const blocked = await createProposalService(makeStore(oneCourse), scenarios().service).preview('auth|org', input());
     expect(blocked.assignments).toHaveLength(1);
     expect(blocked.shortages).toEqual([{ requirementId: 2, courseCode: 'COMS2', hours: 2 }]);
@@ -277,9 +345,9 @@ describe('proposal service generation and explanations', () => {
         sameWeek[0]!,
         requirement({ id: 2, courseId: 2, courseCode: 'COMS2', startsAt: new Date('2030-10-15T08:00:00Z'), endsAt: new Date('2030-10-15T10:00:00Z'), tutorsNeeded: 1 }),
       ],
-      candidates: [candidate({ tutorId: 2, remainingHours: 2 })],
+      candidates: [candidate({ tutorId: 2, weeklyLimit: 2, remainingHours: 2 })],
     });
-    const allowed = await createProposalService(makeStore(acrossBoundary), scenarios().service).preview('auth|org', input());
+    const allowed = await createProposalService(makeStore(acrossBoundary), scenarios().service).preview('auth|org', input({ endsAt: '2030-10-21T08:00:00.000Z' }));
     expect(allowed.assignments).toHaveLength(2);
     expect(allowed.shortages).toEqual([]);
   });
@@ -307,6 +375,9 @@ describe('proposal service generation and explanations', () => {
     const generated = await service.generate('auth|org', input({ preset: 'FAIR_WORKLOAD' }));
     expect(scenario.create).toHaveBeenCalledOnce();
     expect(scenario.change).toHaveBeenCalledWith('auth|org', 10, expect.objectContaining({ action: 'save-item', version: 1 }));
+    expect(scenario.change).toHaveBeenCalledWith('auth|org', 10, expect.objectContaining({ action: 'metadata', name: 'October proposal' }));
+    expect(generated.scenario.notes).toContain('Generated by FAIR_WORKLOAD proposal preset.');
+    expect(generated.scenario.notes).toMatch(/Proposal item ids: \d+/);
     expect(generated.items).toHaveLength(1);
     const explanation = await service.explain('auth|org', generated.scenario.id);
     expect(explanation.preset).toBe('FAIR_WORKLOAD');
@@ -344,6 +415,85 @@ describe('proposal service generation and explanations', () => {
     } as unknown as ScenarioService;
     await expect(createProposalService(makeStore(state), saveFailure).generate('auth|org', input())).rejects.toMatchObject({ code: 'PROPOSAL_SCENARIO_FAILED' });
   });
+
+  it('counts carry-in allocation coverage and uses total draft hours in impact metrics', async () => {
+    const carry = item({
+      id: 91,
+      sourceAllocationId: 91,
+      tutorId: 8,
+      tutorName: 'Carry Tutor',
+      startsAt: new Date('2030-10-07T07:00:00Z'),
+      endsAt: new Date('2030-10-08T09:00:00Z'),
+      allocatedHours: 26,
+    });
+    const draft = item({ id: 4, sourceAllocationId: 4, allocatedHours: 2 });
+    const state = fakeState({
+      requirements: [requirement({ tutorsNeeded: 2 })],
+      live: [draft],
+      carryIn: [carry],
+      candidates: [],
+    });
+    const result = await createProposalService(makeStore(state), scenarios().service).preview('auth|org', input());
+    expect(result.assignments).toEqual([]);
+    expect(result.shortages).toEqual([{ requirementId: 1, courseCode: 'COMS', hours: 1 }]);
+    expect(result.metrics.shortageHours).toBe(1);
+    expect(result.metrics.allocatedHours).toBe(2);
+    expect(result.metrics.projectedCost).toBe(200);
+  });
+
+  it('marks a previously chosen tutor stale when another draft item now clashes', async () => {
+    const chosen = item({ id: 5, tutorId: 2, tutorName: 'Tutor Two', sourceAllocationId: null });
+    const conflicting = item({
+      id: 6,
+      tutorId: 2,
+      tutorName: 'Tutor Two',
+      sourceAllocationId: 40,
+      startsAt: new Date('2030-10-08T09:00:00Z'),
+      endsAt: new Date('2030-10-08T11:00:00Z'),
+    });
+    const scenario = scenarios(detail([chosen, conflicting], {
+      notes: 'Generated by BALANCED proposal preset. Proposal item ids: 5.',
+    }));
+    const state = fakeState({ requirements: [], candidates: [candidate({ tutorId: 2, fullName: 'Tutor Two' })] });
+    const explained = await createProposalService(makeStore(state), scenario.service).explain('auth|org', 10);
+    const selected = explained.assignments[0]!.explanation.find(row => row.chosen)!;
+    expect(selected.eligible).toBe(false);
+    expect(selected.hardFailures).toContain('schedule-clash');
+    expect(selected.reason).toMatch(/current hard rules now fail/i);
+  });
+
+  it('does not mislabel pre-existing manual base items as generated proposal choices', async () => {
+    const manual = item({ id: 40, sourceAllocationId: null, tutorId: 9, tutorName: 'Manual Tutor' });
+    const scenario = scenarios(detail([manual], { notes: 'Base planning notes', version: 4 }));
+    const state = fakeState({
+      requirements: [requirement({ courseId: 2, courseCode: 'COMS2', tutorsNeeded: 1 })],
+      candidates: [candidate({ tutorId: 2, fullName: 'Tutor Two' })],
+    });
+    const service = createProposalService(makeStore(state), scenario.service);
+    const generated = await service.generate('auth|org', input({ baseScenarioId: 10, preset: 'STRONGEST_MATCH' }));
+    expect(generated.scenario.notes).toContain('Generated by STRONGEST_MATCH proposal preset.');
+    const explained = await service.explain('auth|org', generated.scenario.id);
+    expect(explained.preset).toBe('STRONGEST_MATCH');
+    expect(explained.assignments).toHaveLength(1);
+    expect(explained.assignments[0]!.id).not.toBe(40);
+
+    const noNeedScenario = scenarios(detail([manual], { notes: 'Base planning notes', version: 4 }));
+    const noNeedService = createProposalService(makeStore(fakeState({ requirements: [] })), noNeedScenario.service);
+    const noNeedGenerated = await noNeedService.generate('auth|org', input({ baseScenarioId: 10 }));
+    expect(noNeedGenerated.scenario.notes).toContain('Proposal item ids: none.');
+    expect((await noNeedService.explain('auth|org', noNeedGenerated.scenario.id)).assignments).toEqual([]);
+  });
+
+  it('rejects a non-draft base scenario and builds before creating a new scenario', async () => {
+    const published = scenarios(detail([], { status: 'PUBLISHED' }));
+    await expect(createProposalService(makeStore(fakeState({ requirements: [] })), published.service).preview('auth|org', input({ baseScenarioId: 10 }))).rejects.toMatchObject({ code: 'SCENARIO_READ_ONLY' });
+
+    const tooMany = fakeState({ requirements: Array.from({ length: 201 }, (_, index) => requirement({ id: index + 1 })) });
+    const scenario = scenarios();
+    await expect(createProposalService(makeStore(tooMany), scenario.service).generate('auth|org', input())).rejects.toMatchObject({ code: 'PROPOSAL_TOO_LARGE' });
+    expect(scenario.create).not.toHaveBeenCalled();
+  });
+
 });
 
 describe('proposal service manual adjustment and validation', () => {
@@ -368,7 +518,7 @@ describe('proposal service manual adjustment and validation', () => {
     const clashItem = item({ id: 2, tutorId: 3, tutorName: 'Tutor Three', startsAt: new Date('2030-10-08T09:00:00Z'), endsAt: new Date('2030-10-08T11:00:00Z') });
     await expect(createProposalService(makeStore(baseState), scenarios(detail([item(), clashItem])).service).adjust('auth|org', 10, { version: 1, itemId: 1, tutorId: 3, reason: 'Valid reason' })).rejects.toMatchObject({ code: 'PROPOSAL_RULE_FAILED' });
 
-    const capacity = fakeState({ requirements: [], candidates: [candidate({ tutorId: 3, remainingHours: 1 })] });
+    const capacity = fakeState({ requirements: [], candidates: [candidate({ tutorId: 3, weeklyLimit: 1, remainingHours: 1 })] });
     await expect(createProposalService(makeStore(capacity), scenarios(detail([item()])).service).adjust('auth|org', 10, { version: 1, itemId: 1, tutorId: 3, reason: 'Valid reason' })).rejects.toMatchObject({ code: 'PROPOSAL_RULE_FAILED' });
   });
 
