@@ -116,3 +116,7 @@ Codex assisted with AI code generation, AI in-line editing and AI code review fo
 ## Sprint 4 Member 4 update — 5 October 2026
 
 Codex assisted with AI code generation, AI in-line editing and AI code review for Student sick-note storage, authenticated APIs, Organiser approvals, booking-state/notification integration, conflict recovery, compact mode and timetable list accessibility. It generated regression tests, a configured-browser audit runner and handoff documentation. Earlier members' implementations were preserved. The browser runner was syntax checked but not executed because Chromium installation failed. No live deployment, remote merge or stakeholder validation is claimed. See `docs/sprint4-member4-handoff.md`.
+
+## Sprint 4 Member 5 update — 5 October 2026
+
+Codex assisted with AI code generation, AI in-line editing and AI code review for the shared audit service, mutation instrumentation, Command centre timeline/filter/export, allocation history/preview/restore, persisted mark thresholds and sick-note retry receipts. It added focused service, route and frontend tests and the role/ownership handoff matrix. Earlier members' source and evidence were retained. Verification is described in `docs/sprint4-member5-handoff.md`; no final release gate, live browser, deployed-environment or remote merge validation is claimed.

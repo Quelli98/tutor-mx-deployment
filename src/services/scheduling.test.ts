@@ -1,3 +1,5 @@
+import {createAuditService,writeAudit,auditSnapshot,redactText,csvCell} from './audit-service.js';
+import {createAllocationRestoreService} from './allocation-restore-service.js';
 import {createStudentSickNoteService,bookingAbsenceStatus} from './student-sick-note-service.js';
 import {PGlite} from '@electric-sql/pglite';
 import {readFile,readdir} from 'node:fs/promises';
@@ -160,4 +162,63 @@ describe('Student sick notes: ownership, privacy, attendance and competing actio
   await sick().decide('org',n.id,decision());await expect(db.query(`UPDATE "StudentSickNote" SET "reason"='changed' WHERE "id"=$1`,[n.id])).rejects.toThrow(/immutable/);await expect(db.query(`UPDATE "TutoringBooking" SET "occurrenceStatus"='SCHEDULED' WHERE "id"=$1`,[n.bookingId])).rejects.toThrow(/immutable/);
  });
  it('classifies the exact approval boundary independently of submission date',()=>{expect(bookingAbsenceStatus(new Date(1000),new Date(999))).toBe('EXCUSED');expect(bookingAbsenceStatus(new Date(1000),new Date(1000))).toBe('SKIPPED');});
+});
+
+describe('Sprint 4 audit, restore and retry hardening',()=>{
+ const audit=()=>createAuditService(store);
+ const restore=()=>createAllocationRestoreService(store,()=>now);
+ const events=async()=> (await db.query<{id:number;action:string;actorId:number;targetId:number;before:Record<string,unknown>;after:Record<string,unknown>;reason:string}>('SELECT * FROM "AuditEvent" ORDER BY "id"')).rows;
+ async function historic(){const a=(await db.query('SELECT *,"allocatedHours"::float8 AS "allocatedHours" FROM "Allocation" WHERE "id"=1')).rows[0];await writeAudit(store,1,'ALLOCATION_CREATED','allocation',1,{},a,'Manual choice');return (await events())[0]!;}
+ it('allowlists snapshots and redacts credentials without storing arbitrary request bodies',()=>{
+  const raw={id:1,status:'PENDING',reason:'Private illness',reviewNote:'Private review',requestBody:{secret:'private'},token:'private',email:'private',auth0Id:'private'};
+  expect(auditSnapshot('sick-note',raw)).toEqual({id:1,status:'PENDING'});expect(auditSnapshot('booking',raw)).toEqual({id:1,status:'PENDING'});expect(auditSnapshot('scenario',{id:1,notes:'private',items:[{id:2,tutorId:3,secret:'private'}]})).toEqual({id:1,items:[{id:2,tutorId:3}]});expect(redactText('Manual reason token=abc Bearer xyz https://private.test')).toBe('Manual reason [REDACTED] [REDACTED] [REDACTED URL]');expect(csvCell(' =SUM(A1)')).toBe('"\' =SUM(A1)"');
+ });
+ it('audits successful booking status changes once with actor and before/after values',async()=>{
+  const b=await bookings.create('student',book());await bookings.create('student',book());await bookings.cancel('tutor',b.booking.id,{version:1});const rows=await events();expect(rows).toHaveLength(2);expect(rows[0]).toMatchObject({action:'BOOKING_CONFIRMED',actorId:6,targetId:b.booking.id});expect(rows[1]).toMatchObject({actorId:3,before:{status:'CONFIRMED',version:1},after:{status:'CANCELLED',version:2}});
+  await expect(bookings.cancel('student',b.booking.id,{version:1})).rejects.toMatchObject({status:409});expect(await events()).toHaveLength(2);
+ });
+ it('rolls back audit, events, notifications and domain rows together',async()=>{
+  const failing:PlanningStore={...store,transaction:work=>store.transaction(async client=>{const result=await work(client);throw new Error(`Injected failure after ${Boolean(result)}`);})};await expect(createBookingService(failing,()=>now).create('student',book())).rejects.toThrow('Injected');expect(await events()).toEqual([]);expect((await db.query('SELECT * FROM "TutoringBooking"')).rows).toEqual([]);expect((await db.query('SELECT * FROM "Notification"')).rows).toEqual([]);
+ });
+ it('restricts audit, detail, export and restore to fresh Organiser roles',async()=>{
+  const e=await historic();for(const subject of ['student','tutor']){await expect(audit().list(subject)).rejects.toMatchObject({status:403});await expect(audit().get(subject,e.id)).rejects.toMatchObject({status:403});await expect(audit().export(subject)).rejects.toMatchObject({status:403});await expect(restore().history(subject,1)).rejects.toMatchObject({status:403});await expect(restore().preview(subject,1,{eventId:e.id,side:'after'})).rejects.toMatchObject({status:403});}
+  await db.exec(`UPDATE "Profile" SET "role"='STUDENT' WHERE "id"=1`);await expect(audit().get('org',e.id)).rejects.toMatchObject({status:403});
+ });
+ it('filters by actor, action, target and dates, and exports the same redacted fields',async()=>{
+  const e=await historic();await bookings.create('student',book());expect((await audit().list('org',{actorId:1,action:'ALLOCATION_CREATED',targetType:'allocation',targetId:1})).items).toHaveLength(1);expect((await audit().list('org',{actorId:2})).items).toEqual([]);expect((await audit().list('org',{from:'2030-01-01T00:00:00Z',to:'2030-01-02T00:00:00Z'})).items).toEqual([]);
+  expect(await audit().get('org',e.id)).toMatchObject({reason:'Manual choice'});const csv=await audit().export('org',{targetType:'allocation'});expect(csv.count).toBe(1);expect(csv.csv).toContain('Manual choice');expect(csv.csv).not.toMatch(/auth0|token|email/);await expect(audit().get('org',999)).rejects.toMatchObject({status:404});
+ });
+ it.each([{from:'bad'},{page:0},{actorId:'x'},{action:'bad action'},{targetType:'profile'},{secret:'x'},{from:'2020-01-01T00:00:00Z',to:'2030-01-01T00:00:00Z'}])('bounds audit input %j',async input=>{await expect(audit().list('org',input)).rejects.toMatchObject({status:400});});
+ it('paginates without truncation and refuses oversized CSV exports',async()=>{
+  await db.exec(`INSERT INTO "AuditEvent" ("actorId","action","targetType","targetId") SELECT 1,'BOOKING_CONFIRMED','booking',x FROM generate_series(1,1001) x`);
+  const first=await audit().list('org'),second=await audit().list('org',{page:2});expect(first.items).toHaveLength(50);expect(first.hasMore).toBe(true);expect(second.items).toHaveLength(50);expect(second.items[0]).not.toEqual(first.items[0]);await expect(audit().export('org')).rejects.toMatchObject({code:'AUDIT_EXPORT_LIMIT'});
+ });
+ it('previews history, restores as a new identity and preserves immutable source events',async()=>{
+  const e=await historic();await db.exec(`UPDATE "Allocation" SET "startsAt"='2030-09-02 09:00',"endsAt"='2030-09-02 10:00',"allocatedHours"=1 WHERE "id"=1`);const preview=await restore().preview('org',1,{eventId:e.id,side:'after'});expect(preview.canRestore).toBe(true);expect(preview.current.allocatedHours).toBe(1);expect(preview.historical.allocatedHours).toBe(2);
+  const result=await restore().restore('org',1,{eventId:e.id,side:'after',expectedVersion:preview.expectedVersion,reason:'Correct mistaken hours'});expect(result.allocationId).not.toBe(1);const rows=await live();expect(rows).toMatchObject([{id:1,status:'CANCELLED'},{id:result.allocationId,status:'CONFIRMED'}]);expect((await events())[0]).toEqual(e);expect((await events()).map(x=>x.action)).toEqual(['ALLOCATION_CREATED','ALLOCATION_RESTORE_REPLACED','ALLOCATION_RESTORED']);expect((await restore().history('org',1)).items).toHaveLength(2);expect((await restore().preview('org',1,{eventId:e.id,side:'after'})).canRestore).toBe(false);expect((await events())[2]?.after).toMatchObject({sourceAllocationId:1,restoredFromEventId:e.id,restoredFromSide:'after'});
+  await expect(restore().restore('org',1,{eventId:e.id,side:'after',expectedVersion:preview.expectedVersion,reason:'Retry'})).rejects.toMatchObject({code:'RESTORE_STALE'});await expect(db.exec(`UPDATE "AuditEvent" SET "reason"='rewrite'`)).rejects.toThrow(/immutable/);
+ });
+ it.each(['mark','clash','capacity','past','history'])('refuses restore when current %s rules fail',async mode=>{
+  const e=await historic();if(mode==='mark')await db.exec(`UPDATE "TutorMark" SET "mark"=20 WHERE "tutorId"=3`);if(mode==='clash')await db.exec(`INSERT INTO "TimeSlot" ("tutorId","type","startsAt","endsAt","label") VALUES (3,'BUSY','2030-09-02 08:00','2030-09-02 10:00','Private class')`);if(mode==='capacity')await db.exec(`UPDATE "TutorHourLimit" SET "weeklyHours"=1 WHERE "tutorId"=3`);if(mode==='past')now=new Date('2030-09-03T00:00:00Z');if(mode==='history')await propose();
+  const preview=await restore().preview('org',1,{eventId:e.id,side:'after'}),before=await live(),count=(await events()).length;expect(preview.canRestore).toBe(false);await expect(restore().restore('org',1,{eventId:e.id,side:'after',expectedVersion:preview.expectedVersion,reason:'Try restore'})).rejects.toMatchObject({code:'RESTORE_RULE_FAILED'});expect(await live()).toEqual(before);expect(await events()).toHaveLength(count);
+ });
+ it('preserves a stricter current minimum mark instead of restoring weaker eligibility',async()=>{
+  const e=await historic();await db.exec(`UPDATE "Allocation" SET "minimumMark"=90 WHERE "id"=1`);const p=await restore().preview('org',1,{eventId:e.id,side:'after'});expect(p.requiredMark).toBe(90);expect(p.canRestore).toBe(false);expect(p.reasons).toContain('insufficient-mark');
+ });
+ it('rolls back a restore after writes and audit insertion fail to commit',async()=>{
+  const e=await historic(),preview=await restore().preview('org',1,{eventId:e.id,side:'after'}),before=await live();const failing:PlanningStore={...store,transaction:work=>store.transaction(async client=>{await work(client);throw new Error('Abort commit');})};await expect(createAllocationRestoreService(failing,()=>now).restore('org',1,{eventId:e.id,side:'after',expectedVersion:preview.expectedVersion,reason:'Correct'})).rejects.toThrow('Abort commit');expect(await live()).toEqual(before);expect(await events()).toHaveLength(1);expect((await db.query('SELECT * FROM "Notification"')).rows).toEqual([]);
+ });
+ it('two concurrent restores create only one replacement and one restore outcome',async()=>{
+  const e=await historic(),p=await restore().preview('org',1,{eventId:e.id,side:'after'}),input={eventId:e.id,side:'after',expectedVersion:p.expectedVersion,reason:'Correct'};const results=await Promise.allSettled([restore().restore('org',1,input),restore().restore('org2',1,input)]);expect(results.filter(x=>x.status==='fulfilled')).toHaveLength(1);expect((await live()).length).toBe(2);expect((await events()).filter(x=>x.action==='ALLOCATION_RESTORED')).toHaveLength(1);
+ });
+ it('rejects missing, mismatched and invalid historical targets without writing',async()=>{
+  const e=await historic();await expect(restore().preview('org',999,{eventId:e.id,side:'after'})).rejects.toMatchObject({status:404});await expect(restore().preview('org',1,{eventId:999,side:'after'})).rejects.toMatchObject({status:404});await expect(restore().preview('org',1,{eventId:e.id,side:'before'})).rejects.toMatchObject({status:409});await expect(restore().preview('org',1,{eventId:e.id,side:'raw'})).rejects.toMatchObject({status:400});await expect(restore().restore('org',1,{eventId:e.id,side:'after',expectedVersion:2,reason:''})).rejects.toMatchObject({status:400});
+ });
+ it('attributes swap transitions and both allocation changes to their actual actors',async()=>{
+  const d=await accept();await swaps.change('org',d.swap.id,{action:'approve',version:2,note:'Cover approved'});const audit=await events();expect(audit.filter(e=>e.action.startsWith('SWAP_')).map(e=>[e.action,e.actorId])).toEqual([['SWAP_REQUESTED',3],['SWAP_ACCEPTED',4],['SWAP_APPROVED',1]]);expect(audit.filter(e=>e.action.startsWith('ALLOCATION_SWAP_'))).toHaveLength(2);expect(audit.find(e=>e.action==='SWAP_APPROVED')?.reason).toBe('Cover approved');
+ });
+ it('replays an uncertain sick-note submit and decision without duplicate audit or notifications',async()=>{
+  const sick=createStudentSickNoteService(store,()=>now),b=await bookings.create('student',book()),input={bookingVersion:1,reason:'Private illness',requestKey:'submit-retry'};const n=await sick.submit('student',b.booking.id,input);await sick.submit('student',b.booking.id,input);await expect(sick.submit('student',b.booking.id,{...input,reason:'Changed'})).rejects.toMatchObject({status:409});const decision={version:1,bookingVersion:2,decision:'APPROVED',reviewNote:'Private review',requestKey:'review-retry'};await sick.decide('org',n.id,decision);await sick.decide('org',n.id,decision);await expect(sick.decide('org',n.id,{...decision,decision:'REJECTED'})).rejects.toMatchObject({status:409});
+  expect((await events()).filter(x=>x.action==='SICK_NOTE_APPROVED')).toHaveLength(1);expect(JSON.stringify(await events())).not.toMatch(/Private illness|Private review|requestKey/);expect((await db.query(`SELECT * FROM "Notification" WHERE "type"='STUDENT_SICK_DECIDED'`)).rows).toHaveLength(1);await expect(sick.submit('student',b.booking.id,{...input,requestKey:'x'})).rejects.toMatchObject({status:400});
+ });
 });

@@ -1,0 +1,6 @@
+npm warn Unknown env config "http-proxy". This will stop working in the next major version of npm.
+
+> tutor-mx-system@0.0.0 test
+> vitest --run src/features/AuditTimeline.test.jsx src/features/CommandCentre.test.jsx src/features/StudentSickNotes.test.jsx src/api/studentSickNotes.test.js src/api/retryKey.test.js --reporter=json --outputFile=../docs/evidence/s4-m5/frontend-results.json
+
+JSON report written to /workspace/scratch/cf095b00fbe5/work/tutor-mx-system/docs/evidence/s4-m5/frontend-results.json

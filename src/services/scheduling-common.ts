@@ -1,3 +1,4 @@
+import {writeAudit} from './audit-service.js';
 import {createHash} from 'node:crypto';
 import type {QueryClient} from './allocation-queries.js';
 import {createRouteError} from '../http/errors.js';
@@ -13,8 +14,12 @@ export async function schedulingActor(client:QueryClient,subject:string,roles:st
 export async function history(client:QueryClient,kind:'Booking'|'Swap',id:number){
  return (await client.query(`SELECT e."id",e."action",e."version",e."note",e."createdAt",p."fullName" AS "actorName" FROM "${kind}Event" e JOIN "Profile" p ON p."id"=e."actorId" WHERE e."${kind==='Booking'?'bookingId':'swapId'}"=$1 ORDER BY e."version"`,[id])).rows;
 }
-export async function recordEvent(client:QueryClient,kind:'Booking'|'Swap',id:number,actorId:number,action:string,version:number,text=''){
+export async function recordEvent(client:QueryClient,kind:'Booking'|'Swap',id:number,actorId:number,action:string,version:number,text='',previous?:unknown){
  await client.query(`INSERT INTO "${kind}Event" ("${kind==='Booking'?'bookingId':'swapId'}","actorId","action","version","note") VALUES ($1,$2,$3,$4,$5)`,[id,actorId,action,version,text]);
+ const target=kind==='Booking'?'booking':'swap',table=kind==='Booking'?'TutoringBooking':'TutorSwap';
+ const before=previous??(await client.query<{after:unknown}>('SELECT "after" FROM "AuditEvent" WHERE "targetType"=$1 AND "targetId"=$2 ORDER BY "id" DESC LIMIT 1',[target,id])).rows[0]?.after??{};
+ const after=(await client.query(`SELECT * FROM "${table}" WHERE "id"=$1`,[id])).rows[0];
+ await writeAudit(client,actorId,`${kind.toUpperCase()}_${action}`,target,id,before,after,kind==='Swap'?text:'');
 }
 export async function schedulingNotification(client:QueryClient,recipients:number[],type:string,target:'booking'|'swap'|'sick-note',id:number,version:number,title:string){
  for(const recipient of new Set(recipients))await client.query(`INSERT INTO "Notification" ("recipientProfileId","type","title","body","linkPath","targetType","targetId","eventKey") SELECT "id",$2::"NotificationType",$3,'Open the session for the latest details.',CASE WHEN $4='sick-note' THEN '/organiser/approvals' WHEN $4='booking' THEN CASE WHEN "role"='STUDENT' THEN '/student/timetable' ELSE '/tutor/timetable' END ELSE CASE WHEN "role"='ORGANISER' THEN '/organiser/swaps' ELSE '/tutor/swaps' END END,$4,$5,$6 FROM "Profile" WHERE "id"=$1 ON CONFLICT("eventKey") DO NOTHING`,[recipient,type,title,target,id,`${target}:${id}:${version}:${recipient}`]);

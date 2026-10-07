@@ -1,3 +1,4 @@
+import {writeAudit} from './audit-service.js';
 import {
   createRouteError,
   type AllocationSummary,
@@ -37,6 +38,8 @@ const allocationSelection = {
   endsAt: true,
   allocatedHours: true,
   status: true,
+  version: true,
+  minimumMark: true,
 } as const;
 
 const organiserAllocationSelection = {
@@ -291,6 +294,9 @@ async function allocationAudit(transaction: TransactionClient, auth0Id: string) 
   return { reviewedById: organiser.id, reviewedAt: new Date() };
 }
 
+async function appendAudit(transaction:TransactionClient,actorId:number,action:string,id:number,before:unknown,after:unknown,reason='') {
+ await writeAudit({async query<Row>(sql:string,parameters:unknown[]=[]){return {rows:await transaction.$queryRawUnsafe<Row[]>(sql,...parameters)};}},actorId,action,'allocation',id,before,after,reason);
+}
 export function createOrganiserService(client: PrismaClient) {
   return {
     async listAllocations(): Promise<OrganiserAllocationSummary[]> {
@@ -387,6 +393,7 @@ export function createOrganiserService(client: PrismaClient) {
         return await client.$transaction(
           async (transaction) => {
             await validateAllocationRules(transaction, input);
+            const actor=await allocationAudit(transaction,organiserAuth0Id);
             let allocation = await transaction.allocation.create({
               data: {
                 tutorId: input.tutorId,
@@ -394,6 +401,7 @@ export function createOrganiserService(client: PrismaClient) {
                 startsAt: input.startsAt,
                 endsAt: input.endsAt,
                 allocatedHours: input.requestedHours,
+                minimumMark: input.minimumMark,
                 // Set only when an organiser overrode a bulk suggestion; the
                 // rules above are unaffected by it.
                 ...(input.overrideReason
@@ -408,12 +416,13 @@ export function createOrganiserService(client: PrismaClient) {
                 where: { id: allocation.id },
                 data: {
                   status: "CONFIRMED",
-                  ...await allocationAudit(transaction, organiserAuth0Id),
+                  ...actor,
                 },
                 select: allocationSelection,
               });
             }
 
+            await appendAudit(transaction,actor.reviewedById,'ALLOCATION_CREATED',allocation.id,{}, {...allocation,allocatedHours:Number(allocation.allocatedHours),minimumMark:input.minimumMark},input.overrideReason??'');
             return toAllocationSummary(allocation);
           },
           { isolationLevel: "Serializable" },
@@ -433,7 +442,7 @@ export function createOrganiserService(client: PrismaClient) {
           async (transaction) => {
             const current = await transaction.allocation.findUnique({
               where: { id: allocationId },
-              select: { id: true, status: true },
+              select: allocationSelection,
             });
             if (!current) {
               throw createRouteError(
@@ -455,6 +464,7 @@ export function createOrganiserService(client: PrismaClient) {
               );
             }
 
+            const actor=await allocationAudit(transaction,organiserAuth0Id);
             await validateAllocationRules(transaction, input, allocationId);
             const changed = await transaction.allocation.updateMany({
               where: { id: allocationId, status: current.status },
@@ -464,8 +474,9 @@ export function createOrganiserService(client: PrismaClient) {
                 startsAt: input.startsAt,
                 endsAt: input.endsAt,
                 allocatedHours: input.requestedHours,
+                minimumMark: input.minimumMark,
                 status: nextStatus,
-                ...await allocationAudit(transaction, organiserAuth0Id),
+                ...actor,
               },
             });
             if (changed.count !== 1) {
@@ -487,6 +498,7 @@ export function createOrganiserService(client: PrismaClient) {
                 "The allocation changed before this update could be applied.",
               );
             }
+            await appendAudit(transaction,actor.reviewedById,'ALLOCATION_UPDATED',allocationId,{...current,allocatedHours:Number(current.allocatedHours)}, {...updated,allocatedHours:Number(updated.allocatedHours),minimumMark:input.minimumMark},input.overrideReason??'');
             return toAllocationSummary(updated);
           },
           { isolationLevel: "Serializable" },
@@ -522,11 +534,12 @@ export function createOrganiserService(client: PrismaClient) {
               );
             }
 
+            const actor=await allocationAudit(transaction,organiserAuth0Id);
             const changed = await transaction.allocation.updateMany({
               where: { id: allocationId, status: current.status },
               data: {
                 status: "CANCELLED",
-                ...await allocationAudit(transaction, organiserAuth0Id),
+                ...actor,
               },
             });
             if (changed.count !== 1) {
@@ -537,6 +550,7 @@ export function createOrganiserService(client: PrismaClient) {
               );
             }
 
+            await appendAudit(transaction,actor.reviewedById,'ALLOCATION_CANCELLED',allocationId,{...current,allocatedHours:Number(current.allocatedHours)},{...current,allocatedHours:Number(current.allocatedHours),status:'CANCELLED',version:current.version+1});
             return {
               id: current.id,
               tutorId: current.tutorId,
@@ -640,6 +654,7 @@ export function createOrganiserService(client: PrismaClient) {
               );
             }
 
+            await writeAudit({async query<Row>(sql:string,parameters:unknown[]=[]){return {rows:await transaction.$queryRawUnsafe<Row[]>(sql,...parameters)};}},organiser.id,`TIMESHEET_${status}`,'timesheet',timesheetId,{id:timesheetId,...current},decided,input.reason??'');
             return {
               id: decided.id,
               tutorId: decided.tutorId,

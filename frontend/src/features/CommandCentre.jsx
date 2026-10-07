@@ -1,3 +1,4 @@
+import AuditTimeline from './AuditTimeline'
 import { useCallback, useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useAuth0 } from '@auth0/auth0-react'
@@ -514,6 +515,7 @@ export default function CommandCentre() {
         </div>
       </header>
 
+      <AuditTimeline/>
       <section className="role-card" aria-labelledby="command-centre-period-heading">
         <h2 id="command-centre-period-heading">Period</h2>
         <div className="calendar-toolbar">
