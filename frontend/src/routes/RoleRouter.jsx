@@ -1,5 +1,6 @@
 import SwapWorkspace from '../features/SwapWorkspace'
 import ScenarioPlanning from '../features/ScenarioPlanning'
+import ProposalLab from '../features/ProposalLab'
 import MutualAvailability from '../features/MutualAvailability'
 import TargetGate from '../features/TargetGate'
 import { NavLink, Navigate, Route, Routes, useLocation } from 'react-router-dom'
@@ -191,6 +192,7 @@ export function RoleRouter({ currentRole, onSignOut, user = null }) {
       <Route path="/tutor/swaps" element={protect(currentRole, ['TUTOR'], <SwapWorkspace swapId={swapId} />)} />
       <Route path="/organiser/swaps" element={protect(currentRole, ['ORGANISER'], <SwapWorkspace role="ORGANISER" swapId={swapId} />)} />
       <Route path="/organiser/scenarios" element={protect(currentRole, ['ORGANISER'], <ScenarioPlanning />)} />
+      <Route path="/organiser/proposals" element={protect(currentRole, ['ORGANISER'], <ProposalLab />)} />
       <Route path="/student/availability" element={protect(currentRole, ['STUDENT'], <MutualAvailability />)} />
       <Route path="/student/timetable" element={protect(currentRole, ['STUDENT'], <MyTimetable role="STUDENT" bookingId={bookingId} />)} />
       <Route
