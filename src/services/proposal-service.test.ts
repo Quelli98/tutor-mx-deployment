@@ -1,8 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
-import { createProposalService, PROPOSAL_PRESETS } from './proposal-service.js';
+import { createProposalService as realProposalService, PROPOSAL_PRESETS } from './proposal-service.js';
 import type { PlanningStore } from './planning-store.js';
 import type { QueryClient } from './allocation-queries.js';
 import type { ScenarioService } from './scenario-service.js';
+
+const createProposalService = (store: PlanningStore, scenarios: ScenarioService) => realProposalService(store, scenarios, () => scenarios);
 
 const START = '2030-10-07T08:00:00.000Z';
 const END = '2030-10-14T08:00:00.000Z';
@@ -338,7 +340,7 @@ describe('proposal service generation and explanations', () => {
     const oneCourse = fakeState({ requirements: sameWeek, candidates: [candidate({ tutorId: 2, weeklyLimit: 2, remainingHours: 2 })] });
     const blocked = await createProposalService(makeStore(oneCourse), scenarios().service).preview('auth|org', input());
     expect(blocked.assignments).toHaveLength(1);
-    expect(blocked.shortages).toEqual([{ requirementId: 2, courseCode: 'COMS2', hours: 2 }]);
+    expect(blocked.shortages.map(({ requirementId, courseCode, hours }) => ({ requirementId, courseCode, hours }))).toEqual([{ requirementId: 2, courseCode: 'COMS2', hours: 2 }]);
 
     const acrossBoundary = fakeState({
       requirements: [
@@ -364,7 +366,7 @@ describe('proposal service generation and explanations', () => {
     });
     const result = await createProposalService(makeStore(state), scenarios().service).preview('auth|org', input());
     expect(result.assignments).toEqual([]);
-    expect(result.shortages).toEqual([{ requirementId: 1, courseCode: 'COMS', hours: 3 }]);
+    expect(result.shortages.map(({ requirementId, courseCode, hours }) => ({ requirementId, courseCode, hours }))).toEqual([{ requirementId: 1, courseCode: 'COMS', hours: 3 }]);
     expect(result.metrics.shortageHours).toBe(3);
   });
 
@@ -435,7 +437,7 @@ describe('proposal service generation and explanations', () => {
     });
     const result = await createProposalService(makeStore(state), scenarios().service).preview('auth|org', input());
     expect(result.assignments).toEqual([]);
-    expect(result.shortages).toEqual([{ requirementId: 1, courseCode: 'COMS', hours: 1 }]);
+    expect(result.shortages.map(({ requirementId, courseCode, hours }) => ({ requirementId, courseCode, hours }))).toEqual([{ requirementId: 1, courseCode: 'COMS', hours: 1 }]);
     expect(result.metrics.shortageHours).toBe(1);
     expect(result.metrics.allocatedHours).toBe(2);
     expect(result.metrics.projectedCost).toBe(200);
@@ -550,4 +552,17 @@ describe('proposal service manual adjustment and validation', () => {
     const explained = await createProposalService(makeStore(state), scenario.service).explain('auth|org', 10);
     expect(explained.preset).toBe('BALANCED');
   });
+});
+
+it('retains hard-rule explanations when nobody can fill a requirement', async () => {
+  const state = fakeState({ candidates: [candidate({ mark: 20, isEligible: false })] });
+  const result = await createProposalService(makeStore(state), scenarios().service).preview('auth|org', input());
+  expect(result.assignments).toEqual([]);
+  expect(result.shortages[0]!.explanation[0]).toMatchObject({ eligible: false, hardFailures: ['insufficient-mark'] });
+});
+it('describes equal soft scores using deterministic tie-breaking', async () => {
+  const state = fakeState({ requirements: [requirement({ tutorsNeeded: 1 })], candidates: [candidate({ tutorId: 2 }), candidate({ tutorId: 3 })] });
+  const result = await createProposalService(makeStore(state), scenarios().service).preview('auth|org', input());
+  expect(result.assignments[0]!.tutorId).toBe(2);
+  expect(result.assignments[0]!.explanation.find(row => row.tutorId === 3)!.reason).toContain('tied');
 });

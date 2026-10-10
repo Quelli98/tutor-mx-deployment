@@ -1,11 +1,25 @@
 import { execFileSync } from "node:child_process";
-import { readFileSync, statSync } from "node:fs";
+import { readFileSync, statSync, readdirSync } from "node:fs";
 
-const trackedFiles = execFileSync("git", ["ls-files", "-z"], {
-  encoding: "utf8",
-})
-  .split("\0")
-  .filter(Boolean);
+// A source ZIP has no Git index; scan its source tree instead of failing or
+// accidentally checking an unrelated parent repository.
+function sourceFiles(directory = '.') {
+  const excluded = new Set(['.git', 'node_modules', 'dist', 'coverage', '.vscode']);
+  return readdirSync(directory, { withFileTypes: true }).flatMap(entry => {
+    if (excluded.has(entry.name)) return [];
+    const path = directory === '.' ? entry.name : `${directory}/${entry.name}`;
+    if (path === 'src/generated' || entry.isSymbolicLink()) return [];
+    return entry.isDirectory() ? sourceFiles(path) : [path];
+  });
+}
+let trackedFiles;
+try {
+  const root = execFileSync('git', ['rev-parse', '--show-toplevel'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
+  if (root !== process.cwd()) throw new Error('No repository index for this source root');
+  trackedFiles = execFileSync('git', ['ls-files', '-z'], { encoding: 'utf8' }).split('\0').filter(Boolean);
+} catch {
+  trackedFiles = sourceFiles();
+}
 
 const forbiddenEnvironmentFiles = trackedFiles.filter(
   (file) => {
@@ -49,7 +63,9 @@ const requiredAiDeclarations = [
   "AI code generation",
   "AI in-line editing",
   "AI code review",
-  "Codex[GPT-5]",
+  "ChatGPT[",
+  "Qoder[",
+  "Assisted-by:",
 ];
 for (const declaration of requiredAiDeclarations) {
   if (!readme.includes(declaration)) {
@@ -57,4 +73,4 @@ for (const declaration of requiredAiDeclarations) {
   }
 }
 
-console.log("Tracked-file secret and AI-attribution checks passed.");
+console.log("Source secret and AI declaration structure checks passed. Model provenance and historical commit trailers require human verification.");

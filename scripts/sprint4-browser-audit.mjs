@@ -9,7 +9,7 @@ import {resolve} from 'node:path';
 const require=createRequire(import.meta.url);
 const {chromium}=process.env.CODEX_PRIMARY_RUNTIME_NODE_MODULES
  ?require(`${process.env.CODEX_PRIMARY_RUNTIME_NODE_MODULES}/playwright`):require('playwright');
-if(!process.argv[2])throw new Error('Pass a private browser configuration file; see docs/sprint4-member4-browser-checks.md.');
+if(!process.argv[2])throw new Error('Pass a private browser configuration file; see docs/browser-verification.md.');
 const config=JSON.parse(await readFile(process.argv[2],'utf8'));
 const base=new URL(config.baseURL);assert(['http:','https:'].includes(base.protocol));
 const out=resolve('docs/evidence/s4-m4/browser');await mkdir(out,{recursive:true});

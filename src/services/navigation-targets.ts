@@ -9,6 +9,7 @@ export const DESTINATIONS: Record<string, { path: string; roles: TutorRole[] }> 
   'organiser-swaps': { path: '/organiser/swaps', roles: ['ORGANISER'] },
   'student-home': { path: '/student', roles: ['STUDENT'] },
   'student-availability': { path: '/student/availability', roles: ['STUDENT'] },
+  'organiser-proposals': { path: '/organiser/proposals', roles: ['ORGANISER'] },
   'organiser-scenarios': { path: '/organiser/scenarios', roles: ['ORGANISER'] },
   'student-timetable': { path: '/student/timetable', roles: ['STUDENT'] },
   'tutor-home': { path: '/tutor', roles: ['TUTOR'] },

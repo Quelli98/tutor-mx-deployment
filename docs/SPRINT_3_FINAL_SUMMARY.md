@@ -200,3 +200,5 @@ The following are recorded as non-blocking observations. They are NOT confirmed 
 The final audit found that all Member 1 through Member 6 Sprint 3 handbook acceptance areas are implemented and passing verification. No known blocking Sprint 3 defects remain. All cross-member integration chains are verified. No Sprint 1 or Sprint 2 regressions were identified.
 
 The Sprint 3 Intermediate feature layer is complete and ready for demonstration.
+
+Historical document: its original AI use/non-use and model evidence have not been verified in the final audit. Confirm a document-specific declaration before submitting it for marking; see the root AI_DECLARATION.md.

@@ -50,3 +50,5 @@ The Vite production build emitted its existing informational chunk-size warning;
 ## Manual handoff still required
 
 Before merging the pull request, use separate Student, Tutor and Organiser test accounts. For the Student flow, verify open, empty/error-retry, request confirmation, persisted outcome and wrong-role rejection. Test at a common phone width and using keyboard-only controls. Save the completed Gitea Actions and Codecov links as evidence.
+
+Historical document: its original AI use/non-use and model evidence have not been verified in the final audit. Confirm a document-specific declaration before submitting it for marking; see the root AI_DECLARATION.md.

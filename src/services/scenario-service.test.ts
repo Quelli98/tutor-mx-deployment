@@ -1,3 +1,4 @@
+import { createProposalService } from './proposal-service.js';
 import { PGlite } from '@electric-sql/pglite';
 import { readFile,readdir } from 'node:fs/promises';
 import { afterAll,beforeAll,beforeEach,describe,expect,it } from 'vitest';
@@ -202,5 +203,79 @@ describe('student availability database privacy and integration',()=>{
   await db.exec(`INSERT INTO "Allocation" ("tutorId","courseId","startsAt","endsAt","allocatedHours") VALUES (4,1,'2030-09-02 07:00','2030-09-02 09:00',2);UPDATE "Allocation" SET "status"='CONFIRMED',"reviewedById"=1,"reviewedAt"=CURRENT_TIMESTAMP WHERE "id"=2`);
   const draft=await service.create(org,{name:"Carry-in",startsAt:"2030-09-02T08:00:00Z",endsAt:"2030-09-09T00:00:00Z"}),comparison=await service.compare(org,draft.scenario.id);
   expect(draft.items).toHaveLength(1);expect(comparison.liveMetrics.shortageHours).toBe(1);expect(comparison.draftMetrics.shortageHours).toBe(1);
+ });
+});
+
+describe('proposal persistence against the real migrated database', () => {
+ const input = { name: 'Final proposal', startsAt: '2030-09-02T00:00:00Z', endsAt: '2030-09-09T00:00:00Z', preset: 'BALANCED' };
+ it('saves the compared strategy as a normal draft and reconciles scenario metrics', async () => {
+  const proposals = createProposalService(store, service);
+  const before = await rows();
+  const comparisons = await proposals.compare(org, inputWithoutPreset());
+  const chosen = comparisons[0]!;
+  const generated = await proposals.generate(org, { ...input, comparisonToken: chosen.comparisonToken });
+  expect(generated.proposal.assignments).toEqual(chosen.assignments);
+  expect(await rows()).toEqual(before);
+  const comparison = await service.compare(org, generated.scenario.id);
+  expect(comparison.draftMetrics.hours).toBe(generated.proposal.metrics.allocatedHours);
+  expect(comparison.draftMetrics.shortageHours).toBe(generated.proposal.metrics.shortageHours);
+  expect(comparison.draftMetrics.projectedCost).toBe(generated.proposal.metrics.projectedCost);
+ });
+ function inputWithoutPreset() { return { name: input.name, startsAt: input.startsAt, endsAt: input.endsAt }; }
+ it('keeps excused history in draft metrics without treating it as active coverage or a clash', async () => {
+  await db.exec(`INSERT INTO "Excuse" ("tutorId","allocationId","reason","createdAt") VALUES (3,1,'Private illness','2030-09-01 08:00'); UPDATE "Excuse" SET "status"='APPROVED',"reviewedById"=1,"reviewedAt"='2030-09-01 09:00';`);
+  const proposals = createProposalService(store, service);
+  const generated = await proposals.generate(org, input);
+  expect(generated.items.some(item => item.sourceAllocationId === 1)).toBe(true);
+  expect(generated.proposal.assignments).toHaveLength(2);
+  const compared = await service.compare(org, generated.scenario.id);
+  expect(generated.proposal.metrics.allocatedHours).toBe(compared.draftMetrics.hours);
+  expect(generated.proposal.metrics.projectedCost).toBe(compared.draftMetrics.projectedCost);
+  expect(generated.proposal.metrics.shortageHours).toBe(compared.draftMetrics.shortageHours);
+  const fromDraft = await proposals.compare(org, { ...inputWithoutPreset(), baseScenarioId: generated.scenario.id });
+  expect(fromDraft[0]!.metrics.shortageHours).toBe(0);
+  expect(fromDraft[0]!.assignments).toEqual([]);
+ });
+ it('rejects a changed comparison without leaving a draft or audit event', async () => {
+  const proposals = createProposalService(store, service);
+  const [chosen] = await proposals.compare(org, inputWithoutPreset());
+  await db.exec(`UPDATE "TutorMark" SET "mark"=40 WHERE "tutorId"=4`);
+  await expect(proposals.generate(org, { ...input, comparisonToken: chosen!.comparisonToken })).rejects.toMatchObject({ code: 'PROPOSAL_COMPARISON_STALE' });
+  expect(await service.list(org)).toEqual([]);
+  expect((await db.query('SELECT * FROM "AuditEvent"')).rows).toEqual([]);
+ });
+ it('rolls back scenario creation and assignment writes when final metadata fails', async () => {
+  const failingStore: PlanningStore = { ...store, transaction: work => store.transaction(client => work({
+   async query<Row>(sql: string, parameters: unknown[] = []) {
+    if (sql.includes('UPDATE "Scenario" SET "name"')) throw new Error('Injected metadata failure');
+    return client.query<Row>(sql, parameters);
+   },
+  })) };
+  await expect(createProposalService(failingStore, service).generate(org, input)).rejects.toThrow('Injected metadata failure');
+  expect(await service.list(org)).toEqual([]);
+  expect((await db.query('SELECT * FROM "ScenarioItem"')).rows).toEqual([]);
+  expect((await db.query('SELECT * FROM "AuditEvent"')).rows).toEqual([]);
+ });
+ it('rolls back a manual replacement when writing its reason fails', async () => {
+  const proposals = createProposalService(store, service);
+  const generated = await proposals.generate(org, input);
+  const added = generated.items.find(i => i.sourceAllocationId === null)!;
+  await db.exec(`INSERT INTO "Profile" ("auth0Id","email","fullName","role") VALUES ('test|extra','extra@test.example','Extra Tutor','TUTOR'); INSERT INTO "TutorMark" ("tutorId","courseId","mark") VALUES (7,1,85); INSERT INTO "TutorHourLimit" ("tutorId","weeklyHours") VALUES (7,20);`);
+  const before = await service.get(org, generated.scenario.id);
+  const audits = (await db.query('SELECT * FROM "AuditEvent" ORDER BY "id"')).rows;
+  const failingStore: PlanningStore = { ...store, transaction: work => store.transaction(client => work({
+   async query<Row>(sql: string, parameters: unknown[] = []) {
+    if (parameters.includes('PROPOSAL_MANUAL_ADJUSTMENT')) throw new Error('Injected reason failure');
+    return client.query<Row>(sql, parameters);
+   },
+  })) };
+  await expect(createProposalService(failingStore, service).adjust(org, generated.scenario.id, { version: generated.scenario.version, itemId: added.id, tutorId: 7, reason: 'Balance the workload' })).rejects.toThrow('Injected reason failure');
+  expect(await service.get(org, generated.scenario.id)).toEqual(before);
+  expect((await db.query('SELECT * FROM "AuditEvent" ORDER BY "id"')).rows).toEqual(audits);
+  await proposals.adjust(org, generated.scenario.id, { version: generated.scenario.version, itemId: added.id, tutorId: 7, reason: 'Balance the workload' });
+  const audit = (await db.query<{before: {items: {tutorId:number}[]}; after: {items: {tutorId:number}[]}; reason:string}>(`SELECT * FROM "AuditEvent" WHERE "action"='PROPOSAL_MANUAL_ADJUSTMENT'`)).rows[0]!;
+  expect(audit.before.items[0]!.tutorId).toBe(added.tutorId);
+  expect(audit.after.items[0]!.tutorId).toBe(7);
+  expect(audit.reason).toBe('Balance the workload');
  });
 });

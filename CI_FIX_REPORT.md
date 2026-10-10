@@ -95,3 +95,5 @@ large-bundle advisory; the build exits successfully.
 - `src/services/academic-terms.test.ts`
 - `src/services/academic-terms.ts`
 - `src/tutor-routes.test.ts`
+
+Historical document: its original AI use/non-use and model evidence have not been verified in the final audit. Confirm a document-specific declaration before submitting it for marking; see the root AI_DECLARATION.md.

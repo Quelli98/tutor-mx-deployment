@@ -95,3 +95,5 @@ All rows require `STUDENT`. The Student identity comes from `auth.subject`, neve
 ## Release rule
 
 Any new protected Sprint 2 endpoint must be added to this matrix and to `src/security-smoke.test.ts`. Missing/invalid tokens must fail `401`, wrong roles must fail `403`, and own-data routes must prove that the verified subject—not a browser identity field—controls access.
+
+Historical document: its original AI use/non-use and model evidence have not been verified in the final audit. Confirm a document-specific declaration before submitting it for marking; see the root AI_DECLARATION.md.
