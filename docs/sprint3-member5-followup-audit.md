@@ -23,3 +23,5 @@ This audit reviews the delivered source for failures similar to the organiser ap
 New tests exercise the real payroll API wrapper and shared client together against a separate API origin, including Auth0 parameters, trailing-slash configuration, missing credentials, HTTP errors, an HTML fallback, the filename and download cleanup. Backend coverage verifies filename-header exposure only for the configured origin. UI regressions cover history recovery without a status change and both synchronous and asynchronous import refresh failures.
 
 Verification results are recorded in `evidence/s3-m5/followup-audit-checks.txt`. Live Auth0, Neon and deployed browser smoke checks remain part of integration release verification.
+
+Historical document: its original AI use/non-use and model evidence have not been verified in the final audit. Confirm a document-specific declaration before submitting it for marking; see the root AI_DECLARATION.md.

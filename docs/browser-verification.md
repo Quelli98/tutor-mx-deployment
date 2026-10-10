@@ -1,6 +1,6 @@
-# Member 4 configured browser checks
+# Authenticated browser verification
 
-Status: **not executed here**. Chromium was absent; the attempted installation failed (see `evidence/s4-m4/browser-install.txt`). The script has been syntax checked. Unit/component tests do not substitute for this rendered, multi-session audit.
+Status: authenticated deployment checks require fresh dedicated test accounts and fixtures. This source audit does not claim live Auth0 or production browser verification. Unit/component tests do not substitute for this rendered, multi-session audit.
 
 Use a dedicated test deployment and synthetic people/data. The race checks change their test bookings, requests and overflow claim. Keep session files outside the repository and ZIP. No credentials are bundled.
 
@@ -72,3 +72,5 @@ The runner opens independent browser contexts and checks competing booking confi
 4. Toggle the timetable list and Command Centre written heatmap table. Compare the values against the visuals. Compare scenario/proposal tables and compact mode without losing actions.
 5. Review screenshots at each width with long names/reasons. Wide data tables may scroll inside their labelled local region; the entire page should not scroll horizontally. Inspect primary actions, mobile navigation and 200% text zoom.
 6. Record browser/version, build SHA, test account roles (without secrets), results and screenshots. Run remote CI and the normal live health/readiness checks before deployment sign-off.
+
+The preceding document was reviewed and edited with ChatGPT's Codex coding agent[exact underlying model not exposed in this session]; inherited attribution requires verification in AI_DECLARATION.md.

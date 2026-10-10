@@ -87,3 +87,5 @@ The earlier Members 1, 3, 5 and 6 integrated verification is recorded in `docs/s
 - Route names are now documented here, but if the team wants a different public route surface later, update the frontend mocks and this handoff together.
 
 The preceding document was generated and reviewed with the assistance of the following: Codex[GPT-5].
+
+Historical document: its original AI use/non-use and model evidence have not been verified in the final audit. Confirm a document-specific declaration before submitting it for marking; see the root AI_DECLARATION.md.

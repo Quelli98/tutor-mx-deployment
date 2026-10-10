@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import {
   findAllocationCandidates,
   toNaiveUtcText,
@@ -6,6 +7,7 @@ import {
 } from './allocation-queries.js';
 import { createRouteError } from '../http/errors.js';
 import {
+  inPlanningTransaction,
   exactFields,
   instant,
   invalid,
@@ -14,7 +16,7 @@ import {
   type PlanningStore,
 } from './planning-store.js';
 import { requiredHoursFor } from './staffing-requirement-service.js';
-import type { ScenarioService } from './scenario-service.js';
+import { createScenarioService, type ScenarioService } from './scenario-service.js';
 import { writeAudit } from './audit-service.js';
 
 export const PROPOSAL_PRESETS = [
@@ -48,6 +50,7 @@ type PlanItem = {
   allocatedHours: number;
   minimumMark: number;
   locked: boolean;
+  excused?: boolean;
 };
 
 type CourseFinance = {
@@ -82,6 +85,8 @@ type ProposalAssignment = {
 };
 
 type ScenarioDetail = Awaited<ReturnType<ScenarioService['get']>>;
+
+const comparisonToken = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex');
 
 const HOUR = 3_600_000;
 const TOLERANCE = 0.009;
@@ -154,6 +159,13 @@ function reason(raw: unknown) {
   return raw.trim();
 }
 
+function isExcused(item: PlanItem, currentLive: PlanItem[]) {
+  return currentLive.some(live => live.excused && live.sourceAllocationId === item.sourceAllocationId &&
+    live.tutorId === item.tutorId && live.courseId === item.courseId &&
+    +live.startsAt === +item.startsAt && +live.endsAt === +item.endsAt &&
+    live.allocatedHours === item.allocatedHours && live.minimumMark === item.minimumMark);
+}
+
 function plannedWeekUsage(
   candidate: AllocationCandidate,
   draftItems: PlanItem[],
@@ -167,13 +179,13 @@ function plannedWeekUsage(
   const liveContextHours = currentLive
     .filter(
       (item) =>
-        item.tutorId === candidate.tutorId && sameWeek(item.startsAt, weekOf),
+        item.tutorId === candidate.tutorId && sameWeek(item.startsAt, weekOf) && !isExcused(item, currentLive),
     )
     .reduce((sum, item) => sum + item.allocatedHours, 0);
   const draftContextHours = draftItems
     .filter(
       (item) =>
-        item.tutorId === candidate.tutorId && sameWeek(item.startsAt, weekOf),
+        item.tutorId === candidate.tutorId && sameWeek(item.startsAt, weekOf) && !isExcused(item, currentLive),
     )
     .reduce((sum, item) => sum + item.allocatedHours, 0);
   return round(Math.max(0, candidate.usedHours - liveContextHours) + draftContextHours);
@@ -246,10 +258,12 @@ function planClash(
   tutorId: number,
   startsAt: Date,
   endsAt: Date,
+  currentLive: PlanItem[],
 ) {
   return items.some(
     (item) =>
       item.tutorId === tutorId &&
+      !isExcused(item, currentLive) &&
       +item.startsAt < +endsAt &&
       +item.endsAt > +startsAt,
   );
@@ -290,7 +304,7 @@ function hardFailuresForCandidate(
     (value) => value === 'insufficient-mark',
   ) as string[];
   if (externalScheduleClash(candidate, currentLive)) failures.push('schedule-clash');
-  if (planClash(draftItems, candidate.tutorId, startsAt, endsAt)) {
+  if (planClash(draftItems, candidate.tutorId, startsAt, endsAt, currentLive)) {
     failures.push('schedule-clash');
   }
   const planned =
@@ -308,7 +322,7 @@ function coverageHours(
 ) {
   return round(
     [...items, ...carryIn]
-      .filter((item) => item.courseId === requirement.courseId)
+      .filter((item) => item.courseId === requirement.courseId && !item.excused)
       .reduce(
         (sum, item) =>
           sum + overlapHours(item, requirement.startsAt, requirement.endsAt),
@@ -357,16 +371,12 @@ async function courseFinances(client: QueryClient) {
 
 async function liveItems(client: QueryClient, startsAt: Date, endsAt: Date) {
   const { rows } = await client.query<PlanItem>(
-    `SELECT a."id",a."id" AS "sourceAllocationId",a."tutorId",p."fullName" AS "tutorName",a."courseId",c."code" AS "courseCode",a."startsAt",a."endsAt",a."allocatedHours"::float8 AS "allocatedHours",a."minimumMark"::float8 AS "minimumMark",false AS "locked"
+    `SELECT a."id",a."id" AS "sourceAllocationId",a."tutorId",p."fullName" AS "tutorName",a."courseId",c."code" AS "courseCode",a."startsAt",a."endsAt",a."allocatedHours"::float8 AS "allocatedHours",a."minimumMark"::float8 AS "minimumMark",false AS "locked",EXISTS(SELECT 1 FROM "Excuse" e WHERE e."allocationId"=a."id" AND e."status"='APPROVED' AND e."occurrenceStatus"='EXCUSED') AS excused
      FROM "Allocation" a
      JOIN "Profile" p ON p."id"=a."tutorId"
      JOIN "Course" c ON c."id"=a."courseId"
      WHERE a."status"='CONFIRMED'
        AND a."startsAt">=$1::timestamp AND a."startsAt"<$2::timestamp
-       AND NOT EXISTS(
-         SELECT 1 FROM "Excuse" e
-         WHERE e."allocationId"=a."id" AND e."status"='APPROVED' AND e."occurrenceStatus"='EXCUSED'
-       )
      ORDER BY a."startsAt",a."id" LIMIT 201`,
     [toNaiveUtcText(startsAt), toNaiveUtcText(endsAt)],
   );
@@ -557,6 +567,9 @@ async function build(
   base: PlanItem[],
   currentLive: PlanItem[],
 ) {
+  // Preserve excused live identities for Scenario history and cost/workload
+  // metrics, but do not count unchanged excused rows as active staffing/busy time.
+  base = base.map(item => ({ ...item, excused: isExcused(item, currentLive) }));
   const [rawRequirements, finances, carryIn] = await Promise.all([
     requirements(client, startsAt, endsAt),
     courseFinances(client),
@@ -581,6 +594,7 @@ async function build(
     requirementId: number;
     courseCode: string;
     hours: number;
+    explanation: CandidateExplanation[];
   }> = [];
 
   for (const requirement of orderedRequirements) {
@@ -598,11 +612,13 @@ async function build(
         .filter(
           (item) =>
             item.courseId === requirement.courseId &&
+            !item.excused &&
             overlapHours(item, requirement.startsAt, requirement.endsAt) > 0,
         )
         .map((item) => item.tutorId),
     );
 
+    let lastExplanations: CandidateExplanation[] = [];
     while (assigned + TOLERANCE < required) {
       // Fill only the remaining tutor-hours. Existing/manual coverage may be
       // partial, so always adding a full session could overstaff the draft.
@@ -656,6 +672,7 @@ async function build(
         };
       });
 
+      lastExplanations = explanations;
       const eligible = candidateOrder(
         candidates.filter(
           (candidate) =>
@@ -680,7 +697,9 @@ async function build(
       for (const explanation of explanations) {
         if (explanation.eligible && !explanation.chosen) {
           explanation.reason =
-            'Why not: all hard rules pass, but this tutor has a lower deterministic soft score than the chosen tutor for this preset.';
+            explanation.softScore === chosenExplanation.softScore
+              ? 'Why not: the soft score is tied; course mark, then Tutor ID breaks the tie deterministically.'
+              : 'Why not: all hard rules pass, but this tutor has a lower deterministic soft score than the chosen tutor for this preset.';
         }
       }
 
@@ -718,6 +737,7 @@ async function build(
         requirementId: requirement.id,
         courseCode: requirement.courseCode,
         hours: round(required - assigned),
+        explanation: lastExplanations,
       });
     }
   }
@@ -786,7 +806,10 @@ function presetFromNotes(notes: unknown): ProposalPreset {
 export function createProposalService(
   store: PlanningStore,
   scenarios: ScenarioService,
+  scenarioFactory: (store: PlanningStore) => ScenarioService = createScenarioService,
 ) {
+  const outerStore = store;
+  const outerScenarios = scenarios;
   async function context(raw: unknown) {
     const input = exactFields(raw, [
       'name',
@@ -794,7 +817,9 @@ export function createProposalService(
       'endsAt',
       'preset',
       'baseScenarioId',
+      'comparisonToken',
     ]);
+    if (input.comparisonToken !== undefined && (typeof input.comparisonToken !== 'string' || !/^[a-f0-9]{64}$/.test(input.comparisonToken))) invalid('Compare the strategies again before saving.');
     const startsAt = instant(input.startsAt);
     const endsAt = instant(input.endsAt);
     const chosenPreset = preset(input.preset);
@@ -817,6 +842,7 @@ export function createProposalService(
       endsAt,
       chosenPreset,
       baseScenarioId,
+      expectedComparisonToken: input.comparisonToken,
     };
   }
 
@@ -850,6 +876,8 @@ export function createProposalService(
     startsAt: Date,
     endsAt: Date,
     baseScenarioId: number | null,
+    store: PlanningStore = outerStore,
+    scenarios: ScenarioService = outerScenarios,
   ) {
     const currentLive = await liveItems(store, startsAt, endsAt);
     if (!baseScenarioId) return { base: currentLive, currentLive, detail: null };
@@ -918,18 +946,10 @@ export function createProposalService(
           comparisonContext.endsAt,
         );
         const base = baseItems ?? currentLive;
-        const rows: Awaited<ReturnType<typeof build>>[] = [];
+        const rows: (Awaited<ReturnType<typeof build>> & { comparisonToken: string })[] = [];
         for (const chosenPreset of PROPOSAL_PRESETS) {
-          rows.push(
-            await build(
-              client,
-              comparisonContext.startsAt,
-              comparisonContext.endsAt,
-              chosenPreset,
-              base,
-              currentLive,
-            ),
-          );
+          const built = await build(client, comparisonContext.startsAt, comparisonContext.endsAt, chosenPreset, base, currentLive);
+          rows.push({ ...built, comparisonToken: comparisonToken({ base, currentLive, built }) });
         }
         return rows;
       });
@@ -951,6 +971,9 @@ export function createProposalService(
     },
 
     async generate(subject: string, raw: unknown) {
+      return inPlanningTransaction(outerStore, async client => {
+        const store: PlanningStore = { query: client.query.bind(client), transaction: work => work(client) };
+        const scenarios = scenarioFactory(store);
       const proposalContext = await context(raw);
       await requireProfile(store, subject, 'ORGANISER');
       const { base, currentLive, detail: baseDetail } = await resolveBase(
@@ -958,6 +981,8 @@ export function createProposalService(
         proposalContext.startsAt,
         proposalContext.endsAt,
         proposalContext.baseScenarioId,
+        store,
+        scenarios,
       );
 
       // Build first. A validation/query failure therefore does not leave an empty
@@ -971,6 +996,12 @@ export function createProposalService(
         currentLive,
       );
 
+      if (proposalContext.expectedComparisonToken !== undefined && proposalContext.expectedComparisonToken !== comparisonToken({ base, currentLive, built })) {
+        throw createRouteError(409, 'PROPOSAL_COMPARISON_STALE', 'School data or the starting draft changed. Compare all strategies again before saving the chosen result.');
+      }
+      if (base.length + built.assignments.length > 200) {
+        throw createRouteError(422, 'PROPOSAL_TOO_LARGE', 'Choose a smaller planning window (maximum 200 draft assignments).');
+      }
       let created: ScenarioDetail;
       if (baseDetail && proposalContext.baseScenarioId) {
         const duplicated = await scenarios.change(
@@ -1060,6 +1091,7 @@ export function createProposalService(
         items: detail.items,
         proposal: built,
       };
+      });
     },
 
     async explain(subject: string, id: number) {
@@ -1131,7 +1163,7 @@ export function createProposalService(
                 ? 'Chosen in this proposal: mark, clash and selected-week capacity currently pass.'
                 : `Chosen earlier, but current hard rules now fail (${hardFailures.join(', ')}). Refresh and review before publishing.`
               : eligible
-                ? 'Why not: all hard rules currently pass, but this tutor has a lower soft score for this preset.'
+                ? 'Eligible alternative: compare the current soft score and factors. The saved choice may reflect an organiser adjustment or earlier data.'
                 : `Why not: hard rule failed (${hardFailures.join(', ')}).`,
           };
         });
@@ -1166,6 +1198,9 @@ export function createProposalService(
     },
 
     async adjust(subject: string, id: number, raw: unknown) {
+      return inPlanningTransaction(outerStore, async client => {
+        const store: PlanningStore = { query: client.query.bind(client), transaction: work => work(client) };
+        const scenarios = scenarioFactory(store);
       const input = exactFields(raw, [
         'version',
         'itemId',
@@ -1259,16 +1294,17 @@ export function createProposalService(
         'PROPOSAL_MANUAL_ADJUSTMENT',
         'scenario',
         id,
-        { itemId: item.id, tutorId: item.tutorId },
+        { id, items: [item] },
         {
-          itemId: item.id,
-          tutorId: candidate.tutorId,
-          reason: adjustmentReason,
+          id,
+          items: [{ ...item, tutorId: candidate.tutorId }],
         },
         adjustmentReason,
       );
       return changed;
+      });
     },
+
   };
 }
 

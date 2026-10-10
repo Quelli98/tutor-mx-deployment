@@ -1,4 +1,4 @@
-# Sprint 4 endpoint role and ownership matrix
+# Endpoint role and ownership matrix
 
 All paths below require a verified bearer token and a currently permitted stored profile. Missing/invalid authentication is 401; wrong role or explicit forbidden action is 403. Authentication does not accept an actor ID from the body. ORGANISER includes existing Master Organiser access through the application's existing role model.
 
@@ -69,3 +69,19 @@ Audit/history access is not available to Students or Tutors. Restore never accep
 `src/audit-routes.test.ts` checks authentication, role matrix and safe route contracts. `src/services/scheduling.test.ts` uses migrated PGlite storage for real ownership, state transitions, retry/competing-request outcomes, audit redaction and rollback. `src/tutor-routes.test.ts`, `src/scheduling-routes.test.ts`, `src/planning-routes.test.ts`, `src/services/timetable-import-service.test.ts` and `src/services/student-workflows.test.ts` provide focused existing-contract coverage. UI tests cover applied filters/export, before/after detail, blocked preview, explicit reason/confirmation, selection changes and stale recovery.
 
 These are local focused checks, not live Auth0 validation or proof of independent Neon connection races. See the handoff for results and remaining integration checks.
+
+The preceding document was reviewed and edited with ChatGPT's Codex coding agent[exact underlying model not exposed in this session]; inherited attribution requires verification in AI_DECLARATION.md.
+
+## Proposal intelligence
+
+All proposal routes require ORGANISER and a fresh stored profile. Student/Tutor access is forbidden.
+
+| Method and path | Purpose / boundary |
+| --- | --- |
+| POST `/api/organiser/proposals/preview` | Read-only deterministic proposal for a future window up to 28 days |
+| POST `/api/organiser/proposals/compare` | Four strategies in one serializable snapshot; each result includes a comparisonToken |
+| POST `/api/organiser/proposals/generate` | Atomically creates/duplicates a draft, adds proposed items and metadata/audit; never publishes live |
+| GET `/api/organiser/proposals/:id/explanations` | Current hard rules and soft factors for generated assignments |
+| POST `/api/organiser/proposals/:id/adjust` | Expected scenario version, eligible replacement, unlocked item and required reason; change/audit commit together |
+
+Preview/generate accept name, startsAt, endsAt, preset and optional baseScenarioId. Compare omits preset. Saving a compared strategy also sends its comparisonToken; changed input data returns 409 PROPOSAL_COMPARISON_STALE before any draft is persisted. Plain generation has no comparison prerequisite. Every proposal remains subject to a fresh Compare with Live and explicit Publish in Scenario planning.

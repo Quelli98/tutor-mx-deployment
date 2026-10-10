@@ -1,5 +1,3 @@
-> **Sprint 4 update:** Start with [START-HERE-SPRINT4-MEMBERS1-TO3.md](START-HERE-SPRINT4-MEMBERS1-TO3.md) for the combined Members 1–3 code, migration steps and handoff.
-
 # Tutor Mx System
 
 Tutor Mx is one integrated React + Vite, Auth0, handwritten Express, Prisma and Neon PostgreSQL project. Browser code calls only the Express API; it never connects to Neon, Prisma or an Auth0 Management API.
@@ -7,13 +5,12 @@ Tutor Mx is one integrated React + Vite, Auth0, handwritten Express, Prisma and 
 ## Demo and team repository
 
 - **Production frontend:** https://tutor-mx.pages.dev
-- **Latest deployment (commit 579eb35, 2026-09-20):** https://b677174c.tutor-mx.pages.dev
 - **Production backend:** https://tutor-mx-api.onrender.com
 - **Official team source repository:** Gitea `innovent/tutor-mx-system`
 - **Deployment mirror:** the GitHub copy can be used to trigger the hosted Cloudflare Pages / Render deployment, but team development starts from the latest Gitea `main`.
-- **Current integrated Sprint 2 code:** Members 1-6 are integrated into this PR-ready source.
+- **Integrated scope:** Sprint 1–3 foundations and all 18 Sprint 4 Member 1–6 feature cards. See [final audit](docs/final-audit.md) for fixes, validation evidence and remaining external checks.
 
-**Verification (2026-09-20):** Frontend HTTP 200 ✓ | Backend /health 200 ✓ | Protected API unauthenticated 401 ✓
+**Historical verification (2026-09-20, not repeated by this audit):** Frontend HTTP 200 ✓ | Backend /health 200 ✓ | Protected API unauthenticated 401 ✓
 
 The hosted demo follows the repository architecture: the browser loads the React/Vite frontend, Auth0 handles sign-in, React sends an Auth0 bearer token to the handwritten Express API, Express enforces role/ownership checks, and Prisma accesses Neon PostgreSQL. Team members can use the public URL for Sprint 1 demonstrations without receiving production database or Auth0 secrets.
 
@@ -157,47 +154,24 @@ The CI workflow uploads `coverage/lcov.info` with the `backend` Codecov flag and
 
 See `docs/member-2-handoff.md`, `docs/sprint2-endpoint-role-matrix.md`, `docs/sprint2-m4-student-overflow.md`, the other `docs/member-*-handoff.md` files and `docs/github-required-checks.md` for completed evidence and repository-admin follow-ups.
 
+## Final release workflow
+
+The integrated features include shared Student/Tutor timetables, mutual availability, bookings and sick-note approvals, scenarios/locks/presence, Tutor swaps, audit/restore, and explainable proposal strategies. The [endpoint matrix](docs/endpoint-role-matrix.md) records role and ownership boundaries.
+
+Run `npm run check` and `npm run coverage` after copying changes into your checkout. Run `npm run db:migrate` against the intended database using its direct connection before releasing; do not reset production or reseed existing production data. See [browser verification](docs/browser-verification.md) for authenticated multi-session checks. Deployment, remote CI, Codecov and production migration status are external checks, not implied by this source archive.
+
+The obsolete `START-HERE-SPRINT4-*.md` files and per-member Sprint 4 handoffs have been removed. When copying this ZIP over an existing Windows checkout, remove the obsolete files listed in [final audit](docs/final-audit.md); extracting over a folder does not delete old files.
+
 ## AI declaration
 
-This repository makes use of AI code generation using the following tools: Codex[GPT-5], ChatGPT[GPT-5.6 Sol], Qoder[Auto tier; underlying model automatically routed], Claude Code[Claude Opus 5.5].
+This repository makes use of AI code generation using ChatGPT[model not yet verified] (Raquel) and Qoder[model/Auto setting not yet verified] (other team members), as confirmed by the Integration Lead on 10 October 2026. The final code audit and fixes were assisted by ChatGPT's Codex coding agent[exact underlying model not exposed in this session].
 
-This repository makes use of AI in-line editing using the following tools: Qoder[Auto tier; underlying model automatically routed].
+This repository makes use of AI code review using ChatGPT[model not yet verified], including this final Codex-assisted review. Qoder-assisted review must be attributed by its users wherever performed.
 
-This repository makes use of AI code review using the following tools: Codex[GPT-5], ChatGPT[GPT-5.6 Sol], Qoder[Auto tier; underlying model automatically routed].
+AI in-line editing: earlier documentation declared Qoder use, but the latest team statement confirms the tool only. Each member must confirm in-line editing use or non-use and the actual model/Auto setting before submission. Do not turn missing evidence into a non-use declaration.
 
-The supplied Qoder screenshot records Qoder application version 1.23.0 and VS Code version 1.106.3. Those software versions do not identify the Qoder AI model/tier. Qoder's official model selector can use a specific model or a routed tier, so the actual setting/transcript must be checked rather than inferred from the About dialog.
+The [AI declaration and course-policy checklist](AI_DECLARATION.md) is authoritative for this release. Unverified model labels are transparent evidence gaps, not a claim of full attribution compliance. Earlier handoffs retain historical statements; their named tools/models must be checked against original sessions before reuse.
 
-Commits containing AI-generated code must include the actual assisting tool/model trailer(s), for example:
+AI-generated code commits require `Assisted-by: <actual-tool>[<actual-model>]` for every assisting tool. Enter verified settings before the final commit; do not copy model names from policy examples. No original Git history was present in the upload, so this audit cannot verify or repair earlier commit trailers.
 
-```text
-Assisted-by: ChatGPT[GPT-5.6 Sol]
-```
-
-For the 14 September 2026 Member 2 Sprint 2 final integration in this source, use the truthful trailer:
-
-```text
-Assisted-by: Codex[GPT-5]
-```
-
-Preserve any existing truthful `Assisted-by` trailers for work generated with Codex or Qoder.
-
-If the original Member 1 commit also contains Qoder-generated code, its actual `Qoder[model]` must appear in that commit trailer. Do not invent the model name. Preserve the required unedited assessment transcript or permitted substitute.
-
-The preceding document was generated and reviewed with the assistance of the following: Codex[GPT-5], ChatGPT[GPT-5.6 Sol].
-
-## Sprint 3 Member 5 handoff (25 September 2026)
-
-See [Member 5 handoff](MEMBER5_HANDOFF.md) for setup and the new migration, and [API audit and evidence](docs/sprint3-member5-completion.md) for S3-M5-1/2/3. The documentation website includes [Member 5 evidence](docs-site/member5-sprint3.html). This is a locally verified source handoff; production integration and deployment remain with the Integration Lead.
-
-The revised archive includes a [follow-up bug audit](docs/sprint3-member5-followup-audit.md) covering payroll exports, timesheet history recovery and import refresh errors.
-
-
-## Sprint 4 Member 1 update - 3 October 2026
-
-Codex assisted with AI code generation, AI in-line editing and AI code review for shared Student/Tutor schedules, session hardening, permission-checked navigation, notifications and recent/favourite destinations. It also generated regression tests and the handoff notes. The final integrator should review the changes and run project CI before merging. See `START-HERE-SPRINT4-MEMBER1.md` and `docs/sprint4-member1-handoff.md`. No live production deployment or stakeholder validation is claimed.
-
-## Sprint 4 final Member 6 completion
-
-The final Sprint 4 Member 6 planning-intelligence layer is included in this archive. Organisers now have an **Allocation proposal lab** at `/organiser/proposals` with deterministic Balanced, Strongest Match, Fair Workload and Budget Aware strategies, explainable Why this Tutor?/Why not? results, impact comparison, reasoned eligible manual adjustment, and normal draft-Scenario handoff to Compare with Live/Publish. The engine reuses existing allocation eligibility, timetable/clash/capacity rules and confirmed Student tutoring bookings; it does not write directly to live allocations.
-
-See `START-HERE-SPRINT4-FINAL.md` for the final Members 1–6 handover and verification steps.
+The preceding document was reviewed and edited with ChatGPT's Codex coding agent[exact underlying model not exposed in this session]. Prior attribution claims require verification as described in AI_DECLARATION.md.

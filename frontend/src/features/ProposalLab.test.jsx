@@ -124,3 +124,23 @@ it('surfaces generation failures without saving a scenario', async () => {
   expect(mocks.explain).not.toHaveBeenCalled()
   expect(screen.queryByRole('region', { name: 'Proposal assignments' })).not.toBeInTheDocument()
 })
+
+it('discards a comparison when its planning window changes', async () => {
+  renderLab()
+  fireEvent.click(screen.getByRole('button', { name: 'Compare all strategies' }))
+  await screen.findByRole('region', { name: 'Strategy impact comparison' })
+  fireEvent.change(screen.getByLabelText('Planning from'), { target: { value: '2030-10-10T10:00' } })
+  expect(screen.queryByRole('region', { name: 'Strategy impact comparison' })).not.toBeInTheDocument()
+})
+
+it('sends the comparison token when saving and shows unfilled requirement reasons', async () => {
+  mocks.compare.mockResolvedValueOnce([{ ...comparison[0], comparisonToken: 'a'.repeat(64), assignments: [], shortages: [{ requirementId: 9, courseCode: 'MATH', hours: 2, explanation: [explanationRows[2]] }] }])
+  renderLab()
+  fireEvent.click(screen.getByRole('button', { name: 'Compare all strategies' }))
+  const table = await screen.findByRole('region', { name: 'Strategy impact comparison' })
+  fireEvent.click(within(table).getByRole('button', { name: 'Review why' }))
+  expect(screen.getByText('Why is this requirement unfilled?')).toBeInTheDocument()
+  expect(screen.getByText(/hard rule failed \(schedule-clash\)/)).toBeInTheDocument()
+  fireEvent.click(within(table).getByRole('button', { name: 'Save this strategy as Scenario' }))
+  await waitFor(() => expect(mocks.generate).toHaveBeenCalledWith(expect.objectContaining({ comparisonToken: 'a'.repeat(64) }), mocks.token))
+})

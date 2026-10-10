@@ -122,3 +122,5 @@ Resource IDs and dates above are illustrative. API success data remains inside `
 ## Handoff and report use
 
 Keep this work on `s3/m5/completion`. Member 5 hands implementation and local evidence to the Integration Lead; Member 6 starts from updated main only after review and integration. The report should describe the contract mismatch, why the existing architecture was preserved, how database transaction boundaries were strengthened, and what the local evidence can and cannot prove. This page is report evidence, not a claim that remote CI, production migrations or user acceptance testing have already run.
+
+Historical document: its original AI use/non-use and model evidence have not been verified in the final audit. Confirm a document-specific declaration before submitting it for marking; see the root AI_DECLARATION.md.

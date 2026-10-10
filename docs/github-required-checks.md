@@ -25,3 +25,5 @@ Block force pushes and branch deletion. Do not allow administrators or the Integ
 The workflows read secrets through GitHub's secret context and contain no secret values. The tracked-file security check also rejects committed environment files, common key formats, hard-coded Codecov/Auth0 tokens and PostgreSQL URLs containing passwords.
 
 The preceding document was generated and reviewed with the assistance of the following: Codex[GPT-5].
+
+Historical document: its original AI use/non-use and model evidence have not been verified in the final audit. Confirm a document-specific declaration before submitting it for marking; see the root AI_DECLARATION.md.

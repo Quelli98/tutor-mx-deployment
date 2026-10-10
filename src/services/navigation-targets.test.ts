@@ -33,6 +33,10 @@ describe('shared ownership migration and live destination permission checks', ()
     for (const destinationId of ['tutor-forms', 'deleted-page', '__proto__']) await expect(resolveNavigation(client, 'demo|student', { destinationId })).rejects.toMatchObject({ status: 404 });
     await expect(resolveNavigation(client, 'deleted-account', { destinationId: 'settings' })).rejects.toMatchObject({ status: 404 });
   });
+  it('resolves the proposal palette/favourite destination only for an Organiser', async () => {
+    expect(await resolveNavigation(client, 'demo|organiser', { destinationId: 'organiser-proposals' })).toEqual({ linkPath: '/organiser/proposals', action: 'View' });
+    for (const subject of ['demo|student', 'demo|tutor-pass']) await expect(resolveNavigation(client, subject, { destinationId: 'organiser-proposals' })).rejects.toMatchObject({ status: 404 });
+  });
   it('checks a timesheet owner and rechecks after its ownership changes', async () => {
     const owner = (await db.query<{ id: number }>(`SELECT "id" FROM "Profile" WHERE "auth0Id" = 'demo|tutor-pass'`)).rows[0]!.id;
     const other = (await db.query<{ id: number }>(`SELECT "id" FROM "Profile" WHERE "auth0Id" = 'demo|tutor-clash'`)).rows[0]!.id;

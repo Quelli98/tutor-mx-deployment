@@ -19,3 +19,5 @@ The Organiser Tutor management screen still exposed a manual **Auth0 subject** f
 ## Compatibility note
 
 The older `POST /api/tutors` route is retained only for compatibility with the previously integrated Member 2 API contract. The current self-service Organiser UI does not call it. New Tutor identities should come from the Auth0 onboarding flow rather than manual Organiser entry.
+
+Historical document: its original AI use/non-use and model evidence have not been verified in the final audit. Confirm a document-specific declaration before submitting it for marking; see the root AI_DECLARATION.md.

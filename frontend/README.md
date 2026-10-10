@@ -6,4 +6,6 @@ Auth0 Universal Login owns sign-up, sign-in, sign-out and password entry. The br
 
 The Tutor role opens an own-user dashboard at `/tutor` and availability, work-log and excuse forms at `/tutor/forms`. These screens call `/api/tutor/...` routes with the shared bearer helper; they never send a tutor ID or connect to Prisma/Neon directly.
 
-The preceding document was generated and reviewed with the assistance of the following: Codex[GPT-5].
+See [AI_DECLARATION.md](AI_DECLARATION.md) and the root declaration for confirmed team tools and model-evidence gaps.
+
+The preceding document was reviewed and edited with ChatGPT's Codex coding agent[exact underlying model not exposed in this session]. Historical attribution is unverified as explained in the root declaration.

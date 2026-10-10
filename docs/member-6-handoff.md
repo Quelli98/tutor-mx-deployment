@@ -63,3 +63,5 @@ The external spike command performs a real network request; automated tests use 
 The earlier Members 1, 3, 5 and 6 test counts and coverage are recorded in `docs/sprint1-members-1-3-5-6-integration.md`; the current acceptance mapping including Member 4 is in `docs/sprint1-members-1-3-4-5-6-integration.md`.
 
 The preceding document was generated and reviewed with the assistance of the following: Codex[GPT-5].
+
+Historical document: its original AI use/non-use and model evidence have not been verified in the final audit. Confirm a document-specific declaration before submitting it for marking; see the root AI_DECLARATION.md.

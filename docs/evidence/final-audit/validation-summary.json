@@ -1,0 +1,21 @@
+{
+  "backend": {
+    "tests": 1466,
+    "files": 52,
+    "statements": 92.0,
+    "branches": 86.59,
+    "functions": 96.15,
+    "lines": 92.69,
+    "thresholds_passed": true
+  },
+  "frontend": {
+    "tests": 847,
+    "files": 77,
+    "statements": 84.7,
+    "branches": 79.89,
+    "functions": 83.95,
+    "lines": 87.6
+  },
+  "rendered_browser": "Not run: Chromium download failed",
+  "remote_deployment": "Not modified or verified"
+}
