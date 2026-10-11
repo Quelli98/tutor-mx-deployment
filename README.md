@@ -4,8 +4,13 @@ Tutor Mx is one integrated React + Vite, Auth0, handwritten Express, Prisma and 
 
 ## Demo and team repository
 
-- **Production frontend:** https://tutor-mx.pages.dev
-- **Production backend:** https://tutor-mx-api.onrender.com
+- **Production application (frontend):** https://tutor-mx.pages.dev
+- **Production API (backend base URL):** https://tutor-mx-api.onrender.com
+- **API health check:** https://tutor-mx-api.onrender.com/health
+- **API readiness check (database connectivity):** https://tutor-mx-api.onrender.com/ready
+
+The API base URL has no homepage and may return `NOT_FOUND`. Open the frontend to use the application; use `/health` and `/ready` to check API availability. Keep `VITE_API_BASE_URL` pointed at the API base URL.
+
 - **Official team source repository:** Gitea `innovent/tutor-mx-system`
 - **Deployment mirror:** the GitHub copy can be used to trigger the hosted Cloudflare Pages / Render deployment, but team development starts from the latest Gitea `main`.
 - **Integrated scope:** Sprint 1–3 foundations and all 18 Sprint 4 Member 1–6 feature cards. See [final audit](docs/final-audit.md) for fixes, validation evidence and remaining external checks.

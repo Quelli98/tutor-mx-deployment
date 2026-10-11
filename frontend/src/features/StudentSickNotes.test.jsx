@@ -34,7 +34,10 @@ it('requires a rejection note, confirms and refreshes the Organiser queue', asyn
 })
 it('refreshes a stale Organiser view, removes invalid actions and recovers focus', async () => {
  render(<StudentSickNoteQueue/>); fireEvent.click(await screen.findByRole('button', { name: 'Approve request #1' })); mocks.decide.mockRejectedValue(Object.assign(new Error('Another Organiser acted'), { status: 409 })); mocks.list.mockResolvedValue({ items: [{ ...item, status: 'APPROVED' }], pendingCount: 0, hasMore: false }); fireEvent.click(screen.getByRole('button', { name: 'Confirm decision' }));
- await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('Latest queue loaded')); expect(screen.queryByRole('button', { name: 'Approve request #1' })).not.toBeInTheDocument(); expect(screen.getByRole('alert')).toHaveFocus()
+ await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('Latest queue loaded'))
+ expect(screen.queryByRole('button', { name: 'Approve request #1' })).not.toBeInTheDocument()
+ // ConflictNotice focuses the alert in an effect after the message renders.
+ await waitFor(() => expect(screen.getByRole('alert')).toHaveFocus())
 })
 it('fails closed if refreshing after a conflict fails', async () => {
  render(<StudentSickNoteQueue/>); fireEvent.click(await screen.findByRole('button', { name: 'Approve request #1' })); mocks.decide.mockRejectedValue(Object.assign(new Error('Changed'), { status: 409 })); mocks.list.mockRejectedValue(new Error('Offline')); fireEvent.click(screen.getByRole('button', { name: 'Confirm decision' }));
