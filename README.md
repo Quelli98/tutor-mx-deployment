@@ -169,14 +169,14 @@ The obsolete `START-HERE-SPRINT4-*.md` files and per-member Sprint 4 handoffs ha
 
 ## AI declaration
 
-This repository makes use of AI code generation using ChatGPT[model not yet verified] (Raquel) and Qoder[model/Auto setting not yet verified] (other team members), as confirmed by the Integration Lead on 10 October 2026. The final code audit and fixes were assisted by ChatGPT's Codex coding agent[exact underlying model not exposed in this session].
+This repository makes use of AI code generation using the tools and models recorded by the authors in the `Assisted-by:` trailers of this repository's `main` branch: Codex[GPT-5], Codex[GPT-6], Codex[GPT-5.6 Sol Ultra], ChatGPT[GPT-5.6 Sol], ChatGPT[GPT-5.6 Luna], ChatGPT-Work[GPT-5], Claude-Code[Claude Opus 5], Claude Code[Claude Opus 5.5], Qoder[Auto tier; underlying model automatically routed], Qoder Quest[Auto] and Qoder[Claude Sonnet 4]. These trailers record what was declared at commit time and do not by themselves verify the models. The final code audit and fixes were assisted by ChatGPT's Codex coding agent; its code-side model labels are those recorded in its commits' trailers.
 
-This repository makes use of AI code review using ChatGPT[model not yet verified], including this final Codex-assisted review. Qoder-assisted review must be attributed by its users wherever performed.
+This repository makes use of AI code review using ChatGPT, with models as recorded in the commit trailers, including this final Codex-assisted review. Qoder-assisted review must be attributed by its users wherever performed.
 
 AI in-line editing: earlier documentation declared Qoder use, but the latest team statement confirms the tool only. Each member must confirm in-line editing use or non-use and the actual model/Auto setting before submission. Do not turn missing evidence into a non-use declaration.
 
 The [AI declaration and course-policy checklist](AI_DECLARATION.md) is authoritative for this release. Unverified model labels are transparent evidence gaps, not a claim of full attribution compliance. Earlier handoffs retain historical statements; their named tools/models must be checked against original sessions before reuse.
 
-AI-generated code commits require `Assisted-by: <actual-tool>[<actual-model>]` for every assisting tool. Enter verified settings before the final commit; do not copy model names from policy examples. No original Git history was present in the upload, so this audit cannot verify or repair earlier commit trailers.
+AI-generated code commits require `Assisted-by: <actual-tool>[<actual-model>]` for every assisting tool. Enter verified settings before the final commit; do not copy model names from policy examples. The supplied ZIP archive contained no Git history, but the official Gitea repository does: earlier trailers are verifiable in `main`'s history and are preserved unaltered. Corrections to attribution are made by updating these declarations, never by rewriting commits. Erratum: one historical trailer (commit `e75e988`) misspells the tool as `Quoda`; the intended tool could not be confirmed, and the original trailer is left unchanged.
 
-The preceding document was reviewed and edited with ChatGPT's Codex coding agent[exact underlying model not exposed in this session]. Prior attribution claims require verification as described in AI_DECLARATION.md.
+The preceding document was reviewed and edited with ChatGPT's Codex coding agent; model labels for repository code are as recorded in the repository's `Assisted-by:` commit trailers (see AI_DECLARATION.md). Prior attribution claims require verification as described in AI_DECLARATION.md.
