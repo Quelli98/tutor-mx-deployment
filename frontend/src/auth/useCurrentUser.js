@@ -40,12 +40,18 @@ export function useCurrentUser({ enabled = true } = {}) {
     let ignore = false
     let revision = 0
     let locked = false
+    let hasLoadedProfile = false
 
-    async function loadUser() {
+    async function loadUser({ background = false } = {}) {
       const request = ++revision
-      setLoading(true)
-      setError('')
-      setErrorCode('')
+      // A focus event should check for role changes WITHOUT unmounting the
+      // current workspace. Otherwise all unsaved form inputs are destroyed.
+      const keepWorkspace = background && hasLoadedProfile
+      if (!keepWorkspace) {
+        setLoading(true)
+        setError('')
+        setErrorCode('')
+      }
 
       try {
         const profile = await fetchWithBearerToken(
@@ -65,41 +71,58 @@ export function useCurrentUser({ enabled = true } = {}) {
           profile?.data?.user?.role ||
           null
 
+        hasLoadedProfile = true
         setUser(profile)
         setRole(normalizeRole(roleSource))
+        setError('')
+        setErrorCode('')
       } catch (err) {
-        if (!ignore && request === revision) {
-          setUser(null)
-          setRole(null)
-          setError(err?.message || 'Unable to load user profile')
-          setErrorCode(err?.code || 'REQUEST_FAILED')
-        }
+        if (ignore || request !== revision) return
+        // A brief network outage while returning to a tab must not destroy
+        // form edits. Authentication/permission failures are still handled by
+        // sessionState (SESSION_EVENT / PERMISSION_EVENT) and fail closed.
+        if (keepWorkspace && !isSessionLocked() && (err?.status == null || err.status === 429 || err.status >= 500)) return
+        hasLoadedProfile = false
+        setUser(null)
+        setRole(null)
+        setError(err?.message || 'Unable to load user profile')
+        setErrorCode(err?.code || 'REQUEST_FAILED')
       } finally {
-        if (!ignore && request === revision) {
-          setLoading(false)
-        }
+        if (!ignore && request === revision) setLoading(false)
       }
     }
 
     function invalidate(event) {
       locked = true
+      hasLoadedProfile = false
       revision += 1
       setUser(null); setRole(null); setLoading(false)
       setError(event.detail?.message || 'Your session has expired. Please sign in again.')
       setErrorCode('SESSION_EXPIRED')
     }
-    function revalidate() { if (locked) return; setUser(null); setRole(null); loadUser() }
+    function revalidatePermissions() {
+      if (locked) return
+      // A real permissions rejection must recheck access before showing the
+      // protected workspace again. A simple window-focus event must not.
+      hasLoadedProfile = false
+      revision += 1
+      setUser(null); setRole(null)
+      loadUser()
+    }
+    function refreshOnFocus() {
+      if (!locked) loadUser({ background: true })
+    }
     window.addEventListener(SESSION_EVENT, invalidate)
-    window.addEventListener(PERMISSION_EVENT, revalidate)
-    window.addEventListener('focus', revalidate)
+    window.addEventListener(PERMISSION_EVENT, revalidatePermissions)
+    window.addEventListener('focus', refreshOnFocus)
     if (isSessionLocked()) invalidate({ detail: {} })
     else loadUser()
 
     return () => {
       ignore = true
       window.removeEventListener(SESSION_EVENT, invalidate)
-      window.removeEventListener(PERMISSION_EVENT, revalidate)
-      window.removeEventListener('focus', revalidate)
+      window.removeEventListener(PERMISSION_EVENT, revalidatePermissions)
+      window.removeEventListener('focus', refreshOnFocus)
     }
   }, [isAuthenticated, enabled, getAccessTokenSilently])
 

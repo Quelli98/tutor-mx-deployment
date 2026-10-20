@@ -103,6 +103,16 @@ function renderPage(
 }
 
 describe('StudentOverflow', () => {
+  it('links students to their existing booking sick-note workflow without adding a new request API', async () => {
+    renderPage(vi.fn().mockResolvedValue([]))
+    expect(await screen.findByRole('heading', { name: /my volunteer requests/i })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: /bookings and sick notes/i })).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: /open my timetable and bookings/i }))
+      .toHaveAttribute('href', '/student/timetable')
+    expect(screen.getByText(/sick notes belong to a specific tutoring booking/i)).toBeInTheDocument()
+  })
+
+
   it('shows open work with the required details', async () => {
     const loadWorkItems = vi.fn().mockResolvedValue([openWork])
 

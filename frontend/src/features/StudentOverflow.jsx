@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { getStudentOverflowWork } from '../api/studentOverflow'
 import { EmptyState, ErrorState, LoadingState, SuccessState } from '../components/shared/StatusMessage'
 import { getVolunteerRequests, volunteerForWork, withdrawVolunteerRequest } from '../api/studentVolunteer'
@@ -526,6 +527,19 @@ export function StudentOverflow({ loadWorkItems, claimWork, loadRequests, loadHo
                         </button>
                     </div>
                 )}
+            </section>
+
+            <section className="role-card" aria-labelledby="student-sick-note-guide-heading">
+                <h2 id="student-sick-note-guide-heading">Bookings and sick notes</h2>
+                <p className="helper-text">
+                    Sick notes belong to a specific tutoring booking, not to volunteer
+                    requests. Open My timetable, choose Booking details for one of your
+                    appointments, and use Student sick notes to submit or check a request.
+                    An Organiser reviews each request before its status changes.
+                </p>
+                <Link className="secondary-button" to="/student/timetable">
+                    Open my timetable and bookings
+                </Link>
             </section>
 
             {withdrawStatus === 'success' && (

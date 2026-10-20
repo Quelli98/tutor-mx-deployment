@@ -1,5 +1,6 @@
 import { execFileSync } from "node:child_process";
 import { readFileSync, statSync, readdirSync } from "node:fs";
+import { resolve } from "node:path";
 
 // A source ZIP has no Git index; scan its source tree instead of failing or
 // accidentally checking an unrelated parent repository.
@@ -15,7 +16,15 @@ function sourceFiles(directory = '.') {
 let trackedFiles;
 try {
   const root = execFileSync('git', ['rev-parse', '--show-toplevel'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
-  if (root !== process.cwd()) throw new Error('No repository index for this source root');
+  // Git for Windows commonly returns forward slashes while process.cwd() uses
+  // backslashes. Compare normalised paths so ignored local .env files do not
+  // get mistaken for tracked source files during a fallback source-tree scan.
+  const gitRoot = resolve(root);
+  const workingRoot = resolve(process.cwd());
+  const sameRoot = process.platform === 'win32'
+    ? gitRoot.toLowerCase() === workingRoot.toLowerCase()
+    : gitRoot === workingRoot;
+  if (!sameRoot) throw new Error('No repository index for this source root');
   trackedFiles = execFileSync('git', ['ls-files', '-z'], { encoding: 'utf8' }).split('\0').filter(Boolean);
 } catch {
   trackedFiles = sourceFiles();

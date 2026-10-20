@@ -1,4 +1,4 @@
-import { act, renderHook, waitFor } from '@testing-library/react'
+import { act, render, renderHook, screen, waitFor } from '@testing-library/react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import * as client from '../api/client'
 import { useCurrentUser } from './useCurrentUser'
@@ -52,6 +52,59 @@ describe('useCurrentUser', () => {
     act(() => window.dispatchEvent(new Event(PERMISSION_EVENT)))
     await waitFor(() => expect(result.current.role).toBe('STUDENT'))
   })
+  it('keeps an organiser form mounted and its unsaved inputs intact when a tab regains focus', async () => {
+    let finishFocusRefresh
+    client.fetchWithBearerToken
+      .mockResolvedValueOnce({ data: { profile: { id: 12, role: 'ORGANISER' } } })
+      .mockImplementationOnce(() => new Promise(resolve => { finishFocusRefresh = resolve }))
+
+    function TestWorkspace() {
+      const { role, loading } = useCurrentUser()
+      return loading || !role
+        ? <p>Loading workspace</p>
+        : <label>Proposal name<input aria-label="Proposal name" defaultValue="" /></label>
+    }
+
+    render(<TestWorkspace />)
+    const field = await screen.findByRole('textbox', { name: 'Proposal name' })
+    field.value = 'My unsaved November proposal'
+
+    act(() => window.dispatchEvent(new Event('focus')))
+    await waitFor(() => expect(finishFocusRefresh).toBeTypeOf('function'))
+    // The form must remain the SAME DOM element, even during the pending request.
+    expect(screen.getByRole('textbox', { name: 'Proposal name' })).toBe(field)
+    expect(field).toHaveValue('My unsaved November proposal')
+    expect(screen.queryByText('Loading workspace')).not.toBeInTheDocument()
+
+    await act(async () => {
+      finishFocusRefresh({ data: { profile: { id: 12, role: 'ORGANISER' } } })
+    })
+    expect(screen.getByRole('textbox', { name: 'Proposal name' })).toBe(field)
+    expect(field).toHaveValue('My unsaved November proposal')
+  })
+
+  it('keeps the workspace open if a background profile refresh briefly loses network access', async () => {
+    client.fetchWithBearerToken
+      .mockResolvedValueOnce({ data: { profile: { role: 'ORGANISER' } } })
+      .mockRejectedValueOnce(new Error('Network temporarily unavailable'))
+
+    const { result } = renderHook(() => useCurrentUser())
+    await waitFor(() => expect(result.current.role).toBe('ORGANISER'))
+    await act(async () => window.dispatchEvent(new Event('focus')))
+    expect(result.current.role).toBe('ORGANISER')
+    expect(result.current.errorCode).toBe('')
+  })
+
+  it('removes the old workspace if background revalidation reports a different role', async () => {
+    client.fetchWithBearerToken
+      .mockResolvedValueOnce({ data: { profile: { role: 'ORGANISER' } } })
+      .mockResolvedValueOnce({ data: { profile: { role: 'STUDENT' } } })
+    const { result } = renderHook(() => useCurrentUser())
+    await waitFor(() => expect(result.current.role).toBe('ORGANISER'))
+    await act(async () => window.dispatchEvent(new Event('focus')))
+    await waitFor(() => expect(result.current.role).toBe('STUDENT'))
+  })
+
   it('keeps a failed sign-out locked on a new mount', async () => {
     invalidateSession('You have signed out of this workspace.')
     const { result } = renderHook(() => useCurrentUser())

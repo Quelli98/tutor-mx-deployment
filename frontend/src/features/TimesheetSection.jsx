@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { fetchTimesheetStatus, submitTimesheet } from '../api/timesheet'
 import { fetchTimesheetHistory, declareTimesheet } from '../api/timesheetCorrections'
 import TimesheetCorrectionPanel from './TimesheetCorrectionPanel'
@@ -115,7 +115,10 @@ export default function TimesheetSection({ savedLogs = [], tokenOrGetter, storag
       .sort((first, second) => weekLabelFor(second).localeCompare(weekLabelFor(first)))
   }, [savedLogs, statuses])
 
-  useEffect(() => {
+  // Keep the focus-refresh target list in sync before the screen is painted.
+  // A normal effect can lag behind an immediately fired focus event (for
+  // example, just after submitting a timesheet), silently missing that week.
+  useLayoutEffect(() => {
     knownIdsRef.current = Object.keys(statuses).map(Number)
   }, [statuses])
 

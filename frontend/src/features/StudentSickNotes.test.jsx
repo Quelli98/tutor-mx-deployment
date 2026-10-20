@@ -8,6 +8,11 @@ vi.mock('../api/studentSickNotes', () => ({ submitStudentSickNote: mocks.submit,
 const item = { id: 1, bookingId: 7, bookingVersion: 2, version: 1, studentName: 'Student One', tutorName: 'Tutor One', courseCode: 'COMS', startsAt: '2030-09-02T11:00:00Z', endsAt: '2030-09-02T12:00:00Z', reason: 'Unwell', status: 'PENDING', occurrenceStatus: 'SCHEDULED' }
 const detail = { booking: { id: 7, version: 1 }, sickNotes: [], canSubmitSickNote: true }
 beforeEach(() => { vi.resetAllMocks(); mocks.list.mockResolvedValue({ items: [item], pendingCount: 1, page: 1, hasMore: false }); mocks.submit.mockResolvedValue(item); mocks.decide.mockResolvedValue({ ...item, status: 'APPROVED' }); mocks.refresh.mockResolvedValue(undefined) })
+it('shows a clear empty state for an eligible booking with no sick notes', () => {
+ render(<StudentSickNoteForm detail={detail} refresh={mocks.refresh}/>);
+ expect(screen.getByText('No sick notes submitted for this booking.')).toBeInTheDocument();
+ expect(screen.getByText(/sick notes are linked to this booking/i)).toBeInTheDocument();
+})
 it('requires a reason, confirms once and sends the current booking version', async () => {
  let finish; mocks.submit.mockImplementation(() => new Promise(resolve => { finish = resolve }))
  render(<StudentSickNoteForm detail={detail} refresh={mocks.refresh}/>);
