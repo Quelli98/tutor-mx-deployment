@@ -12,12 +12,14 @@ export default defineConfig({
     testTimeout: 15_000,
     include: ["src/**/*.test.ts"],
     exclude: ["frontend/**", "node_modules/**", "dist/**"],
+    setupFiles: ["src/test-setup.ts"],
     coverage: {
       provider: "v8",
       include: ["src/**/*.ts"],
       exclude: [
         "src/**/*.test.ts",
         "src/**/*.spec.ts",
+        "src/test-setup.ts",
         "src/generated/**",
         "src/server.ts",
       ],
