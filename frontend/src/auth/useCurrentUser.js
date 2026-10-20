@@ -40,12 +40,18 @@ export function useCurrentUser({ enabled = true } = {}) {
     let ignore = false
     let revision = 0
     let locked = false
+    let loaded = false
 
-    async function loadUser() {
+    // A background recheck (window focus, or a denied request) keeps the open
+    // workspace on screen. Clearing the user there would unmount every page and
+    // lose whatever was being typed or chosen, such as a file picked for import.
+    async function loadUser({ background = false } = {}) {
       const request = ++revision
-      setLoading(true)
-      setError('')
-      setErrorCode('')
+      if (!background) {
+        setLoading(true)
+        setError('')
+        setErrorCode('')
+      }
 
       try {
         const profile = await fetchWithBearerToken(
@@ -65,17 +71,23 @@ export function useCurrentUser({ enabled = true } = {}) {
           profile?.data?.user?.role ||
           null
 
-        setUser(profile)
+        loaded = true
+        // An unchanged profile keeps its object so nothing downstream reloads.
+        setUser((previous) => JSON.stringify(previous) === JSON.stringify(profile) ? previous : profile)
         setRole(normalizeRole(roleSource))
+        setError('')
+        setErrorCode('')
       } catch (err) {
-        if (!ignore && request === revision) {
+        // An ended session is reported through SESSION_EVENT, which bumps the
+        // revision; any other failed background check leaves the workspace as is.
+        if (!ignore && request === revision && !background) {
           setUser(null)
           setRole(null)
           setError(err?.message || 'Unable to load user profile')
           setErrorCode(err?.code || 'REQUEST_FAILED')
         }
       } finally {
-        if (!ignore && request === revision) {
+        if (!ignore && request === revision && !background) {
           setLoading(false)
         }
       }
@@ -88,7 +100,7 @@ export function useCurrentUser({ enabled = true } = {}) {
       setError(event.detail?.message || 'Your session has expired. Please sign in again.')
       setErrorCode('SESSION_EXPIRED')
     }
-    function revalidate() { if (locked) return; setUser(null); setRole(null); loadUser() }
+    function revalidate() { if (locked) return; loadUser({ background: loaded }) }
     window.addEventListener(SESSION_EVENT, invalidate)
     window.addEventListener(PERMISSION_EVENT, revalidate)
     window.addEventListener('focus', revalidate)

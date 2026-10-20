@@ -52,6 +52,36 @@ describe('useCurrentUser', () => {
     act(() => window.dispatchEvent(new Event(PERMISSION_EVENT)))
     await waitFor(() => expect(result.current.role).toBe('STUDENT'))
   })
+  it('keeps the workspace on screen while it rechecks after the window regains focus', async () => {
+    client.fetchWithBearerToken.mockResolvedValueOnce({ data: { profile: { id: 7, role: 'TUTOR' } } })
+    const { result } = renderHook(() => useCurrentUser())
+    await waitFor(() => expect(result.current.role).toBe('TUTOR'))
+    const loadedUser = result.current.user
+
+    let complete
+    client.fetchWithBearerToken.mockImplementationOnce(() => new Promise(resolve => { complete = resolve }))
+    act(() => window.dispatchEvent(new Event('focus')))
+    // Choosing a file in the import form returns focus to the window: the
+    // workspace (and the chosen file) must still be there while it checks.
+    expect(result.current.loading).toBe(false)
+    expect(result.current.role).toBe('TUTOR')
+    expect(result.current.user).toBe(loadedUser)
+
+    await act(async () => { complete({ data: { profile: { id: 7, role: 'TUTOR' } } }) })
+    expect(result.current.user).toBe(loadedUser)
+    expect(result.current.loading).toBe(false)
+  })
+  it('keeps the workspace when a background recheck fails', async () => {
+    client.fetchWithBearerToken.mockResolvedValueOnce({ data: { profile: { id: 7, role: 'ORGANISER' } } })
+    const { result } = renderHook(() => useCurrentUser())
+    await waitFor(() => expect(result.current.role).toBe('ORGANISER'))
+
+    client.fetchWithBearerToken.mockRejectedValueOnce(new Error('Failed to fetch'))
+    await act(async () => { window.dispatchEvent(new Event('focus')) })
+    expect(result.current.role).toBe('ORGANISER')
+    expect(result.current.error).toBe('')
+    expect(result.current.loading).toBe(false)
+  })
   it('keeps a failed sign-out locked on a new mount', async () => {
     invalidateSession('You have signed out of this workspace.')
     const { result } = renderHook(() => useCurrentUser())
