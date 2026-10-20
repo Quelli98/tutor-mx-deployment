@@ -49,4 +49,12 @@ For an assessment, start a new session and retain the unedited transcript, or th
 
 The selected response “I know the settings” contained no model values. No model values have been invented. The repository security check verifies declaration structure only; it cannot certify provenance or full policy compliance.
 
-The preceding document was reviewed and edited with ChatGPT's Codex coding agent; its code-side model labels are those recorded in this repository's `Assisted-by:` trailers on `main`.
+## Member 1 (Queen8213): Claude Code
+
+Member 1 used Claude Code[Claude Opus 5.5] for code generation, review and documentation. Every commit it assisted carries an `Assisted-by: Claude Code [claude-opus-5-5]` trailer.
+
+- **6 October 2026, branch `s4/m1/completion`:** Sprint 4 Member 1 cards; skipping or moving one week of a repeating timetable entry; the tutor dashboard's "What you owe" card; the organiser-side Sprint 3 Member 2 gaps (closing reasons, whole-course marks, bulk timesheet decisions); the Student home redesign, built from the team member's design references and the options the team member chose; no greeting by email address; removal of the homepage organiser approval lookup; and a test setup that refuses real network calls.
+- **20 October 2026, branch `s4/m1/onto-main`:** it carried the work above that `main` lacked onto the current `main`. Commits were cherry-picked with `-x`, so each keeps its original author, date and trailer and names its source commit. Where `main` already had its own implementation of a card (shared timetable ownership, session and stale-link hardening, notification actions and palette shortcuts), `main`'s version was kept. Two migrations were renamed to follow `main`'s latest. It also fixed the window-focus recheck that unmounted the whole workspace, which reset the timetable import as soon as a file was chosen, and a test-only connection reuse that made route tests fail intermittently.
+- Verified locally on 20 October 2026: lint, typecheck, backend tests with coverage (1,542 tests; statements 92.18%, branches 86.91%), frontend tests with coverage (913 tests), both production builds and the repository security check. No browser, deployed-environment or live-API check is claimed.
+
+The preceding document was reviewed and edited with ChatGPT's Codex coding agent; its code-side model labels are those recorded in this repository's `Assisted-by:` trailers on `main`. The Member 1 section was written with Claude Code[Claude Opus 5.5].
