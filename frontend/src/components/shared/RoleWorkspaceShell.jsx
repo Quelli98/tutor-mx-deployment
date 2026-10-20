@@ -6,8 +6,9 @@ import { CsamMark } from './CsamMark'
 import { CommandPalette } from './CommandPalette'
 import { NotificationBell } from './NotificationBell'
 import { OrganiserIcon } from '../organiser/OrganiserIcon'
+import { personName } from './personName'
 import tutorPhoto from '../../assets/redesign/tutor-online.png'
-import studentPhoto from '../../assets/redesign/student-support.webp'
+import studentPhoto from '../../assets/redesign/students-studying.webp'
 
 const ROLE_CONFIG = {
   TUTOR: {
@@ -37,10 +38,7 @@ const ROLE_CONFIG = {
 
 function profileName(user, auth0User, fallback) {
   const profile = user?.data?.profile ?? user?.profile ?? user
-  const profileNameValue = typeof profile?.fullName === 'string' ? profile.fullName.trim() : ''
-  if (profileNameValue) return profileNameValue
-  const authName = typeof auth0User?.name === 'string' && !auth0User.name.includes('@') ? auth0User.name.trim() : ''
-  return authName || fallback
+  return personName(profile?.fullName) ?? personName(auth0User?.name) ?? fallback
 }
 
 function initialsOf(name) {
@@ -137,10 +135,13 @@ export function RoleWorkspaceShell({ role, user, onSignOut, children }) {
             <OrganiserIcon name={menuOpen ? 'x' : 'menu'} />
             <span>{menuOpen ? 'Close menu' : 'Menu'}</span>
           </button>
-          <div className="organiser-greeting">
-            <span className="organiser-avatar" aria-hidden="true">{initialsOf(name)}</span>
-            <div><p className="organiser-greeting-hello">Welcome back</p><p className="organiser-greeting-name">{name}</p></div>
-          </div>
+          {/* The Student home greets the student in its own banner instead. */}
+          {!(role === 'STUDENT' && page === 'home') && (
+            <div className="organiser-greeting">
+              <span className="organiser-avatar" aria-hidden="true">{initialsOf(name)}</span>
+              <div><p className="organiser-greeting-hello">Welcome back</p><p className="organiser-greeting-name">{name}</p></div>
+            </div>
+          )}
           <div className="organiser-tools">
             <CommandPalette variant="field" role={role} />
             <DensityToggle compact={compact} onChange={setCompact}/><NotificationBell icon={<OrganiserIcon name="bell" size={22} />} />

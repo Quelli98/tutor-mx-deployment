@@ -44,6 +44,7 @@ const allocationSelection = {
 
 const organiserAllocationSelection = {
   ...allocationSelection,
+  overrideReason: true,
   excuses: { select: attendanceSelection },
   tutor: { select: { fullName: true, email: true } },
   course: { select: { code: true, name: true } },
@@ -243,6 +244,30 @@ async function validateAllocationRules(
       `Only ${candidate.remainingHours} hours remain; this allocation requires ${input.requestedHours} hours.`);
   }
   throwFirstAllocationRuleViolation(candidate?.reasonCodes ?? ["insufficient-mark"]);
+  return candidates;
+}
+
+/**
+ * The reason to store for a board allocation, judged against the ranking taken
+ * inside the same transaction that saves it. Choosing the top-ranked eligible
+ * tutor needs no reason (and none is kept); choosing anyone else needs one.
+ */
+function rankingOverrideReason(
+  candidates: Awaited<ReturnType<typeof findAllocationCandidates>>,
+  input: AllocationWriteInput,
+): string | null {
+  const top = candidates.find((row) => row.isEligible);
+  if (!top || top.tutorId === input.tutorId) {
+    return null;
+  }
+  if (!input.overrideReason) {
+    throw createRouteError(
+      409,
+      "OVERRIDE_REASON_REQUIRED",
+      `${top.fullName} is ranked first for this session. Give a reason for choosing a different tutor.`,
+    );
+  }
+  return input.overrideReason;
 }
 
 function mapAllocationFailure(value: unknown): never {
@@ -313,6 +338,7 @@ export function createOrganiserService(client: PrismaClient) {
         tutorEmail: allocation.tutor.email,
         courseCode: allocation.course.code,
         courseName: allocation.course.name,
+        overrideReason: allocation.overrideReason,
       }));
     },
 
@@ -392,8 +418,13 @@ export function createOrganiserService(client: PrismaClient) {
       try {
         return await client.$transaction(
           async (transaction) => {
-            await validateAllocationRules(transaction, input);
+            const candidates = await validateAllocationRules(transaction, input);
             const actor=await allocationAudit(transaction,organiserAuth0Id);
+            // The board checks its own ranking here; bulk allocation has
+            // already decided whether its suggestion was overridden.
+            const overrideReason = input.requireRankingReason
+              ? rankingOverrideReason(candidates, input)
+              : input.overrideReason ?? null;
             let allocation = await transaction.allocation.create({
               data: {
                 tutorId: input.tutorId,
@@ -402,11 +433,9 @@ export function createOrganiserService(client: PrismaClient) {
                 endsAt: input.endsAt,
                 allocatedHours: input.requestedHours,
                 minimumMark: input.minimumMark,
-                // Set only when an organiser overrode a bulk suggestion; the
-                // rules above are unaffected by it.
-                ...(input.overrideReason
-                  ? { overrideReason: input.overrideReason }
-                  : {}),
+                // Recorded only when a suggestion was overridden; the rules
+                // above are unaffected by it.
+                ...(overrideReason ? { overrideReason } : {}),
               },
               select: allocationSelection,
             });
@@ -422,7 +451,7 @@ export function createOrganiserService(client: PrismaClient) {
               });
             }
 
-            await appendAudit(transaction,actor.reviewedById,'ALLOCATION_CREATED',allocation.id,{}, {...allocation,allocatedHours:Number(allocation.allocatedHours),minimumMark:input.minimumMark},input.overrideReason??'');
+            await appendAudit(transaction,actor.reviewedById,'ALLOCATION_CREATED',allocation.id,{}, {...allocation,allocatedHours:Number(allocation.allocatedHours),minimumMark:input.minimumMark},overrideReason??'');
             return toAllocationSummary(allocation);
           },
           { isolationLevel: "Serializable" },
@@ -465,7 +494,15 @@ export function createOrganiserService(client: PrismaClient) {
             }
 
             const actor=await allocationAudit(transaction,organiserAuth0Id);
-            await validateAllocationRules(transaction, input, allocationId);
+            const candidates = await validateAllocationRules(transaction, input, allocationId);
+            // Keeping the same tutor keeps the reason already on record; a new
+            // tutor is judged against the ranking like a fresh allocation.
+            const tutorChanged = current.tutorId !== input.tutorId;
+            const overrideReason = !tutorChanged
+              ? undefined
+              : input.requireRankingReason
+                ? rankingOverrideReason(candidates, input)
+                : input.overrideReason ?? null;
             const changed = await transaction.allocation.updateMany({
               where: { id: allocationId, status: current.status },
               data: {
@@ -476,6 +513,7 @@ export function createOrganiserService(client: PrismaClient) {
                 allocatedHours: input.requestedHours,
                 minimumMark: input.minimumMark,
                 status: nextStatus,
+                ...(tutorChanged ? { overrideReason: overrideReason ?? null } : {}),
                 ...actor,
               },
             });
@@ -498,7 +536,7 @@ export function createOrganiserService(client: PrismaClient) {
                 "The allocation changed before this update could be applied.",
               );
             }
-            await appendAudit(transaction,actor.reviewedById,'ALLOCATION_UPDATED',allocationId,{...current,allocatedHours:Number(current.allocatedHours)}, {...updated,allocatedHours:Number(updated.allocatedHours),minimumMark:input.minimumMark},input.overrideReason??'');
+            await appendAudit(transaction,actor.reviewedById,'ALLOCATION_UPDATED',allocationId,{...current,allocatedHours:Number(current.allocatedHours)}, {...updated,allocatedHours:Number(updated.allocatedHours),minimumMark:input.minimumMark},(tutorChanged ? overrideReason : input.overrideReason)??'');
             return toAllocationSummary(updated);
           },
           { isolationLevel: "Serializable" },

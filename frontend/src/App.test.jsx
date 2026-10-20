@@ -9,7 +9,6 @@ const tokenMock = vi.fn()
 const completeOnboardingMock = vi.fn()
 const resendVerificationMock = vi.fn()
 const getOwnOrganiserApplicationMock = vi.fn()
-const checkOrganiserApplicationStatusMock = vi.fn()
 let authState
 let currentUserState
 
@@ -35,7 +34,6 @@ vi.mock('./api/onboarding', () => ({
 
 vi.mock('./api/organiserApplications', () => ({
   getOwnOrganiserApplication: (...arguments_) => getOwnOrganiserApplicationMock(...arguments_),
-  checkOrganiserApplicationStatus: (...arguments_) => checkOrganiserApplicationStatusMock(...arguments_),
   listOrganiserApplications: vi.fn().mockResolvedValue([]),
   approveOrganiserApplication: vi.fn(),
   rejectOrganiserApplication: vi.fn(),
@@ -64,8 +62,6 @@ describe('Auth entry flow', () => {
     resendVerificationMock.mockResolvedValue({ data: { message: 'sent' } })
     getOwnOrganiserApplicationMock.mockReset()
     getOwnOrganiserApplicationMock.mockResolvedValue(null)
-    checkOrganiserApplicationStatusMock.mockReset()
-    checkOrganiserApplicationStatusMock.mockResolvedValue('NOT_FOUND')
     authState = { isAuthenticated: false, isLoading: false, user: null }
     currentUserState = { role: null, loading: false, error: '', errorCode: '' }
   })
@@ -125,19 +121,13 @@ describe('Auth entry flow', () => {
     expect(window.sessionStorage.getItem('tutormx.pendingRole')).toBe('ORGANISER')
   })
 
-  it('lets a lecturer check organiser approval status by email without signing in', async () => {
-    checkOrganiserApplicationStatusMock.mockResolvedValueOnce('APPROVED')
+  it('does not ask for an email on the homepage to check organiser approval', () => {
     render(<MemoryRouter><App /></MemoryRouter>)
 
-    fireEvent.change(screen.getByLabelText(/check organiser approval status/i), {
-      target: { value: 'Lecturer@Wits.ac.za' },
-    })
-    fireEvent.click(screen.getByRole('button', { name: /check status/i }))
-
-    await waitFor(() => {
-      expect(checkOrganiserApplicationStatusMock).toHaveBeenCalledWith('Lecturer@Wits.ac.za')
-    })
-    expect(await screen.findByText(/approved.*sign in as organiser/i)).toBeInTheDocument()
+    // A lecturer sees their approval status after signing in, not on the homepage.
+    expect(screen.getByRole('button', { name: /register as an organiser/i })).toBeInTheDocument()
+    expect(screen.queryByLabelText(/check organiser approval status/i)).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /check status/i })).not.toBeInTheDocument()
   })
 
   it('shows a safe message when Auth0 cannot start sign in', async () => {

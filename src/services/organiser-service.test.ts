@@ -205,6 +205,26 @@ function arrangePassingAllocationRules(
   );
 }
 
+/** Two eligible tutors for the board: Ada (90%) is ranked above Sam (70%). */
+function arrangeRankedCandidates(harness: Harness) {
+  arrangePassingAllocationRules(harness);
+  harness.transaction.$queryRawUnsafe.mockImplementation(async (sql: string) =>
+    typeof sql === "string" && sql.includes("candidate_data")
+      ? [8, 7].map((tutorId) => ({
+          tutorId,
+          fullName: tutorId === 8 ? "Ada Top" : "Sam Second",
+          mark: tutorId === 8 ? 90 : 70,
+          weeklyLimit: 8,
+          usedHours: 0,
+          remainingHours: 8,
+          hasClash: false,
+          isEligible: true,
+          clashDetails: [],
+        }))
+      : [],
+  );
+}
+
 describe("organiser allocation service", () => {
   let harness: Harness;
 
@@ -216,6 +236,7 @@ describe("organiser allocation service", () => {
     harness.transaction.allocation.findMany.mockResolvedValue([
       {
         ...allocationRow({ status: "CONFIRMED" }),
+        overrideReason: "Sam asked for this lab.",
         tutor: { fullName: "Sam Tutor", email: "sam@tutormx.example" },
         course: { code: "COMS3011", name: "Software Design Project" },
       },
@@ -235,6 +256,7 @@ describe("organiser allocation service", () => {
         tutorEmail: "sam@tutormx.example",
         courseCode: "COMS3011",
         courseName: "Software Design Project",
+        overrideReason: "Sam asked for this lab.",
       },
     ]);
   });
@@ -428,6 +450,115 @@ describe("organiser allocation service", () => {
       "auth0|organiser", allocationInput({ status: "CONFIRMED" }),
     )).rejects.toMatchObject({ code: "ORGANISER_PROFILE_NOT_FOUND" });
     expect(harness.transaction.allocation.update).not.toHaveBeenCalled();
+  });
+
+  it("requires a reason when the board picks someone other than the top-ranked tutor", async () => {
+    arrangeRankedCandidates(harness);
+
+    await expect(
+      harness.service.createAllocation(
+        "auth0|organiser",
+        allocationInput({ tutorId: 7, requireRankingReason: true }),
+      ),
+    ).rejects.toMatchObject({
+      status: 409,
+      code: "OVERRIDE_REASON_REQUIRED",
+      message: expect.stringContaining("Ada Top is ranked first"),
+    });
+    expect(harness.transaction.allocation.create).not.toHaveBeenCalled();
+  });
+
+  it("records the reason when the board overrides the ranking", async () => {
+    arrangeRankedCandidates(harness);
+    harness.transaction.allocation.create.mockResolvedValue(allocationRow());
+
+    await harness.service.createAllocation(
+      "auth0|organiser",
+      allocationInput({ tutorId: 7, requireRankingReason: true, overrideReason: "Sam knows this lab." }),
+    );
+
+    expect(harness.transaction.allocation.create.mock.calls[0]?.[0].data).toMatchObject({
+      tutorId: 7,
+      overrideReason: "Sam knows this lab.",
+    });
+  });
+
+  it("keeps no reason when the board picks the top-ranked tutor", async () => {
+    arrangeRankedCandidates(harness);
+    harness.transaction.allocation.create.mockResolvedValue(allocationRow({ tutorId: 8 }));
+
+    await harness.service.createAllocation(
+      "auth0|organiser",
+      allocationInput({ tutorId: 8, requireRankingReason: true, overrideReason: "Not needed." }),
+    );
+
+    expect(harness.transaction.allocation.create.mock.calls[0]?.[0].data).not.toHaveProperty("overrideReason");
+  });
+
+  it("leaves bulk allocation's own override decision alone", async () => {
+    arrangeRankedCandidates(harness);
+    harness.transaction.allocation.create.mockResolvedValue(allocationRow());
+
+    // No ranking check: a second bulk proposal is not top-ranked and needs no reason.
+    await harness.service.createAllocation("auth0|organiser", allocationInput({ tutorId: 7 }));
+    expect(harness.transaction.allocation.create.mock.calls[0]?.[0].data).not.toHaveProperty("overrideReason");
+
+    await harness.service.createAllocation(
+      "auth0|organiser",
+      allocationInput({ tutorId: 7, overrideReason: "Swapped in bulk." }),
+    );
+    expect(harness.transaction.allocation.create.mock.calls[1]?.[0].data).toMatchObject({
+      overrideReason: "Swapped in bulk.",
+    });
+  });
+
+  it("checks the ranking again when an edit changes the tutor", async () => {
+    arrangeRankedCandidates(harness);
+    harness.transaction.allocation.findUnique.mockResolvedValue({ id: 11, status: "PROPOSED", tutorId: 8 });
+
+    await expect(
+      harness.service.updateAllocation(
+        "auth0|organiser",
+        11,
+        allocationInput({ tutorId: 7, requireRankingReason: true }),
+      ),
+    ).rejects.toMatchObject({ code: "OVERRIDE_REASON_REQUIRED" });
+    expect(harness.transaction.allocation.updateMany).not.toHaveBeenCalled();
+  });
+
+  it("keeps the recorded reason when an edit keeps the same tutor", async () => {
+    arrangeRankedCandidates(harness);
+    harness.transaction.allocation.findUnique
+      .mockResolvedValueOnce({ id: 11, status: "PROPOSED", tutorId: 7 })
+      .mockResolvedValueOnce(allocationRow());
+    harness.transaction.allocation.updateMany.mockResolvedValue({ count: 1 });
+
+    await harness.service.updateAllocation(
+      "auth0|organiser",
+      11,
+      allocationInput({ tutorId: 7, requireRankingReason: true }),
+    );
+
+    expect(harness.transaction.allocation.updateMany.mock.calls[0]?.[0].data).not.toHaveProperty("overrideReason");
+  });
+
+  it("clears the reason when an edit moves to the top-ranked tutor", async () => {
+    arrangeRankedCandidates(harness);
+    harness.transaction.allocation.findUnique
+      .mockResolvedValueOnce({ id: 11, status: "PROPOSED", tutorId: 7 })
+      .mockResolvedValueOnce(allocationRow({ tutorId: 8 }));
+    harness.transaction.allocation.updateMany.mockResolvedValue({ count: 1 });
+
+    await harness.service.updateAllocation(
+      "auth0|organiser",
+      11,
+      allocationInput({ tutorId: 8, requireRankingReason: true }),
+    );
+
+    expect(harness.transaction.allocation.updateMany.mock.calls[0]?.[0].data).toMatchObject({
+      tutorId: 8,
+      overrideReason: null,
+    });
   });
 
   it("rejects an allocation below the mark requirement with the canonical reason code", async () => {

@@ -32,6 +32,17 @@ function isAllocation(value) {
   )
 }
 
+const OBLIGATION_KINDS = ['LOG_HOURS', 'SUBMIT_TIMESHEET', 'RESUBMIT_TIMESHEET']
+
+function isObligation(value) {
+  return Boolean(value) &&
+    OBLIGATION_KINDS.includes(value.kind) &&
+    typeof value.title === 'string' && value.title.length > 0 &&
+    typeof value.weekEnding === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value.weekEnding) &&
+    (value.dueAt === null || (typeof value.dueAt === 'string' && Number.isFinite(Date.parse(value.dueAt)))) &&
+    typeof value.overdue === 'boolean'
+}
+
 export function parseTutorDashboardResponse(body) {
   const dashboard = body?.data?.dashboard
   if (
@@ -40,12 +51,14 @@ export function parseTutorDashboardResponse(body) {
     !dashboard.allocations.every(isAllocation) ||
     !isNullableNonNegativeNumber(dashboard.weeklyLimit) ||
     !isFiniteNonNegativeNumber(dashboard.usedHours) ||
-    !isNullableNonNegativeNumber(dashboard.remainingHours)
+    !isNullableNonNegativeNumber(dashboard.remainingHours) ||
+    (dashboard.obligations !== undefined &&
+      (!Array.isArray(dashboard.obligations) || !dashboard.obligations.every(isObligation)))
   ) {
     throw new Error('The tutor dashboard response did not match the agreed contract.')
   }
 
-  return dashboard
+  return { ...dashboard, obligations: dashboard.obligations ?? [] }
 }
 
 export async function fetchTutorDashboard(tokenOrGetter) {

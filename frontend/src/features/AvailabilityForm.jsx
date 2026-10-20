@@ -3,6 +3,7 @@ import { deleteOwnTimeSlot, listOwnTimeSlots, submitTimeSlot, updateOwnTimeSlot 
 import { ErrorState, LoadingState } from '../components/shared/StatusMessage'
 import { ConfirmationDialog } from '../components/shared/ConfirmationDialog'
 import TimeSlotDetails from './TimeSlotDetails'
+import OccurrenceExceptions from './OccurrenceExceptions'
 import WeeklySchedule from '../components/shared/WeeklySchedule'
 
 const EMPTY_FORM = { startsAt: '', endsAt: '', recurrence: 'ONCE', label: '', recurrenceUntil: '', category: 'UNAVAILABLE', seriesId: null }
@@ -233,6 +234,13 @@ export default function AvailabilityForm({ tokenOrGetter, refreshVersion = 0, sh
               <button type="button" className="danger-button" disabled={pending}
                 onClick={() => setSlotToDelete(slot)} aria-label={`Delete schedule entry ${slot.label || new Date(slot.startsAt).toLocaleString()}`}>Delete</button>
             </div>
+            {(slot.recurrence === 'WEEKLY' || slot.recurrence === 'FORTNIGHTLY') && (
+              <OccurrenceExceptions slot={slot} tokenOrGetter={tokenOrGetter} disabled={pending}
+                onUpdated={(updated) => {
+                  setSlots((current) => current.map((item) => item.id === updated.id ? updated : item))
+                  onChanged?.()
+                }} />
+            )}
           </li>)}
         </ul>)}
       <ConfirmationDialog open={Boolean(slotToDelete)} title="Delete schedule entry?" confirmLabel="Delete schedule entry"

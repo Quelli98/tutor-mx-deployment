@@ -419,22 +419,57 @@ describe('StaffingRequirements', () => {
   it.each([
     ['Close', 'CLOSED'],
     ['Cancel', 'CANCELLED'],
-  ])('%ss an open requirement after confirmation', async (label, status) => {
+  ])('%ss a still-short requirement only with a reason', async (label, status) => {
     renderPage()
     await screen.findByRole('table')
 
     fireEvent.click(screen.getByRole('button', { name: new RegExp(`^${label} COMS3011`, 'i') }))
     const dialog = await screen.findByRole('dialog')
     expect(within(dialog).getByText(/Software Design Project/)).toBeVisible()
-    fireEvent.click(within(dialog).getByRole('button', { name: new RegExp(`${label} requirement`, 'i') }))
+    const confirm = within(dialog).getByRole('button', { name: new RegExp(`${label} requirement`, 'i') })
+    expect(confirm).toBeDisabled()
+
+    fireEvent.change(within(dialog).getByLabelText(/still 1 tutor short/i), {
+      target: { value: '  The lecturer moved the lab online.  ' },
+    })
+    expect(confirm).toBeEnabled()
+    fireEvent.click(confirm)
 
     await waitFor(() => {
       expect(setStaffingRequirementStatus).toHaveBeenCalledWith(
-        { requirementId: 12, status },
+        { requirementId: 12, status, reason: 'The lecturer moved the lab online.' },
         getAccessTokenSilently,
       )
     })
     expect(listStaffingRequirements).toHaveBeenCalledTimes(2)
+  })
+
+  it('closes a fully staffed requirement without asking for a reason', async () => {
+    listStaffingRequirements.mockResolvedValue([
+      { ...openRequirement, assignedHours: 8, shortageHours: 0, shortageTutors: 0, fillState: 'fully-filled' },
+    ])
+    renderPage()
+    await screen.findByRole('table')
+
+    fireEvent.click(screen.getByRole('button', { name: /^close COMS3011/i }))
+    const dialog = await screen.findByRole('dialog')
+    expect(within(dialog).queryByRole('textbox')).not.toBeInTheDocument()
+    fireEvent.click(within(dialog).getByRole('button', { name: /close requirement/i }))
+
+    await waitFor(() => {
+      expect(setStaffingRequirementStatus).toHaveBeenCalledWith(
+        { requirementId: 12, status: 'CLOSED' },
+        getAccessTokenSilently,
+      )
+    })
+  })
+
+  it('shows the recorded reason beside a closed requirement', async () => {
+    listStaffingRequirements.mockResolvedValue([{ ...closedRequirement, statusReason: 'Lab moved online.' }])
+    renderPage()
+    await screen.findByRole('table')
+
+    expect(screen.getByText('Reason: Lab moved online.')).toBeInTheDocument()
   })
 
   it('does not offer to reopen a closed session whose date has already passed', async () => {
@@ -495,6 +530,7 @@ describe('StaffingRequirements', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /^close COMS3011/i }))
     const dialog = await screen.findByRole('dialog')
+    fireEvent.change(within(dialog).getByRole('textbox'), { target: { value: 'No longer needed.' } })
     fireEvent.click(within(dialog).getByRole('button', { name: /close requirement/i }))
 
     expect(await screen.findByRole('alert')).toHaveTextContent(/already closed/i)

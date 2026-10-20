@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useAuth0 } from '@auth0/auth0-react'
 import {
+  approveTimesheets,
   decideExcuse,
   decideTimesheet,
   decideVolunteerClaim,
@@ -45,6 +46,7 @@ export function useOrganiserApprovals({ onDecision } = {}) {
   const [reasons, setReasons] = useState({})
   const [reasonErrors, setReasonErrors] = useState({})
   const [disputeError, setDisputeError] = useState('')
+  const [selectedTimesheetIds, setSelectedTimesheetIds] = useState([])
   const busyRef = useRef(false)
   const loadVersion = useRef(0)
 
@@ -61,6 +63,9 @@ export function useOrganiserApprovals({ onDecision } = {}) {
         if (version !== loadVersion.current) return
         if (approvals.status === 'rejected') throw approvals.reason
         setQueues((current) => ({ ...approvals.value, disputes: disputes.status === 'fulfilled' ? disputes.value : current.disputes }))
+        // A selection can only hold timesheets that are still waiting.
+        const waiting = new Set(approvals.value.timesheets.map((timesheet) => timesheet.id))
+        setSelectedTimesheetIds((current) => current.filter((id) => waiting.has(id)))
         setDisputeError(disputes.status === 'rejected' ? 'Disputes could not be loaded. Other approvals are available.' : '')
         setStatus('success')
       } catch (loadError) {
@@ -198,6 +203,56 @@ export function useOrganiserApprovals({ onDecision } = {}) {
     }
   }
 
+  function toggleTimesheet(id) {
+    setSelectedTimesheetIds((current) =>
+      current.includes(id) ? current.filter((selected) => selected !== id) : [...current, id],
+    )
+    setMessage('')
+  }
+
+  function selectAllTimesheets(selectAll) {
+    setSelectedTimesheetIds(selectAll ? queues.timesheets.map((timesheet) => timesheet.id) : [])
+    setMessage('')
+  }
+
+  /**
+   * Approves every selected timesheet in one request. The server decides each
+   * on its own, so a sheet that changed meanwhile is reported without holding
+   * up the rest. Returning still happens one sheet at a time, with a reason.
+   */
+  async function approveSelectedTimesheets() {
+    if (busyRef.current || selectedTimesheetIds.length === 0) return false
+    busyRef.current = true
+    setPendingKey('timesheet-bulk-APPROVE')
+    setMessage('')
+    setError('')
+    try {
+      const results = await approveTimesheets(selectedTimesheetIds, getAccessTokenSilently)
+      const approved = new Set(results.filter((result) => result.outcome === 'approved').map((result) => result.timesheetId))
+      const failed = results.filter((result) => result.outcome === 'failed')
+      setQueues((current) => ({ ...current, timesheets: current.timesheets.filter((item) => !approved.has(item.id)) }))
+      setSelectedTimesheetIds((current) => current.filter((id) => !approved.has(id)))
+      await loadApprovals({ silent: true })
+      if (approved.size > 0) await onDecision?.()
+      if (approved.size > 0) {
+        setMessage(`${approved.size} ${approved.size === 1 ? 'timesheet was' : 'timesheets were'} approved.`)
+      }
+      if (failed.length > 0) {
+        setError(
+          `${failed.length} ${failed.length === 1 ? 'timesheet was' : 'timesheets were'} not approved: ${failed[0].message}`,
+        )
+      }
+      return failed.length === 0
+    } catch (decisionError) {
+      setError(approvalError(decisionError))
+      await loadApprovals({ silent: true })
+      return false
+    } finally {
+      busyRef.current = false
+      setPendingKey('')
+    }
+  }
+
   const totalPending = queues.timesheets.length + queues.volunteerClaims.length + queues.excuses.length + queues.disputes.length
 
   return {
@@ -215,5 +270,9 @@ export function useOrganiserApprovals({ onDecision } = {}) {
     clearReason,
     submitDecision,
     submitDisputeResolution,
+    selectedTimesheetIds,
+    toggleTimesheet,
+    selectAllTimesheets,
+    approveSelectedTimesheets,
   }
 }

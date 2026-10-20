@@ -39,6 +39,9 @@
 .notification-item { display: grid; gap: 6px; padding: 12px; border: 1px solid #e2e6f1; border-radius: 12px; background: #fafbfe; }
 .notification-item.unread { border-color: #9bb9ef; background: #f1f6ff; }
 .notification-item-button { border: 0; background: transparent; padding: 0; color: inherit; text-align: left; cursor: pointer; }
+.owed-work .owed-when { color: #4b5470; font-size: .9rem; }
+.owed-work .owed-when.overdue { color: #b42318; font-weight: 600; }
+.owed-work li .secondary-button { justify-self: start; }
 .notification-item-button strong, .notification-item-button span { display: block; }
 .notification-item-button span, .notification-time { margin-top: 4px; color: #68728c; font-size: .86rem; }
 .command-palette-backdrop { position: fixed; z-index: 150; inset: 0; display: grid; place-items: start center; padding: 12vh 18px 18px; background: rgba(18, 25, 45, .52); backdrop-filter: blur(4px); }
@@ -2364,6 +2367,8 @@ textarea:focus {
 .import-preview table { width: 100%; min-width: 620px; border-collapse: collapse; }
 .import-preview th, .import-preview td { padding: 8px 10px; text-align: left; vertical-align: top; border-bottom: 1px solid var(--border); font-size: 0.86rem; }
 .import-preview thead th { font-weight: 750; white-space: nowrap; }
+/* A row's status is a short badge, not a full notice: one rounded box on one line. */
+.import-preview td .status-note { display: inline-block; padding: 3px 10px; border-left-width: 1px; border-radius: 999px; line-height: 1.4; white-space: nowrap; }
 .import-row-errors { margin: 0; padding-left: 18px; }
 .import-row-errors li + li { margin-top: 4px; }
 .visually-hidden { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap; border: 0; }
@@ -3238,6 +3243,18 @@ textarea:focus {
   height: 66px;
   object-fit: contain;
   object-position: right center;
+}
+
+/* A quiet line icon for dashboards without pictures, as on the reference's stat cards. */
+.stat-tile-icon {
+  display: grid;
+  justify-self: end;
+  place-items: center;
+  width: 42px;
+  height: 42px;
+  border: 1px solid color-mix(in srgb, var(--tone-solid) 22%, #fff);
+  border-radius: 50%;
+  color: color-mix(in srgb, var(--tone-solid) 80%, #fff);
 }
 
 .stat-tile-sub {
@@ -4780,6 +4797,7 @@ textarea:focus {
 .organiser-content .dashboard-header h1,
 .page-banner .page-banner-title {
   margin: 0;
+  overflow-wrap: anywhere;
   color: #14112b;
   font-family: var(--csam-heading);
   font-size: clamp(1.6rem, 2.4vw, 2.1rem);
@@ -5935,6 +5953,8 @@ textarea:focus {
 }
 .member-sidebar-photo { height: 142px; overflow: hidden; border-radius: 15px; background: #fff; }
 .member-sidebar-photo img { width: 100%; height: 100%; object-fit: cover; object-position: center 28%; }
+/* The student card shows the same photo as the Student home banner. */
+.member-shell-student .member-sidebar-photo img { object-position: 52% 40%; }
 .member-sidebar-card h2 { margin: 2px 2px 0; font-size: 1rem; }
 .member-sidebar-card p { margin: 0 2px 4px; color: #bfd0e6; font-size: .82rem; line-height: 1.5; }
 
@@ -6357,3 +6377,641 @@ textarea:focus {
 .member-shell .primary-button:hover:not(:disabled) { background: var(--csam-navy-deep); }
 .compact-mode button { min-height: 2.75rem; }
 .density-toggle input:focus-visible { outline: 3px solid #1d4ed8; outline-offset: 3px; }
+
+/* ---------- Student home ----------
+   After design-refs/student dashboard and student-dashboard2.webp, in the organiser home's
+   language: a greeting banner, four figure tiles, colourful work cards, and a right-hand
+   column with the month, what is coming up and public holidays. */
+
+.student-home {
+  gap: 32px;
+}
+
+/* Banner: a navy card in the CSAM colours. The words sit on the left; a photo of a study
+   session sits on the right, tilted in a frame with a gem-coloured block behind it, and a thin
+   line in the logo's colours runs along the bottom. */
+.student-hero {
+  position: relative;
+  isolation: isolate;
+  min-height: 240px;
+  padding: 34px 40px;
+  overflow: hidden;
+  border-radius: 26px;
+  background: linear-gradient(115deg, #0d2a4d 0%, var(--csam-navy) 100%);
+  color: #fff;
+  box-shadow: 0 14px 34px rgba(13, 42, 77, 0.18);
+}
+
+.student-hero::after {
+  content: '';
+  position: absolute;
+  z-index: 3;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  height: 5px;
+  background: linear-gradient(90deg, #f85859, #fc2590 30%, #d143fb 60%, #2701e0);
+}
+
+.student-hero-words {
+  position: relative;
+  z-index: 2;
+  max-width: 50%;
+}
+
+.student-hero-eyebrow {
+  margin: 0;
+  color: #b9c8ff;
+  font-size: 0.74rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.student-hero .student-hero-title {
+  margin: 8px 0 0;
+  overflow-wrap: anywhere;
+  color: #fff;
+  font-family: var(--csam-heading);
+  font-size: clamp(1.7rem, 3.4cqi, 2.25rem);
+  font-weight: 700;
+  line-height: 1.12;
+  letter-spacing: -0.03em;
+}
+
+.student-hero-text {
+  max-width: 440px;
+  margin: 10px 0 0;
+  color: #dfe5ff;
+  font-size: 0.95rem;
+  line-height: 1.55;
+}
+
+.student-hero-text strong {
+  color: #fff;
+}
+
+.student-hero-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 18px;
+  margin-top: 20px;
+}
+
+.student-hero-primary {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 42px;
+  padding: 0 18px;
+  border: 0;
+  border-radius: 12px;
+  background: #fff;
+  color: var(--csam-navy);
+  font: inherit;
+  font-size: 0.9rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.student-hero-primary:hover {
+  box-shadow: 0 10px 22px rgba(0, 0, 0, 0.22);
+  transform: translateY(-1px);
+}
+
+.student-hero-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: #fff;
+  font-size: 0.9rem;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.student-hero-link:hover span {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.student-hero-primary:focus-visible,
+.student-hero-link:focus-visible {
+  outline: 3px solid #8fd8ff;
+  outline-offset: 3px;
+}
+
+/* The photo: tilted a little in its frame, with a pink-to-blue block offset behind it. */
+.student-hero-photo {
+  position: absolute;
+  z-index: 1;
+  top: 50%;
+  right: 44px;
+  width: 330px;
+  height: 196px;
+  transform: translateY(-50%) rotate(2deg);
+}
+
+.student-hero-photo::before {
+  content: '';
+  position: absolute;
+  inset: 12px -12px -12px 12px;
+  border-radius: 20px;
+  background: linear-gradient(135deg, #fc2590, #d143fb 50%, #2701e0);
+}
+
+.student-hero-photo img {
+  position: relative;
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-radius: 20px;
+  object-fit: cover;
+  box-shadow: 0 16px 34px rgba(0, 0, 0, 0.3);
+}
+
+.student-hero-tag {
+  position: absolute;
+  z-index: 2;
+  right: 300px;
+  bottom: 30px;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 8px 12px;
+  border-radius: 12px;
+  background: #fff;
+  color: var(--csam-navy);
+  font-size: 0.78rem;
+  font-weight: 700;
+  box-shadow: 0 10px 22px rgba(0, 0, 0, 0.2);
+  transform: rotate(-3deg);
+}
+
+.student-hero-tag-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #fc2590;
+}
+
+/* Laptop width: a smaller photo and no tag, so the words keep their room. */
+@container (max-width: 960px) {
+  .student-hero-words {
+    max-width: 56%;
+  }
+
+  .student-hero-photo {
+    right: 26px;
+    width: 250px;
+    height: 168px;
+  }
+
+  .student-hero-tag {
+    display: none;
+  }
+}
+
+/* Phones: the photo becomes a straight strip across the top of the card. */
+@container (max-width: 640px) {
+  .student-hero {
+    display: flex;
+    flex-direction: column;
+    padding: 22px 22px 28px;
+  }
+
+  .student-hero-photo {
+    position: relative;
+    top: auto;
+    right: auto;
+    order: -1;
+    width: calc(100% - 8px);
+    height: 150px;
+    margin-bottom: 26px;
+    transform: none;
+  }
+
+  .student-hero-photo::before {
+    inset: 8px -6px -8px 6px;
+  }
+
+  .student-hero-words {
+    max-width: none;
+  }
+}
+
+.student-home-main,
+.student-home-side {
+  display: grid;
+  align-content: start;
+  gap: 24px;
+  min-width: 0;
+}
+
+.student-count-chip {
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: var(--csam-tint-indigo);
+  color: var(--csam-indigo);
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+/* Open work and requests: one compact row each, like the task lists in the references. Every
+   Volunteer button is the same navy; the course colour is only on its code and date. */
+.student-work-days,
+.student-rows {
+  display: grid;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.student-work-days {
+  gap: 18px;
+}
+
+.student-home .student-day-label {
+  margin: 0;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--csam-line);
+  color: var(--csam-navy);
+  font-family: var(--csam-text);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.student-rows > li + li {
+  border-top: 1px solid var(--csam-line);
+}
+
+.student-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 0;
+}
+
+.student-date-tile {
+  display: grid;
+  flex: none;
+  place-content: center;
+  width: 50px;
+  height: 54px;
+  border-radius: 12px;
+  background: var(--tone-tint, var(--csam-page));
+  text-align: center;
+}
+
+.student-date-tile span {
+  color: var(--tone-ink, var(--tone-solid));
+  font-size: 0.64rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.student-date-tile strong {
+  color: var(--csam-ink);
+  font-family: var(--csam-heading);
+  font-size: 1.12rem;
+  font-weight: 600;
+  line-height: 1.05;
+}
+
+.student-row-words {
+  display: grid;
+  flex: 1;
+  gap: 4px;
+  min-width: 0;
+}
+
+.student-row-words p {
+  margin: 0;
+}
+
+.student-row-title {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+}
+
+.student-row-title strong {
+  color: var(--csam-ink);
+  font-size: 0.92rem;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
+.student-code {
+  padding: 2px 8px;
+  border-radius: 7px;
+  background: var(--tone-tint, var(--csam-page));
+  color: var(--tone-ink, var(--tone-solid, var(--csam-navy)));
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.student-row-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 12px;
+  color: var(--csam-muted);
+  font-size: 0.8rem;
+}
+
+.student-row-time {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--csam-body);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.student-row-unavailable {
+  color: #b0204c;
+  font-weight: 600;
+}
+
+.student-row-note {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 8px;
+  color: var(--csam-body);
+  font-size: 0.8rem;
+}
+
+.student-row-note-label {
+  color: var(--csam-muted);
+  font-weight: 700;
+}
+
+.member-content .student-row-action {
+  flex: none;
+  width: auto;
+  min-height: 38px;
+  padding: 0 16px;
+  font-size: 0.84rem;
+}
+
+.student-status {
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 0.74rem;
+  font-weight: 700;
+}
+
+.student-status.status-pending {
+  background: var(--csam-tint-amber);
+  color: #8a5300;
+}
+
+.student-status.status-accepted {
+  background: var(--csam-tint-green);
+  color: var(--csam-green);
+}
+
+.student-status.status-rejected {
+  background: var(--csam-tint-red);
+  color: #b0204c;
+}
+
+.student-status.status-withdrawn {
+  background: #eef0f6;
+  color: #5e6784;
+}
+
+.student-home .my-requests {
+  margin-top: 0;
+}
+
+/* The schedule keeps its own column down to a laptop-width page, only narrower; below that the
+   columns stack. */
+.home-split.student-home-split {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 360px);
+}
+
+@container (max-width: 980px) {
+  .home-split.student-home-split {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 280px);
+  }
+}
+
+@container (max-width: 680px) {
+  .home-split.student-home-split {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* A narrow schedule card: smaller calendar days, and the heading may wrap over its link. */
+.student-schedule .home-card-heading {
+  flex-wrap: wrap;
+}
+
+@container (max-width: 260px) {
+  .mini-calendar {
+    padding-inline: 6px;
+  }
+
+  .mini-calendar-day {
+    width: 28px;
+    height: 28px;
+    font-size: 0.78rem;
+  }
+}
+
+/* My schedule: a month at a glance and what is coming up. */
+.mini-calendar {
+  padding: 14px 12px 8px;
+  border-radius: 18px;
+  background: var(--csam-page);
+}
+
+.mini-calendar-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 4px 8px;
+}
+
+.mini-calendar-head p {
+  margin: 0;
+  color: var(--csam-ink);
+  font-weight: 700;
+}
+
+.mini-calendar-grid {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+  text-align: center;
+}
+
+.mini-calendar-grid th {
+  padding: 4px 0 6px;
+  color: var(--csam-indigo);
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
+.mini-calendar-grid td {
+  padding: 2px 0;
+}
+
+.mini-calendar-day {
+  position: relative;
+  display: inline-grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 10px;
+  color: var(--csam-body);
+  font-size: 0.84rem;
+}
+
+.mini-calendar-day.has-plans {
+  background: var(--csam-tint-indigo);
+  color: var(--csam-indigo);
+  font-weight: 700;
+}
+
+.mini-calendar-day.volunteering::after {
+  content: '';
+  position: absolute;
+  bottom: 4px;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--csam-magenta);
+}
+
+.mini-calendar-day.today {
+  background: var(--csam-indigo);
+  color: #fff;
+  font-weight: 700;
+  box-shadow: 0 6px 14px rgba(42, 12, 216, 0.28);
+}
+
+.student-agenda {
+  display: grid;
+  gap: 10px;
+}
+
+.student-agenda h3 {
+  margin: 4px 0 0;
+  font-size: 1rem;
+}
+
+.student-agenda-group {
+  margin: 4px 0 0;
+  color: var(--csam-muted);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.student-agenda-list {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.student-agenda-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--csam-line);
+  border-radius: 16px;
+  background: #fff;
+}
+
+.student-agenda-icon {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 12px;
+  background: var(--tone-tint);
+  color: var(--tone-solid);
+}
+
+.student-agenda-words {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.student-agenda-words strong {
+  overflow: hidden;
+  color: var(--csam-ink);
+  font-size: 0.92rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.student-agenda-words span {
+  color: var(--csam-muted);
+  font-size: 0.8rem;
+}
+
+/* Public holidays sit in the side column as a plain home card. */
+.student-home .public-holidays-section {
+  margin: 0;
+  padding: 24px;
+  border: 0;
+  border-radius: 24px;
+  background: #fff;
+  box-shadow: var(--csam-shadow);
+}
+
+.student-home .public-holiday-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 2px 8px;
+  border-color: var(--csam-line);
+  border-radius: 14px;
+  background: var(--csam-page);
+}
+
+/* The side column is narrow, so the date and its badge share a line and the name sits below. */
+.student-home .public-holiday-item .holiday-date {
+  min-width: 0;
+}
+
+.student-home .public-holiday-item .holiday-name {
+  grid-column: 1 / -1;
+  grid-row: 2;
+  font-size: 0.86rem;
+}
+
+/* Phones: the action drops under the words. */
+@container (max-width: 360px) {
+  .student-row {
+    flex-wrap: wrap;
+  }
+
+  .student-row .student-row-words {
+    flex-basis: calc(100% - 64px);
+  }
+
+  .member-content .student-row-action {
+    margin-left: 64px;
+  }
+
+  .member-content .student-request-row .student-row-action {
+    margin-left: 0;
+  }
+}

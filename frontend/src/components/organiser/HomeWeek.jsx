@@ -1,23 +1,11 @@
 import { addDays, localMonday, weekRangeLabel } from '../shared/scheduleWeek'
 import { budgetUsed, money, percent, requirementsForWeek, sumHours } from '../../features/organiserHome'
 import { OrganiserIcon } from './OrganiserIcon'
+import { StatTile } from '../shared/StatTile'
 import requirementsArt from '../../assets/organiser/calendar.svg'
 import approvalsArt from '../../assets/organiser/check-boxes.svg'
 import hoursArt from '../../assets/organiser/alarm-clock.svg'
 import budgetArt from '../../assets/organiser/wallet.svg'
-
-function StatTile({ label, value, sub, art }) {
-  return (
-    <li className="stat-tile">
-      <p className="stat-tile-label">{label}</p>
-      <div className="stat-tile-figures">
-        <p className="stat-tile-value">{value}</p>
-        <img className="stat-tile-art" src={art} alt="" width="96" height="72" />
-      </div>
-      <p className="stat-tile-sub">{sub}</p>
-    </li>
-  )
-}
 
 function figure(part, compute, fallback = 'Unavailable') {
   if (part.status === 'loading') return { value: '…', sub: 'Loading…' }

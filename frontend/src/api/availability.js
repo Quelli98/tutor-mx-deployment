@@ -90,3 +90,39 @@ export async function deleteOwnTimeSlot(timeSlotId, tokenOrGetter) {
   requireSlotId(timeSlotId)
   await fetchWithBearerToken(`/api/me/time-slots/${timeSlotId}`, { method: 'DELETE' }, tokenOrGetter)
 }
+
+function requireOccurrenceDate(value) {
+  if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) throw new Error('Choose the week to change.')
+}
+
+function occurrencePath(timeSlotId, occurrenceDate) {
+  requireSlotId(timeSlotId)
+  requireOccurrenceDate(occurrenceDate)
+  return `/api/me/time-slots/${timeSlotId}/exceptions/${occurrenceDate}`
+}
+
+/** Skips one week of a repeating entry; resolves to the entry with its exceptions. */
+export async function skipOccurrence(timeSlotId, occurrenceDate, tokenOrGetter) {
+  const body = await fetchWithBearerToken(occurrencePath(timeSlotId, occurrenceDate), {
+    method: 'PUT', body: JSON.stringify({ exceptionType: 'CANCELLED' }),
+  }, tokenOrGetter)
+  return slotFrom(body)
+}
+
+/** Moves one week of a repeating entry to a new time. */
+export async function moveOccurrence(timeSlotId, occurrenceDate, { newStartsAt, newEndsAt }, tokenOrGetter) {
+  const path = occurrencePath(timeSlotId, occurrenceDate)
+  if (!isDate(newStartsAt) || !isDate(newEndsAt) || new Date(newEndsAt) <= new Date(newStartsAt)) {
+    throw new Error('The new end time must be after the new start time.')
+  }
+  const body = await fetchWithBearerToken(path, {
+    method: 'PUT', body: JSON.stringify({ exceptionType: 'MOVED', newStartsAt, newEndsAt }),
+  }, tokenOrGetter)
+  return slotFrom(body)
+}
+
+/** Puts one week of a repeating entry back to its usual time. */
+export async function restoreOccurrence(timeSlotId, occurrenceDate, tokenOrGetter) {
+  const body = await fetchWithBearerToken(occurrencePath(timeSlotId, occurrenceDate), { method: 'DELETE' }, tokenOrGetter)
+  return slotFrom(body)
+}

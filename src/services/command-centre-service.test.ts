@@ -34,6 +34,7 @@ function requirement(
     shortageTutors: 2,
     fillState: "unfilled",
     status: "OPEN",
+    statusReason: null,
     notes: null,
     createdById: 8,
     createdAt: "2026-09-21T09:00:00.000Z",

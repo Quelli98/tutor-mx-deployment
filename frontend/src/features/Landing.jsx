@@ -1,7 +1,6 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { CsamMark } from '../components/shared/CsamMark'
-import { checkOrganiserApplicationStatus } from '../api/organiserApplications'
 import studentPhoto from '../assets/landing/student.webp'
 import tutorPhoto from '../assets/landing/tutor.webp'
 import organiserPhoto from '../assets/landing/organiser.webp'
@@ -114,37 +113,12 @@ function untilt(event) {
 
 export function Landing({ onCreateAccount, onSignIn, isSubmitting, status }) {
   const [pendingAction, setPendingAction] = useState(null)
-  const [organiserEmail, setOrganiserEmail] = useState('')
-  const [approvalStatus, setApprovalStatus] = useState({ type: 'idle', message: '' })
 
   const start = (action, run) => {
     setPendingAction(action)
     run()
   }
   const label = (action, idle) => (isSubmitting && pendingAction === action ? 'Opening...' : idle)
-
-  const handleStatusCheck = async (event) => {
-    event.preventDefault()
-    const email = organiserEmail.trim()
-    if (!email) {
-      setApprovalStatus({ type: 'error', message: 'Enter the lecturer email used when registering.' })
-      return
-    }
-    setApprovalStatus({ type: 'loading', message: 'Checking organiser approval status…' })
-    try {
-      const result = await checkOrganiserApplicationStatus(email)
-      const messages = {
-        PENDING: ['pending', 'Pending — your organiser account is waiting for Master Organiser approval.'],
-        APPROVED: ['success', 'Approved — you can now sign in as Organiser.'],
-        REJECTED: ['error', 'Not approved — contact a Master Organiser if this should be reviewed.'],
-        NOT_FOUND: ['error', 'No organiser registration was found for that email.'],
-      }
-      const [type, message] = messages[result] || messages.NOT_FOUND
-      setApprovalStatus({ type, message })
-    } catch (error) {
-      setApprovalStatus({ type: 'error', message: error?.message || 'Approval status could not be checked.' })
-    }
-  }
 
   return (
     <div className="landing" id="top">
@@ -232,29 +206,6 @@ export function Landing({ onCreateAccount, onSignIn, isSubmitting, status }) {
                       {label(`login:${role}`, 'Sign in')}
                     </button>
                   </div>
-                  {role === 'ORGANISER' && (
-                    <form className="organiser-status-check" onSubmit={handleStatusCheck}>
-                      <label htmlFor="organiser-status-email">Check organiser approval status</label>
-                      <div className="organiser-status-row">
-                        <input
-                          id="organiser-status-email"
-                          type="email"
-                          autoComplete="email"
-                          value={organiserEmail}
-                          onChange={(event) => setOrganiserEmail(event.target.value)}
-                          placeholder="lecturer@wits.ac.za"
-                        />
-                        <button type="submit" disabled={approvalStatus.type === 'loading'}>
-                          {approvalStatus.type === 'loading' ? 'Checking…' : 'Check status'}
-                        </button>
-                      </div>
-                      {approvalStatus.message && (
-                        <p className={`organiser-status-message is-${approvalStatus.type}`} aria-live="polite">
-                          {approvalStatus.message}
-                        </p>
-                      )}
-                    </form>
-                  )}
                 </li>
               ))}
             </ul>

@@ -424,6 +424,7 @@ describe("allocation mutation routes", () => {
       ...validAllocation,
       startsAt: new Date(validAllocation.startsAt),
       endsAt: new Date(validAllocation.endsAt),
+      requireRankingReason: true,
     });
 
     const updated = await request(app)
@@ -437,6 +438,7 @@ describe("allocation mutation routes", () => {
       ...validAllocation,
       startsAt: new Date(validAllocation.startsAt),
       endsAt: new Date(validAllocation.endsAt),
+      requireRankingReason: true,
     });
 
     const removed = await request(app)
@@ -445,6 +447,44 @@ describe("allocation mutation routes", () => {
 
     expect(removed.status).toBe(204);
     expect(removeAllocation).toHaveBeenCalledWith("auth0|organiser", 11);
+  });
+
+  it("passes a trimmed override reason to the board's ranking check", async () => {
+    const createAllocation = vi.fn().mockResolvedValue(allocationSummary);
+    const app = makeApp({ createAllocation });
+
+    const response = await request(app)
+      .post("/api/allocations")
+      .set("Authorization", "Bearer valid-token")
+      .send({ ...validAllocation, overrideReason: "  Sam knows this lab.  " });
+
+    expect(response.status).toBe(201);
+    expect(createAllocation).toHaveBeenCalledWith(
+      "auth0|organiser",
+      expect.objectContaining({ overrideReason: "Sam knows this lab.", requireRankingReason: true }),
+    );
+  });
+
+  it("reports a missing override reason from the ranking check", async () => {
+    const createAllocation = vi.fn().mockRejectedValue(
+      createRouteError(
+        409,
+        "OVERRIDE_REASON_REQUIRED",
+        "Ada Top is ranked first for this session. Give a reason for choosing a different tutor.",
+      ),
+    );
+    const app = makeApp({ createAllocation });
+
+    const response = await request(app)
+      .post("/api/allocations")
+      .set("Authorization", "Bearer valid-token")
+      .send(validAllocation);
+
+    expect(response.status).toBe(409);
+    expect(response.body.error).toEqual({
+      code: "OVERRIDE_REASON_REQUIRED",
+      message: "Ada Top is ranked first for this session. Give a reason for choosing a different tutor.",
+    });
   });
 
   it("rejects malformed allocation input before delegation", async () => {
@@ -458,6 +498,9 @@ describe("allocation mutation routes", () => {
       { ...validAllocation, minimumMark: 101 },
       { ...validAllocation, requestedHours: 0 },
       { ...validAllocation, status: "CANCELLED" },
+      { ...validAllocation, overrideReason: "   " },
+      { ...validAllocation, overrideReason: "x".repeat(1001) },
+      { ...validAllocation, overrideReason: 42 },
     ];
 
     for (const body of invalidBodies) {
@@ -769,6 +812,7 @@ describe("staffing requirement routes", () => {
     shortageTutors: 1,
     fillState: "partially-filled",
     status: "OPEN",
+    statusReason: null,
     notes: "Two extra tutors for the lab",
     createdById: 8,
     createdAt: "2026-09-21T09:00:00.000Z",
@@ -1011,14 +1055,48 @@ describe("staffing requirement routes", () => {
 
       expect(response.status).toBe(200);
       expect(response.body.data.staffingRequirement.status).toBe(status);
-      expect(setStaffingRequirementStatus).toHaveBeenCalledWith(12, status);
+      expect(setStaffingRequirementStatus).toHaveBeenCalledWith(12, status, undefined);
     },
   );
+
+  it("passes a trimmed reason for closing still-short work", async () => {
+    const setStaffingRequirementStatus = vi
+      .fn()
+      .mockResolvedValue({ ...summary, status: "CLOSED", statusReason: "Lab moved online." });
+    const app = makeApp({ setStaffingRequirementStatus });
+
+    const response = await request(app)
+      .patch("/api/staffing-requirements/12/status")
+      .set("Authorization", "Bearer valid-token")
+      .send({ status: "CLOSED", reason: "  Lab moved online.  " });
+
+    expect(response.status).toBe(200);
+    expect(response.body.data.staffingRequirement.statusReason).toBe("Lab moved online.");
+    expect(setStaffingRequirementStatus).toHaveBeenCalledWith(12, "CLOSED", "Lab moved online.");
+  });
+
+  it("reports when still-short work needs a reason to close", async () => {
+    const app = makeApp({
+      setStaffingRequirementStatus: vi.fn().mockRejectedValue(
+        createRouteError(409, "STATUS_REASON_REQUIRED", "This session is still 2 tutors short. Give a reason for closing it anyway."),
+      ),
+    });
+
+    const response = await request(app)
+      .patch("/api/staffing-requirements/12/status")
+      .set("Authorization", "Bearer valid-token")
+      .send({ status: "CLOSED" });
+
+    expect(response.status).toBe(409);
+    expect(response.body.error.code).toBe("STATUS_REASON_REQUIRED");
+  });
 
   it.each([
     ["an unknown status", { status: "FILLED" }],
     ["a missing status", {}],
     ["extra fields", { status: "CLOSED", notes: "why" }],
+    ["a blank reason", { status: "CLOSED", reason: "   " }],
+    ["an over-long reason", { status: "CLOSED", reason: "x".repeat(1001) }],
   ])("rejects %s on the status route", async (_label, body) => {
     const setStaffingRequirementStatus = vi.fn();
     const app = makeApp({ setStaffingRequirementStatus });
@@ -1767,5 +1845,152 @@ describe("course money fields", () => {
       .send({ code: "PAY101", name: "Renamed" });
 
     expect(updateCourse).toHaveBeenCalledWith(1, { code: "PAY101", name: "Renamed" });
+  });
+});
+
+describe("bulk timesheet approval route", () => {
+  const decided = {
+    id: 1,
+    tutorId: 7,
+    weekStart: "2030-09-02",
+    status: "APPROVED" as const,
+    reviewedAt: "2030-09-09T08:00:00.000Z",
+    reviewedById: 21,
+    reviewReason: null,
+  };
+
+  it("approves each timesheet on its own and reports every outcome", async () => {
+    const decideTimesheet = vi.fn(async (_auth0Id: string, timesheetId: number) => {
+      if (timesheetId === 2) {
+        throw createRouteError(409, "TIMESHEET_DECISION_CONFLICT", "The timesheet changed before this decision could be applied.");
+      }
+      if (timesheetId === 3) {
+        throw new Error("postgres://secret");
+      }
+      return { ...decided, id: timesheetId };
+    });
+    const app = makeApp({ decideTimesheet });
+
+    const response = await request(app)
+      .post("/api/timesheets/bulk-decision")
+      .set("Authorization", "Bearer valid-token")
+      .send({ timesheetIds: [1, 2, 3, 4, 1], decision: "APPROVE" });
+
+    expect(response.status).toBe(200);
+    expect(response.body.data.results).toEqual([
+      { timesheetId: 1, outcome: "approved" },
+      {
+        timesheetId: 2,
+        outcome: "failed",
+        code: "TIMESHEET_DECISION_CONFLICT",
+        message: "The timesheet changed before this decision could be applied.",
+      },
+      { timesheetId: 3, outcome: "failed", code: "INTERNAL_ERROR", message: "This timesheet could not be approved." },
+      { timesheetId: 4, outcome: "approved" },
+    ]);
+    expect(response.text).not.toContain("secret");
+    // The duplicate 1 is decided once; every call uses the verified organiser.
+    expect(decideTimesheet).toHaveBeenCalledTimes(4);
+    expect(decideTimesheet).toHaveBeenCalledWith("auth0|organiser", 4, { decision: "APPROVE" });
+  });
+
+  it.each([
+    ["a return, which needs its own reason", { timesheetIds: [1], decision: "RETURN" }],
+    ["no timesheets", { timesheetIds: [], decision: "APPROVE" }],
+    ["more than fifty timesheets", { timesheetIds: Array.from({ length: 51 }, (_v, i) => i + 1), decision: "APPROVE" }],
+    ["a non-numeric identifier", { timesheetIds: ["1"], decision: "APPROVE" }],
+    ["extra fields", { timesheetIds: [1], decision: "APPROVE", reason: "fine" }],
+  ])("rejects %s", async (_label, body) => {
+    const decideTimesheet = vi.fn();
+    const app = makeApp({ decideTimesheet });
+
+    const response = await request(app)
+      .post("/api/timesheets/bulk-decision")
+      .set("Authorization", "Bearer valid-token")
+      .send(body);
+
+    expect(response.status).toBe(400);
+    expect(response.body.error.code).toBe("VALIDATION_ERROR");
+    expect(decideTimesheet).not.toHaveBeenCalled();
+  });
+
+  it("requires a signed-in organiser", async () => {
+    const decideTimesheet = vi.fn();
+    const body = { timesheetIds: [1], decision: "APPROVE" };
+
+    const anonymous = await request(makeApp({ decideTimesheet })).post("/api/timesheets/bulk-decision").send(body);
+    expect(anonymous.status).toBe(401);
+
+    for (const role of ["TUTOR", "STUDENT"] as const) {
+      const response = await request(makeApp({ decideTimesheet }, role))
+        .post("/api/timesheets/bulk-decision")
+        .set("Authorization", "Bearer valid-token")
+        .send(body);
+      expect(response.status).toBe(403);
+    }
+    expect(decideTimesheet).not.toHaveBeenCalled();
+  });
+});
+
+describe("course mark list routes", () => {
+  const marks = [
+    { tutorId: 7, fullName: "Ada Tutor", email: "ada@tutormx.example", mark: 81.5 },
+    { tutorId: 8, fullName: "Ben Tutor", email: "ben@tutormx.example", mark: null },
+  ];
+
+  it("lists and saves a course's marks for an organiser", async () => {
+    const listCourseMarks = vi.fn().mockResolvedValue(marks);
+    const saveCourseMarks = vi.fn().mockResolvedValue(marks);
+    const app = makeApp({ listCourseMarks, saveCourseMarks });
+
+    const listed = await request(app).get("/api/courses/3/marks").set("Authorization", "Bearer valid-token");
+    expect(listed.status).toBe(200);
+    expect(listed.body).toEqual({ data: { marks } });
+    expect(listCourseMarks).toHaveBeenCalledWith(3);
+
+    const saved = await request(app)
+      .put("/api/courses/3/marks")
+      .set("Authorization", "Bearer valid-token")
+      .send({ marks: [{ tutorId: 7, mark: 81.5 }, { tutorId: 8, mark: 0 }] });
+    expect(saved.status).toBe(200);
+    expect(saveCourseMarks).toHaveBeenCalledWith(3, [{ tutorId: 7, mark: 81.5 }, { tutorId: 8, mark: 0 }]);
+  });
+
+  it.each([
+    ["no marks", { marks: [] }],
+    ["a mark above 100", { marks: [{ tutorId: 7, mark: 101 }] }],
+    ["a mark sent as text", { marks: [{ tutorId: 7, mark: "80" }] }],
+    ["a missing tutor", { marks: [{ mark: 80 }] }],
+    ["the same tutor twice", { marks: [{ tutorId: 7, mark: 80 }, { tutorId: 7, mark: 70 }] }],
+    ["extra fields on an entry", { marks: [{ tutorId: 7, mark: 80, courseId: 4 }] }],
+    ["extra fields on the body", { marks: [{ tutorId: 7, mark: 80 }], replaceAll: true }],
+    ["too many marks", { marks: Array.from({ length: 501 }, (_v, i) => ({ tutorId: i + 1, mark: 70 })) }],
+  ])("rejects %s before saving", async (_label, body) => {
+    const saveCourseMarks = vi.fn();
+    const app = makeApp({ saveCourseMarks });
+
+    const response = await request(app)
+      .put("/api/courses/3/marks")
+      .set("Authorization", "Bearer valid-token")
+      .send(body);
+
+    expect(response.status).toBe(400);
+    expect(response.body.error.code).toBe("VALIDATION_ERROR");
+    expect(saveCourseMarks).not.toHaveBeenCalled();
+  });
+
+  it("rejects a malformed course id and keeps the routes organiser-only", async () => {
+    const listCourseMarks = vi.fn();
+    expect((await request(makeApp({ listCourseMarks })).get("/api/courses/abc/marks").set("Authorization", "Bearer valid-token")).status).toBe(400);
+    expect((await request(makeApp({ listCourseMarks })).get("/api/courses/3/marks")).status).toBe(401);
+    expect((await request(makeApp({ listCourseMarks }, "TUTOR")).get("/api/courses/3/marks").set("Authorization", "Bearer valid-token")).status).toBe(403);
+    expect((await request(makeApp({}, "STUDENT")).put("/api/courses/3/marks").set("Authorization", "Bearer valid-token").send({ marks: [{ tutorId: 7, mark: 80 }] })).status).toBe(403);
+    expect(listCourseMarks).not.toHaveBeenCalled();
+  });
+
+  it("answers 503 when mark lists are not configured", async () => {
+    const response = await request(makeApp()).get("/api/courses/3/marks").set("Authorization", "Bearer valid-token");
+    expect(response.status).toBe(503);
+    expect(response.body.error.code).toBe("COURSE_MARKS_UNAVAILABLE");
   });
 });

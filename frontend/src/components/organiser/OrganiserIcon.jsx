@@ -3,6 +3,7 @@ import { createElement } from 'react'
 // Lucide icons (lucide.dev, ISC licence): each is a list of SVG elements drawn on a 24 × 24 grid
 // with a 2px round stroke in the current text colour.
 const ICONS = {
+  'arrow-right': [['path', { d: 'M5 12h14' }], ['path', { d: 'm12 5 7 7-7 7' }]],
   'arrow-up-right': [['path', { d: 'M7 7h10v10' }], ['path', { d: 'M7 17 17 7' }]],
   bell: [
     ['path', { d: 'M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9' }],

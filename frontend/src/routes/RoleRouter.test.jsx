@@ -41,6 +41,7 @@ vi.mock('../api/organiser', () => ({
   updateTutor: vi.fn(),
   listAllocations: vi.fn().mockResolvedValue([]),
   listAllocationCandidates: vi.fn().mockResolvedValue([]),
+  canSelectCandidate: vi.fn().mockReturnValue(false),
   listOrganiserApprovals: vi
     .fn()
     .mockResolvedValue({ timesheets: [], volunteerClaims: [], excuses: [] }),
@@ -162,6 +163,17 @@ describe('RoleRouter', () => {
     renderRole('STUDENT')
     expect(screen.getByRole('link', { name: /student workspace/i })).toBeInTheDocument()
     expect(screen.getByRole('link', { name: /account settings/i })).toBeInTheDocument()
+  })
+
+  it('links a student to their own timetable', () => {
+    renderRole('STUDENT')
+    const navigation = screen.getByRole('navigation', { name: /primary navigation/i })
+    expect(within(navigation).getByRole('link', { name: /my timetable/i })).toHaveAttribute('href', '/student/timetable')
+  })
+
+  it('keeps the student timetable route away from other roles', () => {
+    renderRole('TUTOR', '/student/timetable')
+    expect(screen.getByRole('heading', { name: /access denied/i })).toBeInTheDocument()
   })
 
   it('shows tutor navigation for a tutor', () => {
@@ -448,6 +460,19 @@ describe('RoleRouter', () => {
     expect(screen.queryByRole('link', { name: /start bulk allocation/i })).not.toBeInTheDocument()
     expect(screen.getByText('Welcome back')).toBeInTheDocument()
     expect(screen.getByRole('link', { name: /tutor workspace/i })).toBeInTheDocument()
+  })
+
+  it('lets the student home banner do the greeting instead of the top bar', () => {
+    renderRole('STUDENT', '/student')
+    expect(screen.queryByText('Welcome back')).not.toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Welcome back!' })).toBeInTheDocument()
+  })
+
+  it('does not greet an account by its email address when it has no name', () => {
+    renderRole('STUDENT', '/settings', vi.fn(), { data: { profile: { id: 3, fullName: 'woyac78803@cwsgear.com', role: 'STUDENT' } } })
+
+    expect(screen.getByText('Welcome back')).toBeInTheDocument()
+    expect(screen.queryByText(/cwsgear/)).not.toBeInTheDocument()
   })
 
   it('keeps course management away from a tutor', () => {

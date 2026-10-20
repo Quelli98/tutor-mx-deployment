@@ -56,6 +56,8 @@ import {
   type TimetableImportRequest,
 } from "./services/timetable-import.js";
 import type { TimetableImportCommitResult } from "./services/timetable-import-service.js";
+import type { OccurrenceExceptionInput } from "./services/occurrence-exceptions.js";
+import type { TutorObligation } from "./services/tutor-obligations.js";
 import type {
   TimesheetCorrectionInput,
   TimesheetCorrectionResult,
@@ -136,6 +138,8 @@ export interface TutorDashboardSummary {
   usedHours: number;
   remainingHours: number | null;
   hasSchedule?: boolean;
+  /** What the tutor still owes (hours to log, timesheets to submit) and when. */
+  obligations?: TutorObligation[];
 }
 
 export interface TutorTimeSlotWriteInput {
@@ -287,8 +291,18 @@ export interface AllocationWriteInput {
   minimumMark: number;
   requestedHours: number;
   status?: AllocationWriteStatus;
-  /** Set only when an organiser overrode a bulk allocation suggestion. */
+  /**
+   * Why the organiser chose this tutor over the one the system ranked first:
+   * the bulk suggestion, or the top of the board's ranking.
+   */
   overrideReason?: string;
+  /**
+   * Set by the allocation board's own routes. The tutor is checked against the
+   * ranking at the moment of saving, and anyone other than the top-ranked
+   * eligible tutor needs an overrideReason. Bulk allocation leaves it unset: it
+   * proposes several tutors per session and records its own overrides.
+   */
+  requireRankingReason?: boolean;
 }
 
 export interface AllocationSummary extends AllocationAttendanceSummary {
@@ -337,6 +351,8 @@ export interface StaffingRequirementSummary {
   shortageTutors: number;
   fillState: StaffingRequirementFillState;
   status: StaffingRequirementStatus;
+  /** Why it was closed or cancelled while still short. Null when open. */
+  statusReason: string | null;
   notes: string | null;
   createdById: number | null;
   createdAt: string;
@@ -476,6 +492,8 @@ export interface OrganiserAllocationSummary extends AllocationSummary {
   tutorEmail: string;
   courseCode: string;
   courseName: string;
+  /** Why this tutor was chosen over the top-ranked one; null when nobody was passed over. */
+  overrideReason: string | null;
 }
 
 export interface OrganiserTimesheetEntrySummary {
@@ -695,6 +713,11 @@ export interface TimesheetDecisionSummary {
   reviewReason: string | null;
 }
 
+/** One timesheet's outcome in a bulk approval; each is decided on its own. */
+export type BulkTimesheetDecisionResult =
+  | { timesheetId: number; outcome: "approved" }
+  | { timesheetId: number; outcome: "failed"; code: string; message: string };
+
 export interface VolunteerClaimDecisionInput {
   decision: "APPROVE" | "REJECT";
   reason?: string;
@@ -711,6 +734,20 @@ export interface VolunteerClaimDecisionSummary {
 export interface TutorMarkWriteInput {
   courseId: number;
   mark: number;
+}
+
+/** One tutor's mark in a course-wide mark list. */
+export interface CourseMarkEntry {
+  tutorId: number;
+  mark: number;
+}
+
+/** A tutor and their mark for one course; null when no mark is recorded yet. */
+export interface CourseTutorMarkSummary {
+  tutorId: number;
+  fullName: string;
+  email: string;
+  mark: number | null;
 }
 
 export interface TutorMarkSummary {
@@ -788,6 +825,19 @@ export interface AppDependencies {
     input: TutorTimeSlotWriteInput,
   ) => Promise<TutorTimeSlotSummary>;
   deleteTutorTimeSlot: (auth0Id: string, timeSlotId: number) => Promise<void>;
+  /** Skips or moves one occurrence of the caller's own repeating entry. */
+  saveOwnOccurrenceException?: (
+    auth0Id: string,
+    timeSlotId: number,
+    occurrenceDate: string,
+    input: OccurrenceExceptionInput,
+  ) => Promise<TutorTimeSlotSummary>;
+  /** Puts one occurrence of the caller's own repeating entry back. */
+  removeOwnOccurrenceException?: (
+    auth0Id: string,
+    timeSlotId: number,
+    occurrenceDate: string,
+  ) => Promise<TutorTimeSlotSummary>;
   updateTutorWeeklyCapacity: (
     auth0Id: string,
     input: TutorWeeklyCapacity,
@@ -903,6 +953,12 @@ export interface AppDependencies {
     input: TutorMarkWriteInput,
   ) => Promise<TutorMarkSummary>;
   listTutorMarks: (tutorId: number) => Promise<TutorMarkSummary[]>;
+  /** Every tutor's mark for one course, for entering a whole mark list at once. */
+  listCourseMarks?: (courseId: number) => Promise<CourseTutorMarkSummary[]>;
+  saveCourseMarks?: (
+    courseId: number,
+    entries: CourseMarkEntry[],
+  ) => Promise<CourseTutorMarkSummary[]>;
   deleteTutorMark: (tutorId: number, courseId: number) => Promise<void>;
   listTutorTimeSlots: (tutorId: number) => Promise<TutorTimeSlotSummary[]>;
   requestPasswordReset: PasswordResetRequester;
@@ -959,6 +1015,7 @@ export interface AppDependencies {
   setStaffingRequirementStatus?: (
     requirementId: number,
     status: StaffingRequirementStatus,
+    reason?: string,
   ) => Promise<StaffingRequirementSummary>;
   /** Overflow work the organiser screen posts, edits and closes. */
   listOrganiserOverflowWork?: () => Promise<OrganiserOverflowWorkSummary[]>;
@@ -1479,18 +1536,20 @@ function parseStaffingRequirementInput(body: unknown) {
 }
 
 function parseStaffingRequirementStatusInput(body: unknown) {
-  if (!hasOnlyFields(body, ["status"])) {
-    return { error: "Provide only status." } as const;
+  if (!hasOnlyFields(body, ["status", "reason"])) {
+    return { error: "Provide only status and an optional reason." } as const;
   }
 
   const status = parseStaffingRequirementStatus(body.status);
-  if (!status) {
+  const hasReason = body.reason !== undefined && body.reason !== null;
+  const reason = hasReason ? parseRequiredText(body.reason, "reason", 1000) : undefined;
+  if (!status || (hasReason && !reason)) {
     return {
-      error: "Enter a valid status of OPEN, CLOSED or CANCELLED.",
+      error: "Enter a valid status of OPEN, CLOSED or CANCELLED and, if given, a reason of up to 1000 characters.",
     } as const;
   }
 
-  return { value: status } as const;
+  return { value: { status, ...(reason ? { reason } : {}) } } as const;
 }
 
 function parseStaffingRequirementListQuery(query: unknown) {
@@ -1706,6 +1765,26 @@ function parseDateOnly(value: unknown) {
     parsed.toISOString().slice(0, 10) === value
     ? value
     : null;
+}
+
+function parseOccurrenceExceptionInput(body: unknown) {
+  if (hasOnlyFields(body, ["exceptionType"]) && body.exceptionType === "CANCELLED") {
+    return { value: { exceptionType: "CANCELLED" } } as const;
+  }
+  if (
+    hasOnlyFields(body, ["exceptionType", "newStartsAt", "newEndsAt"]) &&
+    body.exceptionType === "MOVED"
+  ) {
+    const newStartsAt = parseIsoDateTime(body.newStartsAt);
+    const newEndsAt = parseIsoDateTime(body.newEndsAt);
+    if (newStartsAt && newEndsAt && newEndsAt > newStartsAt) {
+      return { value: { exceptionType: "MOVED", newStartsAt, newEndsAt } } as const;
+    }
+    return { error: "A moved week needs a new start and a later new end." } as const;
+  }
+  return {
+    error: "Send exceptionType CANCELLED to skip the week, or MOVED with newStartsAt and newEndsAt.",
+  } as const;
 }
 
 function parseWeekStart(value: unknown): Date | null {
@@ -2117,6 +2196,7 @@ function parseAllocationWriteInput(body: unknown) {
     minimumMark?: unknown;
     requestedHours?: unknown;
     status?: unknown;
+    overrideReason?: unknown;
   } | null;
   const tutorId = parsePositiveInteger(payload?.tutorId);
   const courseId = parsePositiveInteger(payload?.courseId);
@@ -2125,6 +2205,11 @@ function parseAllocationWriteInput(body: unknown) {
   const minimumMark = parseMarkValue(payload?.minimumMark);
   const requestedHours = parseRequestedHours(payload?.requestedHours);
   const status = payload?.status;
+  const hasReason =
+    payload?.overrideReason !== undefined && payload?.overrideReason !== null;
+  const overrideReason = hasReason
+    ? parseRequiredText(payload?.overrideReason, "overrideReason", 1000)
+    : undefined;
 
   if (
     !tutorId ||
@@ -2134,11 +2219,12 @@ function parseAllocationWriteInput(body: unknown) {
     endsAt <= startsAt ||
     minimumMark === null ||
     requestedHours === null ||
-    (status !== undefined && status !== "PROPOSED" && status !== "CONFIRMED")
+    (status !== undefined && status !== "PROPOSED" && status !== "CONFIRMED") ||
+    (hasReason && !overrideReason)
   ) {
     return {
       error:
-        "Enter a valid tutor, course, start/end time, minimum mark (0-100), requested hours and allocation status.",
+        "Enter a valid tutor, course, start/end time, minimum mark (0-100), requested hours, allocation status and, if given, a reason of up to 1000 characters.",
     } as const;
   }
 
@@ -2169,7 +2255,79 @@ function parseAllocationWriteInput(body: unknown) {
   if (status === "PROPOSED" || status === "CONFIRMED") {
     value.status = status;
   }
+  if (overrideReason) {
+    value.overrideReason = overrideReason;
+  }
   return { value } as const;
+}
+
+/** A large first-year class still fits; anything bigger is split. */
+const MAX_COURSE_MARK_ENTRIES = 500;
+
+function parseCourseMarksInput(body: unknown) {
+  if (!hasOnlyFields(body, ["marks"]) || !Array.isArray(body.marks)) {
+    return { error: "Provide only a marks list." } as const;
+  }
+  if (body.marks.length === 0 || body.marks.length > MAX_COURSE_MARK_ENTRIES) {
+    return { error: `Send between 1 and ${MAX_COURSE_MARK_ENTRIES} marks.` } as const;
+  }
+
+  const entries: CourseMarkEntry[] = [];
+  const seen = new Set<number>();
+  for (const value of body.marks) {
+    const tutorId = hasOnlyFields(value, ["tutorId", "mark"])
+      ? parseJsonPositiveInteger(value.tutorId)
+      : null;
+    const mark =
+      tutorId && typeof (value as { mark?: unknown }).mark === "number"
+        ? parseMarkValue((value as { mark: number }).mark)
+        : null;
+    if (!tutorId || mark === null) {
+      return { error: "Each mark needs a tutor identifier and a number from 0 to 100." } as const;
+    }
+    // Two marks for one tutor would leave which one counts to chance.
+    if (seen.has(tutorId)) {
+      return { error: `Tutor ${tutorId} appears more than once.` } as const;
+    }
+    seen.add(tutorId);
+    entries.push({ tutorId, mark });
+  }
+  return { value: entries } as const;
+}
+
+function courseMarksUnavailable() {
+  return createRouteError(503, "COURSE_MARKS_UNAVAILABLE", "Course mark lists are not configured.");
+}
+
+/** One screenful of timesheets; a larger queue is approved in several runs. */
+const MAX_BULK_TIMESHEETS = 50;
+
+function parseBulkTimesheetDecisionInput(body: unknown) {
+  if (!hasOnlyFields(body, ["timesheetIds", "decision"])) {
+    return { error: "Provide only timesheetIds and decision." } as const;
+  }
+  // Only approval is offered in bulk: returning a timesheet needs a reason
+  // written for that sheet, so it stays a one-at-a-time decision.
+  if (body.decision !== "APPROVE") {
+    return {
+      error: "Only APPROVE can be applied to several timesheets at once. Return timesheets one at a time, each with its own reason.",
+    } as const;
+  }
+  const ids = Array.isArray(body.timesheetIds)
+    ? body.timesheetIds.map((value) => parseJsonPositiveInteger(value))
+    : null;
+  if (
+    !ids ||
+    ids.length === 0 ||
+    ids.length > MAX_BULK_TIMESHEETS ||
+    ids.some((value) => value === null)
+  ) {
+    return {
+      error: `Choose between 1 and ${MAX_BULK_TIMESHEETS} timesheets by their identifiers.`,
+    } as const;
+  }
+  // The same sheet twice would be approved once and then refused as stale.
+  return { value: [...new Set(ids as number[])] } as const;
 }
 
 function parseDecisionReason(value: unknown) {
@@ -2770,6 +2928,58 @@ export function createApp(
   );
 
   app.get(
+    "/api/courses/:courseId/marks",
+    authenticate,
+    resolveProfileRole,
+    requireRole("ORGANISER"),
+    async (request, response) => {
+      const courseId = parseNumericId(request.params.courseId, "Course");
+      if ("error" in courseId) {
+        const result = error(400, "VALIDATION_ERROR", courseId.error ?? "Course identifier must be a positive whole number.");
+        response.status(result.status).json(result.body);
+        return;
+      }
+
+      try {
+        if (!dependencies.listCourseMarks) throw courseMarksUnavailable();
+        const marks = await dependencies.listCourseMarks(courseId.value);
+        response.status(200).json({ data: { marks } });
+      } catch (value) {
+        sendRouteError(response, value);
+      }
+    },
+  );
+
+  app.put(
+    "/api/courses/:courseId/marks",
+    authenticate,
+    resolveProfileRole,
+    requireRole("ORGANISER"),
+    async (request, response) => {
+      const courseId = parseNumericId(request.params.courseId, "Course");
+      if ("error" in courseId) {
+        const result = error(400, "VALIDATION_ERROR", courseId.error ?? "Course identifier must be a positive whole number.");
+        response.status(result.status).json(result.body);
+        return;
+      }
+      const parsed = parseCourseMarksInput(request.body);
+      if ("error" in parsed) {
+        const result = error(400, "VALIDATION_ERROR", parsed.error ?? "Provide a valid marks list.");
+        response.status(result.status).json(result.body);
+        return;
+      }
+
+      try {
+        if (!dependencies.saveCourseMarks) throw courseMarksUnavailable();
+        const marks = await dependencies.saveCourseMarks(courseId.value, parsed.value);
+        response.status(200).json({ data: { marks } });
+      } catch (value) {
+        sendRouteError(response, value);
+      }
+    },
+  );
+
+  app.get(
     "/api/tutors",
     authenticate,
     resolveProfileRole,
@@ -2862,7 +3072,7 @@ export function createApp(
       try {
         const allocation = await dependencies.createAllocation(
           (request as AuthenticatedRequest).auth!.subject,
-          parsed.value,
+          { ...parsed.value, requireRankingReason: true },
         );
         response.status(201).json({ data: { allocation } });
       } catch (value) {
@@ -2907,7 +3117,7 @@ export function createApp(
         const allocation = await dependencies.updateAllocation(
           (request as AuthenticatedRequest).auth!.subject,
           allocationId.value,
-          parsed.value,
+          { ...parsed.value, requireRankingReason: true },
         );
         response.status(200).json({ data: { allocation } });
       } catch (value) {
@@ -3240,7 +3450,8 @@ export function createApp(
         const staffingRequirement =
           await dependencies.setStaffingRequirementStatus(
             requirementId.value,
-            parsed.value,
+            parsed.value.status,
+            parsed.value.reason,
           );
         response.status(200).json({ data: { staffingRequirement } });
       } catch (value) {
@@ -3301,6 +3512,41 @@ export function createApp(
       } catch (value) {
         sendRouteError(response, value);
       }
+    },
+  );
+
+  app.post(
+    "/api/timesheets/bulk-decision",
+    authenticate,
+    resolveProfileRole,
+    requireRole("ORGANISER"),
+    async (request, response) => {
+      const parsed = parseBulkTimesheetDecisionInput(request.body);
+      if ("error" in parsed) {
+        const result = error(400, "VALIDATION_ERROR", parsed.error ?? "Choose timesheets to approve.");
+        response.status(result.status).json(result.body);
+        return;
+      }
+
+      // Each sheet goes through the same single decision (its own transaction,
+      // stale check and tutor notification), so one stale or already-decided
+      // sheet is reported without undoing the others.
+      const auth = (request as AuthenticatedRequest).auth!;
+      const results: BulkTimesheetDecisionResult[] = [];
+      for (const timesheetId of parsed.value) {
+        try {
+          await dependencies.decideTimesheet(auth.subject, timesheetId, { decision: "APPROVE" });
+          results.push({ timesheetId, outcome: "approved" });
+        } catch (value) {
+          const safe = sanitizeError(value);
+          results.push(
+            safe.status < 500
+              ? { timesheetId, outcome: "failed", ...safe.body.error }
+              : { timesheetId, outcome: "failed", code: "INTERNAL_ERROR", message: "This timesheet could not be approved." },
+          );
+        }
+      }
+      response.status(200).json({ data: { results } });
     },
   );
 
@@ -3845,6 +4091,63 @@ export function createApp(
           (request as AuthenticatedRequest).auth!.subject, timeSlotId.value,
         );
         response.status(204).end();
+      } catch (value) {
+        sendRouteError(response, value);
+      }
+    },
+  );
+
+  // One occurrence of a repeating entry, named by the date it starts on.
+  app.put(
+    ["/api/tutor/time-slots/:timeSlotId/exceptions/:occurrenceDate", "/api/me/time-slots/:timeSlotId/exceptions/:occurrenceDate"],
+    authenticate,
+    resolveProfileRole,
+    (request, response, next) => requireRole(...(request.path.startsWith("/api/tutor/") ? ["TUTOR"] as const : ["TUTOR", "STUDENT"] as const))(request, response, next),
+    async (request, response) => {
+      const timeSlotId = parseNumericId(request.params.timeSlotId, "Time slot");
+      const occurrenceDate = parseDateOnly(request.params.occurrenceDate);
+      const parsed = parseOccurrenceExceptionInput(request.body);
+      if ("error" in timeSlotId || !occurrenceDate || "error" in parsed) {
+        const message = "error" in parsed && parsed.error
+          ? parsed.error
+          : "Provide a valid time-slot identifier and occurrence date (YYYY-MM-DD).";
+        response.status(400).json({ error: { code: "VALIDATION_ERROR", message } });
+        return;
+      }
+      try {
+        if (!dependencies.saveOwnOccurrenceException) {
+          throw createRouteError(503, "OCCURRENCE_EXCEPTIONS_UNAVAILABLE", "Changing a single week is not configured.");
+        }
+        const timeSlot = await dependencies.saveOwnOccurrenceException(
+          (request as AuthenticatedRequest).auth!.subject, timeSlotId.value, occurrenceDate, parsed.value,
+        );
+        response.status(200).json({ data: { timeSlot } });
+      } catch (value) {
+        sendRouteError(response, value);
+      }
+    },
+  );
+
+  app.delete(
+    ["/api/tutor/time-slots/:timeSlotId/exceptions/:occurrenceDate", "/api/me/time-slots/:timeSlotId/exceptions/:occurrenceDate"],
+    authenticate,
+    resolveProfileRole,
+    (request, response, next) => requireRole(...(request.path.startsWith("/api/tutor/") ? ["TUTOR"] as const : ["TUTOR", "STUDENT"] as const))(request, response, next),
+    async (request, response) => {
+      const timeSlotId = parseNumericId(request.params.timeSlotId, "Time slot");
+      const occurrenceDate = parseDateOnly(request.params.occurrenceDate);
+      if ("error" in timeSlotId || !occurrenceDate) {
+        response.status(400).json({ error: { code: "VALIDATION_ERROR", message: "Provide a valid time-slot identifier and occurrence date (YYYY-MM-DD)." } });
+        return;
+      }
+      try {
+        if (!dependencies.removeOwnOccurrenceException) {
+          throw createRouteError(503, "OCCURRENCE_EXCEPTIONS_UNAVAILABLE", "Changing a single week is not configured.");
+        }
+        const timeSlot = await dependencies.removeOwnOccurrenceException(
+          (request as AuthenticatedRequest).auth!.subject, timeSlotId.value, occurrenceDate,
+        );
+        response.status(200).json({ data: { timeSlot } });
       } catch (value) {
         sendRouteError(response, value);
       }

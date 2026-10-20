@@ -95,7 +95,11 @@ function safeErrorMessage(error, fallback) {
   }
 
   // The server explains what it refused and why, in wording already safe to show.
-  if (error?.code === 'STAFFING_REQUIREMENT_CONFLICT' || error?.code === 'VALIDATION_ERROR') {
+  if (
+    error?.code === 'STAFFING_REQUIREMENT_CONFLICT' ||
+    error?.code === 'STATUS_REASON_REQUIRED' ||
+    error?.code === 'VALIDATION_ERROR'
+  ) {
     return error?.message || fallback
   }
 
@@ -182,6 +186,7 @@ export default function StaffingRequirements() {
   const [successMessage, setSuccessMessage] = useState('')
 
   const [pendingChange, setPendingChange] = useState(null)
+  const [statusReason, setStatusReason] = useState('')
   const [changeStatus, setChangeStatus] = useState('idle')
 
   const loadRequirements = useCallback(
@@ -305,13 +310,28 @@ export default function StaffingRequirements() {
     }
   }
 
+  function openStatusChange(requirement, status) {
+    setStatusReason('')
+    setPendingChange({ requirement, status })
+  }
+
   function handleCancelChange() {
     if (changeStatus === 'pending') return
     setPendingChange(null)
   }
 
+  // Closing or cancelling work that is still short overrides the shortage the
+  // server calculated, so the organiser says why. Fully staffed work needs none.
+  const needsStatusReason = Boolean(
+    pendingChange &&
+      pendingChange.status !== 'OPEN' &&
+      pendingChange.requirement.status === 'OPEN' &&
+      pendingChange.requirement.shortageTutors > 0,
+  )
+  const statusReasonMissing = needsStatusReason && !statusReason.trim()
+
   async function handleConfirmChange() {
-    if (!pendingChange || changeStatus === 'pending') return
+    if (!pendingChange || changeStatus === 'pending' || statusReasonMissing) return
 
     setChangeStatus('pending')
     setFormError('')
@@ -319,7 +339,11 @@ export default function StaffingRequirements() {
 
     try {
       await setStaffingRequirementStatus(
-        { requirementId: pendingChange.requirement.id, status: pendingChange.status },
+        {
+          requirementId: pendingChange.requirement.id,
+          status: pendingChange.status,
+          ...(needsStatusReason ? { reason: statusReason.trim() } : {}),
+        },
         getAccessTokenSilently,
       )
       setSuccessMessage(
@@ -637,6 +661,11 @@ export default function StaffingRequirements() {
                         >
                           {STATUS_LABELS[requirement.status]}
                         </span>
+                        {requirement.statusReason && (
+                          <span className="helper-text status-reason">
+                            Reason: {requirement.statusReason}
+                          </span>
+                        )}
                       </td>
                       <td>
                         <div className="button-row">
@@ -658,9 +687,7 @@ export default function StaffingRequirements() {
                                 nextStatus === 'CANCELLED' ? 'danger-button' : 'secondary-button'
                               }
                               type="button"
-                              onClick={() =>
-                                setPendingChange({ requirement, status: nextStatus })
-                              }
+                              onClick={() => openStatusChange(requirement, nextStatus)}
                               aria-label={`${STATUS_ACTIONS[nextStatus].label} ${name}`}
                             >
                               {STATUS_ACTIONS[nextStatus].label}
@@ -684,6 +711,7 @@ export default function StaffingRequirements() {
         onConfirm={handleConfirmChange}
         onCancel={handleCancelChange}
         isPending={changeStatus === 'pending'}
+        confirmDisabled={statusReasonMissing}
       >
         <p>
           {pendingChange
@@ -691,6 +719,28 @@ export default function StaffingRequirements() {
             : ''}
         </p>
         <p>{pendingAction ? pendingAction.description : ''}</p>
+        {needsStatusReason && (
+          <div className="field-group">
+            <label htmlFor="staffing-status-reason">
+              It is still {pendingChange.requirement.shortageTutors}{' '}
+              {tutorWord(pendingChange.requirement.shortageTutors)} short. Why{' '}
+              {pendingChange.status === 'CLOSED' ? 'close' : 'cancel'} it anyway?
+            </label>
+            <textarea
+              id="staffing-status-reason"
+              value={statusReason}
+              maxLength={1000}
+              rows={3}
+              disabled={changeStatus === 'pending'}
+              onChange={(event) => setStatusReason(event.target.value)}
+              aria-invalid={statusReasonMissing}
+              aria-describedby="staffing-status-reason-help"
+            />
+            <p id="staffing-status-reason-help" className="helper-text">
+              Recorded with the requirement, so the decision can be explained later.
+            </p>
+          </div>
+        )}
       </ConfirmationDialog>
     </main>
   )

@@ -63,7 +63,7 @@ describe('tutor API contract', () => {
   it('uses the own-dashboard URL and validates its safe projection', async () => {
     fetchWithBearerToken.mockResolvedValue({ data: { dashboard } })
 
-    await expect(fetchTutorDashboard(tokenGetter)).resolves.toEqual(dashboard)
+    await expect(fetchTutorDashboard(tokenGetter)).resolves.toEqual({ ...dashboard, obligations: [] })
     expect(fetchWithBearerToken).toHaveBeenCalledWith(
       '/api/tutor/dashboard',
       {},
@@ -90,6 +90,7 @@ describe('tutor API contract', () => {
       weeklyLimit: null,
       usedHours: 0,
       remainingHours: null,
+      obligations: [],
     })
   })
 

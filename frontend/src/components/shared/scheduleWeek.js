@@ -129,3 +129,33 @@ export const MAX_SESSION_HOURS = 8
 export function maximumSessionLengthMessage(startsAt, endsAt) {
   return `A session cannot be longer than ${MAX_SESSION_HOURS} hours. This one is ${sessionLengthText(startsAt, endsAt)}. Check the start and end dates.`
 }
+
+const DAY_MS = 86_400_000
+
+function periodDays(recurrence) {
+  if (recurrence === 'FORTNIGHTLY') return 14
+  if (recurrence === 'WEEKLY') return 7
+  return 0
+}
+
+/**
+ * The next occurrences of a repeating entry that have not finished yet, named
+ * by the Johannesburg date they start on: the same key the server and the
+ * weekly calendar use for an exception.
+ */
+export function upcomingOccurrences(slot, now = new Date(), count = 12) {
+  const period = periodDays(slot.recurrence)
+  if (!period) return []
+  const start = new Date(slot.startsAt)
+  const end = new Date(slot.endsAt)
+  const until = slot.recurrenceUntil ? new Date(slot.recurrenceUntil) : null
+  const step = period * DAY_MS
+  const result = []
+  for (let k = Math.max(0, Math.floor((now - end) / step)); result.length < count; k += 1) {
+    const startsAt = new Date(start.valueOf() + k * step)
+    if (until && startsAt > until) break
+    const endsAt = new Date(end.valueOf() + k * step)
+    if (endsAt > now) result.push({ date: sessionDay(startsAt), startsAt, endsAt })
+  }
+  return result
+}

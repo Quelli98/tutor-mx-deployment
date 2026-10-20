@@ -1,5 +1,6 @@
 import { requirementsForWeek } from '../../features/organiserHome'
 import { useOrganiserName } from './organiserProfile'
+import { firstNameOf } from '../shared/personName'
 import welcomeScene from '../../assets/organiser/scenes/home.webp'
 
 function greeting(hour) {
@@ -15,7 +16,7 @@ function plural(count, one, many) {
 /** The colour banner at the top of Home: a greeting and the week in one sentence. */
 export function HomeHero({ approvals, week, weekStart, now = new Date() }) {
   const name = useOrganiserName()
-  const firstName = name ? name.split(/\s+/)[0] : null
+  const firstName = firstNameOf(name)
   const today = now.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' })
 
   const parts = []

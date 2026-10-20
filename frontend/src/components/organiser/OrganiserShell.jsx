@@ -8,6 +8,7 @@ import { NotificationBell } from '../shared/NotificationBell'
 import { OrganiserIcon } from './OrganiserIcon'
 import { OrganiserNameContext } from './organiserProfile'
 import bulkAllocationArt from '../../assets/organiser/group-project.svg'
+import { personName } from '../shared/personName'
 
 const NAV_ITEMS = [
   { to: '/organiser', label: 'Home', icon: 'house' },
@@ -26,8 +27,7 @@ const HOME_PAGES = ['/organiser/approvals', '/organiser/staffing', '/organiser/o
 
 function profileName(user) {
   const profile = user?.data?.profile ?? user?.profile ?? user
-  const name = typeof profile?.fullName === 'string' ? profile.fullName.trim() : ''
-  return name || null
+  return personName(profile?.fullName)
 }
 
 // Which page is showing, so each page's banner can carry its own illustration.

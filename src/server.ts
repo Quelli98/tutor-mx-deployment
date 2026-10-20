@@ -9,6 +9,8 @@ import { createMutualAvailabilityService } from './services/mutual-availability.
 import type { PlanningStore } from './services/planning-store.js';
 import { resolveNavigation } from './services/navigation-targets.js';
 import { saveManualSchedule } from "./services/manual-schedule.js";
+import { removeOccurrenceException, saveOccurrenceException } from "./services/occurrence-exceptions.js";
+import { computeTutorObligations } from "./services/tutor-obligations.js";
 import "dotenv/config";
 import {
   createApp,
@@ -36,6 +38,7 @@ import {
 } from "./services/allocation-queries.js";
 import { createCourseService } from "./services/course-service.js";
 import { createStaffingRequirementService } from "./services/staffing-requirement-service.js";
+import { createCourseMarksService } from "./services/course-marks-service.js";
 import { createOrganiserOverflowWorkService } from "./services/organiser-overflow-service.js";
 import { createBulkAllocationService } from "./services/bulk-allocation-service.js";
 import { createReportingService } from "./services/reporting-service.js";
@@ -269,6 +272,17 @@ async function listTimeSlots(ownerId: number, tutorOnly = false) {
   return timeSlots.map(toTimeSlotSummary);
 }
 
+async function findOwnTimeSlotSummary(ownerId: number, timeSlotId: number) {
+  const timeSlot = await prisma.timeSlot.findFirst({
+    where: { id: timeSlotId, ownerId },
+    select: timeSlotSelect,
+  });
+  if (!timeSlot) {
+    throw createRouteError(404, "TIME_SLOT_NOT_FOUND", "The requested time slot could not be found.");
+  }
+  return toTimeSlotSummary(timeSlot);
+}
+
 function toTutorMarkSummary(
   mark: {
     id: number;
@@ -345,6 +359,7 @@ const staffingRequirementService = createStaffingRequirementService(
   prisma,
   queryClient,
 );
+const courseMarksService = createCourseMarksService(prisma);
 // Overflow work: posted by hand, or converted from an unmet staffing
 // requirement. It writes only OverflowWork, never an allocation, so absorbing
 // a shortage here cannot reassign anybody's work.
@@ -534,6 +549,8 @@ const app = createApp(
     createStaffingRequirement: staffingRequirementService.createStaffingRequirement,
     updateStaffingRequirement: staffingRequirementService.updateStaffingRequirement,
     setStaffingRequirementStatus: staffingRequirementService.setStaffingRequirementStatus,
+    listCourseMarks: courseMarksService.listCourseMarks,
+    saveCourseMarks: courseMarksService.saveCourseMarks,
     listOrganiserOverflowWork: organiserOverflowService.listOverflowWork,
     createOrganiserOverflowWork: organiserOverflowService.createOverflowWork,
     updateOrganiserOverflowWork: organiserOverflowService.updateOverflowWork,
@@ -877,6 +894,7 @@ const app = createApp(
               status: true,
               course: { select: { code: true, name: true } },
               excuses: { select: attendanceSelection },
+              workLogs: { select: { id: true }, take: 1 },
             },
           },
         },
@@ -888,6 +906,36 @@ const app = createApp(
           "No tutor profile is linked to this account.",
         );
       }
+
+      const openTimesheets = await prisma.timesheet.findMany({
+        where: { tutorId: profile.id, status: { in: ["DRAFT", "RETURNED"] } },
+        select: {
+          id: true,
+          weekStart: true,
+          status: true,
+          reviewedAt: true,
+          _count: { select: { workLogs: true } },
+        },
+      });
+      const obligations = computeTutorObligations({
+        now: new Date(),
+        sessions: profile.allocations.map((allocation) => ({
+          id: allocation.id,
+          courseCode: allocation.course.code,
+          startsAt: allocation.startsAt,
+          endsAt: allocation.endsAt,
+          status: allocation.status,
+          workLogEligible: allocationAttendance(allocation.excuses).workLogEligible,
+          logged: (allocation.workLogs?.length ?? 0) > 0,
+        })),
+        timesheets: openTimesheets.map((timesheet) => ({
+          id: timesheet.id,
+          weekStart: timesheet.weekStart,
+          status: timesheet.status,
+          reviewedAt: timesheet.reviewedAt,
+          workLogCount: timesheet._count.workLogs,
+        })),
+      });
 
       const weekStart = mondayUtcFor(new Date());
       const hourSummary = await getTutorHourSummary(
@@ -943,6 +991,7 @@ const app = createApp(
         usedHours: dashboardHours.usedHours,
         remainingHours: dashboardHours.remainingHours,
         ...(hasSchedule === undefined ? {} : { hasSchedule }),
+        obligations,
       };
     },
     async createTutorTimeSlot(auth0Id, input) {
@@ -1361,6 +1410,16 @@ const app = createApp(
         }
         throw error;
       }
+    },
+    async saveOwnOccurrenceException(auth0Id, timeSlotId, occurrenceDate, input) {
+      const ownerId = await findScheduleOwnerId(auth0Id);
+      await saveOccurrenceException(queryClient, ownerId, timeSlotId, occurrenceDate, input);
+      return findOwnTimeSlotSummary(ownerId, timeSlotId);
+    },
+    async removeOwnOccurrenceException(auth0Id, timeSlotId, occurrenceDate) {
+      const ownerId = await findScheduleOwnerId(auth0Id);
+      await removeOccurrenceException(queryClient, ownerId, timeSlotId, occurrenceDate);
+      return findOwnTimeSlotSummary(ownerId, timeSlotId);
     },
     async deleteTutorTimeSlot(auth0Id, timeSlotId) {
       const tutorId = await findScheduleOwnerId(auth0Id);
